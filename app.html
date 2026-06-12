@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ConectGeo — Painel</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/shpjs@4.0.4/dist/shp.min.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap');
+:root{
+  --leaf:#5fa832;--leaf2:#4a8a26;--leaf-bg:#f0f7e8;
+  --earth:#3d3226;--earth2:#5c4d3c;
+  --sand:#f7f4ef;--sand2:#ede8e0;--sand3:#e3ddd5;
+  --ink:#1c1c1c;--muted:#7a7268;--light:#b0a898;
+  --danger:#d94f3d;--warn:#e8913a;--info:#3a7fd9;
+  --sh:0 2px 8px rgba(0,0,0,.08);--sh-md:0 8px 28px rgba(0,0,0,.12);
+  --r:10px;--rl:16px;
+  --f:'Inter',sans-serif;--fd:'Space Grotesk',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:var(--f);background:var(--sand);color:var(--ink);font-size:13px;line-height:1.5;min-height:100vh;}
+.hidden{display:none !important;}
+
+/* SPLASH */
+#splash{position:fixed;inset:0;background:var(--sand);z-index:99999;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;}
+.spin{width:32px;height:32px;border:3px solid var(--sand2);border-top-color:var(--leaf);border-radius:50%;animation:sp 1s linear infinite;}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* SHELL */
+.app{display:flex;min-height:100vh;}
+.sb{width:220px;background:var(--earth);display:flex;flex-direction:column;flex-shrink:0;position:sticky;top:0;height:100vh;}
+.sb-logo{padding:22px 18px 18px;border-bottom:1px solid rgba(255,255,255,.1);}
+.sb-logo .lg{font-family:var(--fd);font-size:16px;font-weight:700;color:#fff;}
+.sb-logo .lg span{color:#a3d470;}
+.sb-logo .ls{font-size:9px;color:rgba(255,255,255,.4);letter-spacing:.18em;text-transform:uppercase;margin-top:1px;}
+.sb-user{padding:13px 18px;display:flex;align-items:center;gap:9px;border-bottom:1px solid rgba(255,255,255,.1);}
+.av{width:30px;height:30px;border-radius:50%;background:var(--leaf);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:11px;color:#fff;flex-shrink:0;}
+.sb-name{font-size:11.5px;font-weight:600;color:#fff;line-height:1.2;}
+.sb-role{font-size:9px;color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.08em;}
+.sb-nav{flex:1;padding:10px 0;}
+.ni{display:flex;align-items:center;gap:9px;padding:9px 18px;color:rgba(255,255,255,.62);cursor:pointer;transition:.13s;font-size:12px;font-weight:500;}
+.ni:hover{background:rgba(255,255,255,.07);color:#fff;}
+.ni.on{background:rgba(95,168,50,.2);color:#a3d470;border-right:3px solid var(--leaf);}
+.ni svg{width:15px;height:15px;flex-shrink:0;}
+
+/* MAIN */
+.main{flex:1;min-width:0;}
+.topbar{background:#fff;border-bottom:1px solid var(--sand2);padding:0 26px;height:54px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;}
+.tb-title{font-size:14px;font-weight:700;}
+.tb-sub{font-size:11px;color:var(--muted);}
+.tbr{display:flex;gap:9px;}
+.btn{padding:8px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;border:none;font-family:var(--f);transition:.14s;}
+.btn.pri{background:var(--leaf);color:#fff;}
+.btn.pri:hover{background:var(--leaf2);}
+.btn.sec{background:transparent;color:var(--muted);border:1.5px solid var(--sand2);}
+.btn.sec:hover{border-color:var(--leaf);color:var(--leaf);}
+.btn:disabled{opacity:.55;cursor:wait;}
+.content{padding:26px;}
+
+/* STATS */
+.stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;align-items:stretch;}
+.sc{background:#fff;border-radius:var(--rl);padding:18px 18px 16px;box-shadow:var(--sh);display:flex;flex-direction:column;}
+.sc-ic{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;margin-bottom:11px;flex-shrink:0;}
+.sc-ic.g{background:var(--leaf-bg);color:var(--leaf);}
+.sc-ic.e{background:#f0ede8;color:var(--earth2);}
+.sc-ic.b{background:#e8f0fb;color:var(--info);}
+.sc-ic.w{background:#fdf3e8;color:var(--warn);}
+.sc-lbl{font-size:9.5px;font-weight:700;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px;}
+.sc-val{font-family:var(--fd);font-size:26px;font-weight:700;line-height:1;}
+.sc-sub{font-size:10.5px;color:var(--muted);margin-top:auto;padding-top:6px;}
+
+/* WEATHER */
+.weather-card{background:linear-gradient(135deg,#1a3a5c 0%,#2a5a8c 60%,#1d7a4f 100%);border-radius:var(--rl);padding:16px 18px;box-shadow:var(--sh-md);color:#fff;position:relative;overflow:hidden;margin-bottom:22px;}
+.wc-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.wc-temp{font-family:var(--fd);font-size:34px;font-weight:700;line-height:1;}
+.wc-desc{font-size:12px;opacity:.85;}
+.wc-meta{font-size:10.5px;opacity:.6;}
+.wc-fc{display:flex;gap:14px;margin-left:auto;}
+.wcf{text-align:center;}
+.wcf-d{font-size:9px;opacity:.6;text-transform:uppercase;}
+.wcf-i{font-size:17px;}
+.wcf-t{font-size:11px;font-weight:700;}
+.wc-inp-row{display:flex;gap:6px;margin-top:11px;}
+.wc-inp{flex:1;max-width:230px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:7px;padding:6px 10px;font-size:11.5px;color:#fff;font-family:var(--f);outline:none;}
+.wc-inp::placeholder{color:rgba(255,255,255,.45);}
+.wc-btn{padding:6px 11px;background:rgba(255,255,255,.2);border:none;border-radius:7px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--f);}
+
+/* CARDS */
+.sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px;}
+.sh-title{font-family:var(--fd);font-size:14px;font-weight:700;}
+.card-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.proj-card{background:#fff;border-radius:var(--rl);box-shadow:var(--sh);overflow:hidden;border:2px solid transparent;transition:.15s;}
+.proj-card:hover{border-color:var(--leaf);}
+.proj-map{height:96px;background:linear-gradient(135deg,#d4e8c2,#a8d080,#7ab855);display:flex;align-items:center;justify-content:center;font-size:30px;}
+.proj-body{padding:13px 14px;}
+.proj-name{font-family:var(--fd);font-size:13px;font-weight:700;margin-bottom:3px;}
+.proj-meta{font-size:11px;color:var(--muted);}
+.proj-foot{padding:9px 14px;border-top:1px solid var(--sand2);display:flex;gap:6px;}
+.ab{padding:5px 10px;border-radius:6px;border:1.5px solid var(--sand2);background:transparent;font-size:10.5px;cursor:pointer;font-family:var(--f);color:var(--muted);transition:.12s;font-weight:600;}
+.ab:hover{border-color:var(--leaf);color:var(--leaf);}
+.ab.d:hover{border-color:var(--danger);color:var(--danger);}
+
+/* TABLE */
+.tw{background:#fff;border-radius:var(--rl);box-shadow:var(--sh);overflow:hidden;}
+table{width:100%;border-collapse:collapse;}
+th{background:var(--sand);padding:10px 15px;text-align:left;font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.07em;text-transform:uppercase;border-bottom:1px solid var(--sand2);}
+td{padding:12px 15px;border-bottom:1px solid var(--sand2);font-size:12px;vertical-align:middle;}
+tr:last-child td{border-bottom:none;}
+tr:hover td{background:var(--sand);}
+.tag{display:inline-flex;padding:2px 8px;border-radius:5px;font-size:10.5px;font-weight:700;}
+.tag.g{background:var(--leaf-bg);color:var(--leaf2);}
+.tag.gr{background:var(--sand2);color:var(--muted);}
+.mono{font-family:monospace;font-size:10.5px;color:var(--leaf2);}
+
+/* SLIDE-OVER */
+.so-wrap{position:fixed;inset:0;z-index:5000;display:none;}
+.so-wrap.open{display:flex;}
+.so-bg{position:absolute;inset:0;background:rgba(0,0,0,.35);backdrop-filter:blur(2px);}
+.so-panel{position:absolute;right:0;top:0;bottom:0;width:880px;max-width:96vw;background:#fff;box-shadow:-8px 0 40px rgba(0,0,0,.15);display:flex;overflow:hidden;animation:slideIn .2s ease;}
+@keyframes slideIn{from{transform:translateX(50px);opacity:0}to{transform:none;opacity:1}}
+.so-col{display:flex;flex-direction:column;border-right:1px solid var(--sand2);width:285px;flex-shrink:0;overflow:hidden;}
+.so-col:last-child{border-right:none;flex:1;}
+.so-head{padding:15px 17px;border-bottom:1px solid var(--sand2);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.so-title{font-family:var(--fd);font-size:13px;font-weight:700;}
+.so-sub{font-size:10px;color:var(--muted);margin-top:1px;}
+.so-body{flex:1;overflow-y:auto;padding:10px;}
+.so-close{width:28px;height:28px;border:1.5px solid var(--sand2);border-radius:7px;background:transparent;cursor:pointer;font-size:13px;color:var(--muted);}
+.so-close:hover{border-color:var(--danger);color:var(--danger);}
+.so-item{padding:10px 12px;border-radius:var(--r);cursor:pointer;transition:.13s;border:1.5px solid transparent;margin-bottom:5px;display:flex;align-items:center;gap:9px;}
+.so-item:hover{background:var(--sand);border-color:var(--sand3);}
+.so-item.sel{background:var(--leaf-bg);border-color:var(--leaf);}
+.so-av{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#fff;flex-shrink:0;background:var(--leaf);}
+.so-nm{font-weight:700;font-size:12.5px;}
+.so-mt{font-size:10.5px;color:var(--muted);}
+.so-badge{margin-left:auto;font-size:9px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--leaf-bg);color:var(--leaf2);flex-shrink:0;}
+.so-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--light);text-align:center;padding:30px;font-size:12px;}
+.so-empty .ic{font-size:32px;margin-bottom:9px;opacity:.5;}
+.tal-row{display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:var(--r);border:1.5px solid var(--sand2);background:#fff;margin-bottom:6px;}
+.tal-ic{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#d4e8c2,#8ec25a);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+.tal-nm{font-weight:700;font-size:12.5px;}
+.tal-mt{font-size:10px;color:var(--muted);}
+.tal-acts{display:flex;gap:4px;margin-left:auto;flex-shrink:0;}
+
+/* FORM */
+.panel{background:#fff;border-radius:var(--rl);padding:26px;box-shadow:var(--sh);max-width:620px;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:13px;}
+.ff{margin-bottom:13px;}
+.ff label{display:block;font-size:10.5px;font-weight:700;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:5px;}
+.ff input,.ff select{width:100%;padding:10px 12px;border:1.5px solid var(--sand2);border-radius:var(--r);font-size:13px;font-family:var(--f);outline:none;background:#fff;}
+.ff input:focus,.ff select:focus{border-color:var(--leaf);box-shadow:0 0 0 3px rgba(95,168,50,.09);}
+.fdiv{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:4px 0 12px;padding-bottom:9px;border-bottom:1px solid var(--sand2);}
+.upa{border:2px dashed var(--sand2);border-radius:var(--rl);padding:20px;text-align:center;cursor:pointer;transition:.14s;background:var(--sand);position:relative;}
+.upa:hover{border-color:var(--leaf);background:var(--leaf-bg);}
+.upa.done{border-color:var(--leaf);background:var(--leaf-bg);}
+.upa input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.upa-ic{font-size:24px;margin-bottom:6px;}
+.upa-txt{font-size:12px;font-weight:600;color:var(--muted);}
+.upa-sub{font-size:10.5px;color:var(--light);margin-top:3px;}
+.create-inline{background:var(--sand);border:1.5px solid var(--sand3);border-radius:var(--r);padding:11px;margin-top:6px;}
+.ci-inp{width:100%;padding:9px 11px;border:1.5px solid var(--sand2);border-radius:8px;font-size:12px;font-family:var(--f);outline:none;margin-bottom:6px;background:#fff;}
+.ci-btn{width:100%;padding:8px;background:var(--leaf);color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:var(--f);}
+
+/* LINK BOX */
+.link-box{background:var(--leaf-bg);border:1.5px solid var(--leaf);border-radius:var(--r);padding:12px 14px;display:flex;align-items:center;gap:9px;}
+.link-url{font-size:11.5px;color:var(--leaf2);font-weight:600;flex:1;word-break:break-all;font-family:monospace;}
+.link-copy{padding:6px 12px;border-radius:7px;background:var(--leaf);color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--f);white-space:nowrap;flex-shrink:0;}
+
+/* TOASTS */
+.toast-wrap{position:fixed;bottom:18px;right:18px;z-index:9999;display:flex;flex-direction:column;gap:8px;}
+.toast{background:#fff;border-radius:10px;padding:11px 15px;box-shadow:var(--sh-md);font-size:12px;display:flex;gap:8px;align-items:center;animation:tIn .2s ease;max-width:340px;}
+@keyframes tIn{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
+
+@media(max-width:800px){
+  .sb{display:none;}
+  .stat-row{grid-template-columns:1fr 1fr;}
+  .card-grid{grid-template-columns:1fr;}
+  .so-panel{width:100vw;}
+  .so-col{width:100%;display:none;}
+  .so-col.mob-on{display:flex;}
+}
+</style>
+</head>
+<body>
+
+<div id="splash"><div class="spin"></div><div style="font-size:12px;color:var(--muted)">Carregando…</div></div>
+
+<div class="app hidden" id="app">
+  <!-- SIDEBAR -->
+  <div class="sb">
+    <div class="sb-logo"><div class="lg">Conect<span>Geo</span></div><div class="ls">Agricultura de Precisão</div></div>
+    <div class="sb-user"><div class="av" id="u-av">·</div><div><div class="sb-name" id="u-nome">—</div><div class="sb-role">Consultor</div></div></div>
+    <div class="sb-nav">
+      <div class="ni on" data-view="dash" onclick="showView('dash')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Dashboard
+      </div>
+      <div class="ni" onclick="openSO()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Meus Clientes
+      </div>
+      <div class="ni" data-view="novo" onclick="showView('novo')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Criar Novo
+      </div>
+      <div class="ni" data-view="links" onclick="showView('links')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7L12.5 19.5"/></svg>Links Compartilhados
+      </div>
+      <div class="ni" onclick="sair()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>Sair
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- ══ VIEW: DASHBOARD ══ -->
+    <div id="view-dash">
+      <div class="topbar">
+        <div><div class="tb-title" id="saudacao">Bom dia 👋</div><div class="tb-sub" id="data-hoje"></div></div>
+        <div class="tbr">
+          <button class="btn sec" onclick="openSO()" style="background:var(--leaf-bg);border-color:var(--leaf);color:var(--leaf2);font-weight:700">▶ Ver clientes</button>
+          <button class="btn pri" onclick="showView('novo')">+ Criar Novo</button>
+        </div>
+      </div>
+      <div class="content">
+        <div class="stat-row">
+          <div class="sc"><div class="sc-ic g"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div><div class="sc-lbl">Clientes</div><div class="sc-val" id="st-clientes">—</div><div class="sc-sub">produtores ativos</div></div>
+          <div class="sc"><div class="sc-ic e"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg></div><div class="sc-lbl">Talhões</div><div class="sc-val" id="st-talhoes">—</div><div class="sc-sub" id="st-fazendas">— fazendas</div></div>
+          <div class="sc"><div class="sc-ic b"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div><div class="sc-lbl">Hectares</div><div class="sc-val" id="st-hectares">—</div><div class="sc-sub">área total mapeada</div></div>
+          <div class="sc"><div class="sc-ic w"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1.5 1.5"/></svg></div><div class="sc-lbl">Links ativos</div><div class="sc-val" id="st-links">—</div><div class="sc-sub" id="st-views">— visualizações</div></div>
+        </div>
+
+        <div id="weather"></div>
+
+        <div class="sh"><div class="sh-title">Talhões recentes</div><button class="btn sec" onclick="openSO()">Ver todos →</button></div>
+        <div class="card-grid" id="recentes"></div>
+      </div>
+    </div>
+
+    <!-- ══ VIEW: CRIAR NOVO ══ -->
+    <div id="view-novo" class="hidden">
+      <div class="topbar">
+        <div><div class="tb-title">Criar novo talhão</div><div class="tb-sub">Vincule a um cliente e fazenda, depois suba os arquivos</div></div>
+        <button class="btn sec" onclick="showView('dash')">← Voltar</button>
+      </div>
+      <div class="content">
+        <div class="panel">
+          <div class="fdiv">1 · Vínculo</div>
+          <div class="form-row">
+            <div class="ff">
+              <label>Cliente (Produtor)</label>
+              <select id="sel-cliente" onchange="onClienteSel()">
+                <option value="">Criar Cliente</option>
+              </select>
+              <div class="create-inline hidden" id="ci-cliente">
+                <input class="ci-inp" id="ci-cliente-nome" placeholder="Nome do produtor">
+                <input class="ci-inp" id="ci-cliente-email" placeholder="E-mail (opcional)">
+              </div>
+            </div>
+            <div class="ff">
+              <label>Fazenda</label>
+              <select id="sel-fazenda" onchange="onFazendaSel()">
+                <option value="">Criar Fazenda</option>
+              </select>
+              <div class="create-inline hidden" id="ci-fazenda">
+                <input class="ci-inp" id="ci-fazenda-nome" placeholder="Nome da fazenda">
+                <input class="ci-inp" id="ci-fazenda-mun" placeholder="Município / Estado (opcional)">
+              </div>
+            </div>
+          </div>
+          <div class="ff"><label>Nome do talhão</label><input type="text" id="inp-talhao" placeholder="Ex: Gleba Norte, Talhão A, Pivô 3…"></div>
+
+          <div class="fdiv" style="margin-top:14px">2 · Arquivos</div>
+          <div class="ff">
+            <label>Zonas de manejo (GeoJSON ou Shapefile .zip)</label>
+            <div class="upa" id="upa-geo">
+              <input type="file" id="f-geo" accept=".geojson,.json,.zip" onchange="onGeoFile(this)">
+              <div class="upa-ic" id="upa-geo-ic">📂</div>
+              <div class="upa-txt" id="upa-geo-txt">Arraste ou clique para escolher</div>
+              <div class="upa-sub" id="upa-geo-sub">.geojson, .json ou .zip (shapefile com .shp + .dbf)</div>
+            </div>
+          </div>
+          <div class="ff">
+            <label>Planilha de análises</label>
+            <div class="upa" id="upa-csv">
+              <input type="file" id="f-csv" accept=".csv,.xlsx,.xls" onchange="onCsvFile(this)">
+              <div class="upa-ic" id="upa-csv-ic">📊</div>
+              <div class="upa-txt" id="upa-csv-txt">Arraste ou clique para escolher</div>
+              <div class="upa-sub" id="upa-csv-sub">.csv, .xlsx ou .xls</div>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-top:8px;justify-content:flex-end">
+            <button class="btn sec" onclick="showView('dash')">Cancelar</button>
+            <button class="btn pri" id="btn-salvar" onclick="salvarTalhao()">Salvar e gerar link →</button>
+          </div>
+
+          <div id="resultado-link" class="hidden" style="margin-top:18px">
+            <div class="fdiv">✅ Talhão criado — link do produtor:</div>
+            <div class="link-box">
+              <div class="link-url" id="link-final"></div>
+              <button class="link-copy" onclick="copiarLink()">Copiar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ VIEW: LINKS ══ -->
+    <div id="view-links" class="hidden">
+      <div class="topbar">
+        <div><div class="tb-title">Links compartilhados</div><div class="tb-sub">Links de visualização enviados aos produtores</div></div>
+        <button class="btn sec" onclick="showView('dash')">← Voltar</button>
+      </div>
+      <div class="content">
+        <div class="tw">
+          <table>
+            <thead><tr><th>Talhão</th><th>Produtor</th><th>Link</th><th>Criado</th><th>Views</th><th>Status</th><th></th></tr></thead>
+            <tbody id="links-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Carregando…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- SLIDE-OVER: Clientes → Fazendas → Talhões -->
+<div class="so-wrap" id="so" onclick="if(event.target.classList.contains('so-bg'))closeSO()">
+  <div class="so-bg"></div>
+  <div class="so-panel">
+    <div class="so-col mob-on" id="so-c1">
+      <div class="so-head">
+        <div><div class="so-title">Clientes</div><div class="so-sub" id="so-cli-sub">—</div></div>
+        <button class="so-close" onclick="closeSO()">✕</button>
+      </div>
+      <div class="so-body" id="so-clientes"></div>
+    </div>
+    <div class="so-col" id="so-c2">
+      <div class="so-head"><div><div class="so-title" id="so-faz-title">Fazendas</div><div class="so-sub" id="so-faz-sub">Selecione um cliente</div></div></div>
+      <div class="so-body" id="so-fazendas"><div class="so-empty"><div class="ic">🏡</div>Selecione um cliente</div></div>
+    </div>
+    <div class="so-col" id="so-c3">
+      <div class="so-head"><div><div class="so-title" id="so-tal-title">Talhões</div><div class="so-sub" id="so-tal-sub">Selecione uma fazenda</div></div></div>
+      <div class="so-body" id="so-talhoes"><div class="so-empty"><div class="ic">🗺</div>Selecione uma fazenda</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-wrap" id="toasts"></div>
+
+<script>
+// ═══════════════════════════════════════════════
+// CONFIG
+// ═══════════════════════════════════════════════
+const SUPABASE_URL = 'https://xlhwhhettdnssvvppiuf.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_HK6W6kBCMF627z31zvGFZA_VjcaGlSe';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let USER = null;
+
+// ═══════════════════════════════════════════════
+// AUTH GUARD + BOOT
+// ═══════════════════════════════════════════════
+(async function boot(){
+  const { data:{ session } } = await sb.auth.getSession();
+  if(!session){ location.href='index.html'; return; }
+  USER = session.user;
+
+  // garante registro do consultor (primeiro login)
+  await sb.from('consultores').upsert({
+    id: USER.id, email: USER.email,
+    nome: USER.user_metadata?.nome || USER.email.split('@')[0]
+  }, { onConflict:'id' });
+
+  const nome = USER.user_metadata?.nome || USER.email.split('@')[0];
+  document.getElementById('u-nome').textContent = nome;
+  document.getElementById('u-av').textContent = nome[0].toUpperCase();
+  const h = new Date().getHours();
+  document.getElementById('saudacao').textContent =
+    (h<12?'Bom dia':h<18?'Boa tarde':'Boa noite')+`, ${nome} 👋`;
+  document.getElementById('data-hoje').textContent =
+    new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+
+  document.getElementById('splash').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+
+  await carregarDashboard();
+  carregarClima();
+})();
+
+async function sair(){ await sb.auth.signOut(); location.href='index.html'; }
+
+// ═══════════════════════════════════════════════
+// NAVEGAÇÃO
+// ═══════════════════════════════════════════════
+function showView(name){
+  ['dash','novo','links'].forEach(v=>document.getElementById('view-'+v).classList.toggle('hidden', v!==name));
+  document.querySelectorAll('.ni[data-view]').forEach(n=>n.classList.toggle('on', n.dataset.view===name));
+  if(name==='novo'){ prepararFormNovo(); }
+  if(name==='links'){ carregarLinks(); }
+  if(name==='dash'){ carregarDashboard(); }
+}
+
+// ═══════════════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════════════
+async function carregarDashboard(){
+  const [cli, faz, tal, lnk] = await Promise.all([
+    sb.from('clientes').select('id',{count:'exact',head:true}),
+    sb.from('fazendas').select('id',{count:'exact',head:true}),
+    sb.from('talhoes').select('id,hectares,nome,zonas,criado_em,fazenda:fazendas(nome,cliente:clientes(nome))').order('criado_em',{ascending:false}),
+    sb.from('links_view').select('id,visualizacoes,ativo'),
+  ]);
+
+  document.getElementById('st-clientes').textContent = cli.count ?? 0;
+  document.getElementById('st-talhoes').textContent  = (tal.data||[]).length;
+  document.getElementById('st-fazendas').textContent = `em ${faz.count ?? 0} fazenda${(faz.count||0)!==1?'s':''}`;
+
+  const ha = (tal.data||[]).reduce((s,t)=>s+(parseFloat(t.hectares)||0),0);
+  document.getElementById('st-hectares').textContent = ha>=1000 ? (ha/1000).toFixed(1).replace('.',',')+' mil' : Math.round(ha).toLocaleString('pt-BR');
+
+  const ativos=(lnk.data||[]).filter(l=>l.ativo);
+  document.getElementById('st-links').textContent = ativos.length;
+  const views=(lnk.data||[]).reduce((s,l)=>s+(l.visualizacoes||0),0);
+  document.getElementById('st-views').textContent = `${views} visualizações`;
+
+  // recentes
+  const rec=(tal.data||[]).slice(0,3);
+  const el=document.getElementById('recentes');
+  if(!rec.length){
+    el.innerHTML=`<div class="proj-card" onclick="showView('novo')" style="border:2px dashed var(--sand2);display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:170px;cursor:pointer"><div style="font-size:28px;margin-bottom:8px">+</div><div style="font-weight:700;color:var(--muted)">Criar primeiro talhão</div></div>`;
+    return;
+  }
+  el.innerHTML = rec.map(t=>`
+    <div class="proj-card">
+      <div class="proj-map">🗺</div>
+      <div class="proj-body">
+        <div class="proj-name">${t.fazenda?.nome||'—'} — ${t.nome}</div>
+        <div class="proj-meta">👤 ${t.fazenda?.cliente?.nome||'—'} · 📍 ${t.zonas||'?'} zonas${t.hectares?' · '+Math.round(t.hectares)+' ha':''}</div>
+      </div>
+      <div class="proj-foot">
+        <button class="ab" onclick="abrirTalhao('${t.id}')">👁 Abrir</button>
+        <button class="ab" onclick="gerarOuCopiarLink('${t.id}')">🔗 Link</button>
+      </div>
+    </div>`).join('')
+    + `<div class="proj-card" onclick="showView('novo')" style="border:2px dashed var(--sand2);box-shadow:none;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:170px;cursor:pointer"><div style="font-size:28px;margin-bottom:8px">+</div><div style="font-weight:700;color:var(--muted)">Novo talhão</div></div>`;
+}
+
+// ═══════════════════════════════════════════════
+// SLIDE-OVER (Clientes → Fazendas → Talhões)
+// ═══════════════════════════════════════════════
+async function openSO(){
+  document.getElementById('so').classList.add('open');
+  const { data } = await sb.from('clientes')
+    .select('id,nome,fazendas(id)')
+    .order('nome');
+  const list=data||[];
+  document.getElementById('so-cli-sub').textContent = `${list.length} produtor${list.length!==1?'es':''}`;
+  document.getElementById('so-clientes').innerHTML = list.length ? list.map(c=>`
+    <div class="so-item" onclick="soSelCliente(this,'${c.id}','${esc(c.nome)}')">
+      <div class="so-av">${c.nome[0].toUpperCase()}</div>
+      <div><div class="so-nm">${c.nome}</div><div class="so-mt">${(c.fazendas||[]).length} fazenda${(c.fazendas||[]).length!==1?'s':''}</div></div>
+      <div class="so-badge">→</div>
+    </div>`).join('')
+    : `<div class="so-empty"><div class="ic">👥</div>Nenhum cliente ainda.<br><br><button class="btn pri" onclick="closeSO();showView('novo')">+ Criar Novo</button></div>`;
+}
+function closeSO(){ document.getElementById('so').classList.remove('open'); }
+
+async function soSelCliente(el, id, nome){
+  document.querySelectorAll('#so-clientes .so-item').forEach(i=>i.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('so-faz-title').textContent = nome;
+  document.getElementById('so-faz-sub').textContent = 'Carregando…';
+  // mobile: avança coluna
+  if(innerWidth<=800){ soMob(2); }
+  const { data } = await sb.from('fazendas').select('id,nome,municipio,talhoes(id)').eq('cliente_id', id).order('nome');
+  const list=data||[];
+  document.getElementById('so-faz-sub').textContent = `${list.length} fazenda${list.length!==1?'s':''}`;
+  document.getElementById('so-fazendas').innerHTML = list.length ? list.map(f=>`
+    <div class="so-item" onclick="soSelFazenda(this,'${f.id}','${esc(f.nome)}')">
+      <div class="so-av" style="background:#f0ede8;color:#5c4d3c">🏡</div>
+      <div><div class="so-nm">${f.nome}</div><div class="so-mt">${f.municipio||''} ${(f.talhoes||[]).length} talhõe${(f.talhoes||[]).length!==1?'s':'s'}</div></div>
+      <div class="so-badge">${(f.talhoes||[]).length} →</div>
+    </div>`).join('')
+    : `<div class="so-empty"><div class="ic">🏡</div>Sem fazendas</div>`;
+  document.getElementById('so-talhoes').innerHTML='<div class="so-empty"><div class="ic">🗺</div>Selecione uma fazenda</div>';
+}
+
+async function soSelFazenda(el, id, nome){
+  document.querySelectorAll('#so-fazendas .so-item').forEach(i=>i.classList.remove('sel'));
+  el.classList.add('sel');
+  document.getElementById('so-tal-title').textContent = nome;
+  document.getElementById('so-tal-sub').textContent = 'Carregando…';
+  if(innerWidth<=800){ soMob(3); }
+  const { data } = await sb.from('talhoes').select('id,nome,zonas,hectares,links_view(token,ativo)').eq('fazenda_id', id).order('nome');
+  const list=data||[];
+  document.getElementById('so-tal-sub').textContent = `${list.length} talhão${list.length!==1?'es':''}`;
+  document.getElementById('so-talhoes').innerHTML = list.length ? list.map(t=>{
+    const link=(t.links_view||[]).find(l=>l.ativo);
+    return `
+    <div class="tal-row">
+      <div class="tal-ic">🗺</div>
+      <div style="min-width:0">
+        <div class="tal-nm">${t.nome}</div>
+        <div class="tal-mt">${t.zonas||'?'} zonas${t.hectares?' · '+Math.round(t.hectares)+' ha':''}${link?' · 🔗 link ativo':''}</div>
+      </div>
+      <div class="tal-acts">
+        <button class="ab" onclick="abrirTalhao('${t.id}')">👁</button>
+        <button class="ab" onclick="gerarOuCopiarLink('${t.id}')">🔗</button>
+      </div>
+    </div>`;}).join('')
+    : `<div class="so-empty"><div class="ic">🗺</div>Sem talhões<br><br><button class="btn pri" onclick="closeSO();showView('novo')">+ Criar talhão</button></div>`;
+}
+function soMob(col){ // mobile column nav
+  [1,2,3].forEach(i=>document.getElementById('so-c'+i).classList.toggle('mob-on', i===col));
+}
+
+// ═══════════════════════════════════════════════
+// CRIAR NOVO (cliente / fazenda / talhão / arquivos)
+// ═══════════════════════════════════════════════
+let geoFile=null, geoJson=null, csvFile=null;
+
+async function prepararFormNovo(){
+  geoFile=null; geoJson=null; csvFile=null;
+  document.getElementById('inp-talhao').value='';
+  document.getElementById('resultado-link').classList.add('hidden');
+  resetUpa('geo','📂','Arraste ou clique para escolher','.geojson, .json ou .zip (shapefile com .shp + .dbf)');
+  resetUpa('csv','📊','Arraste ou clique para escolher','.csv, .xlsx ou .xls');
+  document.getElementById('f-geo').value=''; document.getElementById('f-csv').value='';
+
+  const { data } = await sb.from('clientes').select('id,nome').order('nome');
+  const sel=document.getElementById('sel-cliente');
+  sel.innerHTML='<option value="">Criar Cliente</option>'+(data||[]).map(c=>`<option value="${c.id}">${c.nome}</option>`).join('');
+  document.getElementById('sel-fazenda').innerHTML='<option value="">Criar Fazenda</option>';
+  onClienteSel();
+}
+
+async function onClienteSel(){
+  const id=document.getElementById('sel-cliente').value;
+  document.getElementById('ci-cliente').classList.toggle('hidden', !!id);
+  const fsel=document.getElementById('sel-fazenda');
+  if(id){
+    const { data } = await sb.from('fazendas').select('id,nome').eq('cliente_id', id).order('nome');
+    fsel.innerHTML='<option value="">Criar Fazenda</option>'+(data||[]).map(f=>`<option value="${f.id}">${f.nome}</option>`).join('');
+  } else {
+    fsel.innerHTML='<option value="">Criar Fazenda</option>';
+  }
+  onFazendaSel();
+}
+function onFazendaSel(){
+  const id=document.getElementById('sel-fazenda').value;
+  document.getElementById('ci-fazenda').classList.toggle('hidden', !!id);
+}
+
+function resetUpa(k,ic,txt,sub){
+  document.getElementById('upa-'+k).classList.remove('done');
+  document.getElementById('upa-'+k+'-ic').textContent=ic;
+  document.getElementById('upa-'+k+'-txt').textContent=txt;
+  document.getElementById('upa-'+k+'-sub').textContent=sub;
+}
+function doneUpa(k,nome,sub){
+  document.getElementById('upa-'+k).classList.add('done');
+  document.getElementById('upa-'+k+'-ic').textContent='✅';
+  document.getElementById('upa-'+k+'-txt').textContent=nome;
+  document.getElementById('upa-'+k+'-sub').textContent=sub;
+}
+
+async function onGeoFile(inp){
+  const f=inp.files[0]; if(!f) return;
+  const ext=f.name.split('.').pop().toLowerCase();
+  try{
+    if(ext==='zip'){
+      const buf=await f.arrayBuffer();
+      let gj=await shp(buf);
+      if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])};
+      geoJson=gj;
+    } else {
+      const txt=await f.text();
+      geoJson=JSON.parse(txt);
+    }
+    if(!geoJson.features||!geoJson.features.length) throw new Error('Sem zonas no arquivo');
+    geoFile=f;
+    const ha=geodesicAreaHa(geoJson);
+    doneUpa('geo', f.name, `${geoJson.features.length} zonas · ${Math.round(ha)} ha`);
+  }catch(err){
+    geoFile=null; geoJson=null; inp.value='';
+    toast('Erro no arquivo de zonas: '+err.message,'⚠️');
+  }
+}
+function onCsvFile(inp){
+  const f=inp.files[0]; if(!f) return;
+  csvFile=f;
+  doneUpa('csv', f.name, (f.size/1024).toFixed(0)+' KB');
+}
+
+// área geodésica (hectares) — soma dos polígonos, descontando buracos
+function geodesicAreaHa(gj){
+  const R=6378137;
+  function ringArea(c){let a=0;for(let i=0;i<c.length;i++){const p1=c[i],p2=c[(i+1)%c.length];a+=(p2[0]-p1[0])*Math.PI/180*(2+Math.sin(p1[1]*Math.PI/180)+Math.sin(p2[1]*Math.PI/180));}return a*R*R/2;}
+  let total=0;
+  (gj.features||[]).forEach(f=>{
+    const g=f.geometry; if(!g) return;
+    const polys=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
+    polys.forEach(rings=>rings.forEach((r,i)=>{const ar=Math.abs(ringArea(r));total+=i===0?ar:-ar;}));
+  });
+  return total/10000;
+}
+
+function tokenGen(){ return (Math.random().toString(36).slice(2,8)+Math.random().toString(36).slice(2,4)); }
+
+async function salvarTalhao(){
+  const btn=document.getElementById('btn-salvar');
+  try{
+    // validações
+    const talhaoNome=document.getElementById('inp-talhao').value.trim();
+    if(!talhaoNome){ toast('Digite o nome do talhão','⚠️'); return; }
+    if(!geoJson){ toast('Envie o arquivo de zonas','⚠️'); return; }
+    if(!csvFile){ toast('Envie a planilha de análises','⚠️'); return; }
+
+    let clienteId=document.getElementById('sel-cliente').value;
+    let fazendaId=document.getElementById('sel-fazenda').value;
+    const novoClienteNome=document.getElementById('ci-cliente-nome').value.trim();
+    const novaFazendaNome=document.getElementById('ci-fazenda-nome').value.trim();
+    if(!clienteId && !novoClienteNome){ toast('Selecione ou crie um cliente','⚠️'); return; }
+    if(!fazendaId && !novaFazendaNome){ toast('Selecione ou crie uma fazenda','⚠️'); return; }
+
+    btn.disabled=true; btn.textContent='Salvando…';
+
+    // 1. cliente
+    if(!clienteId){
+      const { data, error } = await sb.from('clientes').insert({
+        consultor_id: USER.id,
+        nome: novoClienteNome,
+        email: document.getElementById('ci-cliente-email').value.trim()||null
+      }).select('id').single();
+      if(error) throw error;
+      clienteId=data.id;
+    }
+    // 2. fazenda
+    if(!fazendaId){
+      const mun=document.getElementById('ci-fazenda-mun').value.trim();
+      const { data, error } = await sb.from('fazendas').insert({
+        cliente_id: clienteId, nome: novaFazendaNome, municipio: mun||null
+      }).select('id').single();
+      if(error) throw error;
+      fazendaId=data.id;
+    }
+    // 3. talhão (sem urls ainda)
+    const ha=geodesicAreaHa(geoJson);
+    const { data:tal, error:talErr } = await sb.from('talhoes').insert({
+      fazenda_id: fazendaId, nome: talhaoNome,
+      zonas: geoJson.features.length, hectares: Math.round(ha*100)/100
+    }).select('id').single();
+    if(talErr) throw talErr;
+
+    // 4. upload arquivos
+    btn.textContent='Enviando arquivos…';
+    const base=`${USER.id}/${tal.id}`;
+    const geoBlob=new Blob([JSON.stringify(geoJson)],{type:'application/json'});
+    const { error:gErr } = await sb.storage.from('arquivos').upload(`${base}/zonas.geojson`, geoBlob, { upsert:true });
+    if(gErr) throw gErr;
+    const ext=csvFile.name.split('.').pop().toLowerCase();
+    const { error:cErr } = await sb.storage.from('arquivos').upload(`${base}/analise.${ext}`, csvFile, { upsert:true });
+    if(cErr) throw cErr;
+
+    const geoUrl=sb.storage.from('arquivos').getPublicUrl(`${base}/zonas.geojson`).data.publicUrl;
+    const csvUrl=sb.storage.from('arquivos').getPublicUrl(`${base}/analise.${ext}`).data.publicUrl;
+
+    // 5. atualiza talhão com url + cria análise
+    await sb.from('talhoes').update({ zonas_geojson_url: geoUrl }).eq('id', tal.id);
+    const { error:aErr } = await sb.from('analises').insert({ talhao_id: tal.id, planilha_url: csvUrl });
+    if(aErr) throw aErr;
+
+    // 6. link
+    const token=tokenGen();
+    const { error:lErr } = await sb.from('links_view').insert({ token, talhao_id: tal.id });
+    if(lErr) throw lErr;
+
+    const url=`${location.origin}${location.pathname.replace('app.html','')}viewer.html?t=${token}`;
+    document.getElementById('link-final').textContent=url;
+    document.getElementById('resultado-link').classList.remove('hidden');
+    toast('Talhão criado com sucesso!','✅');
+  }catch(err){
+    console.error(err);
+    toast('Erro: '+(err.message||err),'⚠️');
+  }finally{
+    btn.disabled=false; btn.textContent='Salvar e gerar link →';
+  }
+}
+
+async function copiarLink(){
+  const url=document.getElementById('link-final').textContent;
+  try{ await navigator.clipboard.writeText(url); }catch(e){}
+  toast('Link copiado!','✅');
+}
+
+// ═══════════════════════════════════════════════
+// AÇÕES (abrir viewer / gerar-copiar link)
+// ═══════════════════════════════════════════════
+async function abrirTalhao(talhaoId){
+  const { data } = await sb.from('links_view').select('token').eq('talhao_id',talhaoId).eq('ativo',true).limit(1);
+  let token=data?.[0]?.token;
+  if(!token){
+    token=tokenGen();
+    const { error } = await sb.from('links_view').insert({ token, talhao_id: talhaoId });
+    if(error){ toast('Erro ao criar link: '+error.message,'⚠️'); return; }
+  }
+  window.open(`viewer.html?t=${token}`,'_blank');
+}
+
+async function gerarOuCopiarLink(talhaoId){
+  const { data } = await sb.from('links_view').select('token').eq('talhao_id',talhaoId).eq('ativo',true).limit(1);
+  let token=data?.[0]?.token;
+  if(!token){
+    token=tokenGen();
+    const { error } = await sb.from('links_view').insert({ token, talhao_id: talhaoId });
+    if(error){ toast('Erro: '+error.message,'⚠️'); return; }
+  }
+  const url=`${location.origin}${location.pathname.replace('app.html','')}viewer.html?t=${token}`;
+  try{ await navigator.clipboard.writeText(url); toast('Link copiado!','✅'); }
+  catch(e){ prompt('Copie o link:', url); }
+}
+
+// ═══════════════════════════════════════════════
+// LINKS VIEW
+// ═══════════════════════════════════════════════
+async function carregarLinks(){
+  const { data } = await sb.from('links_view')
+    .select('id,token,ativo,visualizacoes,criado_em,talhao:talhoes(nome,fazenda:fazendas(nome,cliente:clientes(nome)))')
+    .order('criado_em',{ascending:false});
+  const tb=document.getElementById('links-tbody');
+  const list=data||[];
+  if(!list.length){ tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Nenhum link gerado ainda</td></tr>'; return; }
+  tb.innerHTML=list.map(l=>`
+    <tr>
+      <td><div style="font-weight:600">${l.talhao?.nome||'—'}</div><div style="font-size:10px;color:var(--muted)">${l.talhao?.fazenda?.nome||''}</div></td>
+      <td>${l.talhao?.fazenda?.cliente?.nome||'—'}</td>
+      <td><span class="mono">/viewer.html?t=${l.token}</span></td>
+      <td style="color:var(--muted)">${new Date(l.criado_em).toLocaleDateString('pt-BR')}</td>
+      <td><strong>${l.visualizacoes||0}</strong></td>
+      <td>${l.ativo?'<span class="tag g">Ativo</span>':'<span class="tag gr">Revogado</span>'}</td>
+      <td style="white-space:nowrap">
+        <button class="ab" onclick="window.open('viewer.html?t=${l.token}','_blank')">Abrir</button>
+        <button class="ab" onclick="copiarLinkToken('${l.token}')">Copiar</button>
+        ${l.ativo?`<button class="ab d" onclick="revogar('${l.id}')">Revogar</button>`:`<button class="ab" onclick="reativar('${l.id}')">Reativar</button>`}
+      </td>
+    </tr>`).join('');
+}
+async function copiarLinkToken(token){
+  const url=`${location.origin}${location.pathname.replace('app.html','')}viewer.html?t=${token}`;
+  try{ await navigator.clipboard.writeText(url); toast('Link copiado!','✅'); }catch(e){ prompt('Copie:',url); }
+}
+async function revogar(id){
+  await sb.from('links_view').update({ativo:false}).eq('id',id);
+  toast('Link revogado','✅'); carregarLinks();
+}
+async function reativar(id){
+  await sb.from('links_view').update({ativo:true}).eq('id',id);
+  toast('Link reativado','✅'); carregarLinks();
+}
+
+// ═══════════════════════════════════════════════
+// CLIMA (Open-Meteo — grátis, sem chave)
+// ═══════════════════════════════════════════════
+const WMO_IC={0:'☀️',1:'🌤️',2:'⛅',3:'☁️',45:'🌫️',48:'🌫️',51:'🌦️',53:'🌦️',55:'🌧️',61:'🌧️',63:'🌧️',65:'🌧️',71:'❄️',73:'❄️',75:'❄️',80:'🌦️',81:'🌧️',82:'⛈️',95:'⛈️',96:'⛈️',99:'⛈️'};
+const WMO_DS={0:'Céu limpo',1:'Levemente nublado',2:'Parcialmente nublado',3:'Nublado',45:'Neblina',48:'Neblina',51:'Chuvisco leve',53:'Chuvisco',55:'Chuvisco intenso',61:'Chuva leve',63:'Chuva moderada',65:'Chuva forte',71:'Neve',73:'Neve',75:'Neve',80:'Pancadas leves',81:'Pancadas',82:'Pancadas fortes',95:'Tempestade',96:'Tempestade',99:'Tempestade'};
+const DOW=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+async function buscarClima(lat,lon,nome){
+  try{
+    const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=America%2FSao_Paulo&forecast_days=5`;
+    const d=await (await fetch(u)).json();
+    const c=d.current;
+    let fc='';
+    for(let i=0;i<5;i++){
+      const dt=new Date(d.daily.time[i]+'T12:00');
+      fc+=`<div class="wcf"><div class="wcf-d">${i===0?'Hoje':DOW[dt.getDay()]}</div><div class="wcf-i">${WMO_IC[d.daily.weather_code[i]]||'🌡️'}</div><div class="wcf-t">${Math.round(d.daily.temperature_2m_max[i])}°</div><div style="font-size:9px;opacity:.55">${d.daily.precipitation_probability_max[i]}%💧</div></div>`;
+    }
+    document.getElementById('weather').innerHTML=`
+      <div class="weather-card">
+        <div class="wc-row">
+          <div style="font-size:36px">${WMO_IC[c.weather_code]||'🌡️'}</div>
+          <div>
+            <div class="wc-temp">${Math.round(c.temperature_2m)}°C</div>
+            <div class="wc-desc">${WMO_DS[c.weather_code]||''} · 📍 ${nome}</div>
+            <div class="wc-meta">💧 ${c.relative_humidity_2m}% · 💨 ${c.wind_speed_10m} km/h · chuva hoje ${d.daily.precipitation_probability_max[0]}%</div>
+          </div>
+          <div class="wc-fc">${fc}</div>
+        </div>
+        <div class="wc-inp-row">
+          <input class="wc-inp" id="wc-cidade" placeholder="Trocar cidade… (ex: Londrina)" onkeydown="if(event.key==='Enter')trocarCidade()">
+          <button class="wc-btn" onclick="trocarCidade()">📍 Buscar</button>
+        </div>
+      </div>`;
+  }catch(e){ document.getElementById('weather').innerHTML=''; }
+}
+async function trocarCidade(){
+  const q=document.getElementById('wc-cidade').value.trim(); if(!q) return;
+  try{
+    const g=await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=pt&format=json`)).json();
+    if(g.results?.length){ const r=g.results[0]; localStorage.setItem('cg_clima',JSON.stringify({lat:r.latitude,lon:r.longitude,nome:r.name+(r.admin1?', '+r.admin1:'')})); buscarClima(r.latitude,r.longitude,r.name+(r.admin1?', '+r.admin1:'')); }
+    else toast('Cidade não encontrada','⚠️');
+  }catch(e){ toast('Erro na busca','⚠️'); }
+}
+function carregarClima(){
+  const salvo=localStorage.getItem('cg_clima');
+  if(salvo){ const c=JSON.parse(salvo); buscarClima(c.lat,c.lon,c.nome); return; }
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      p=>buscarClima(p.coords.latitude,p.coords.longitude,'Sua localização'),
+      ()=>buscarClima(-23.3,-51.17,'Londrina, PR'),
+      {timeout:4000});
+  } else buscarClima(-23.3,-51.17,'Londrina, PR');
+}
+
+// ═══════════════════════════════════════════════
+// UTIL
+// ═══════════════════════════════════════════════
+function esc(s){ return String(s).replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+function toast(msg,ic='✅'){
+  const t=document.createElement('div'); t.className='toast';
+  t.innerHTML=`<span>${ic}</span> ${msg}`;
+  document.getElementById('toasts').appendChild(t);
+  setTimeout(()=>t.remove(),4000);
+}
+</script>
+</body>
+</html>
