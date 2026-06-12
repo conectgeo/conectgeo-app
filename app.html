@@ -252,8 +252,11 @@ tr:hover td{background:var(--sand);}
                 <option value="">Criar Cliente</option>
               </select>
               <div class="create-inline hidden" id="ci-cliente">
-                <input class="ci-inp" id="ci-cliente-nome" placeholder="Nome do produtor">
+                <input class="ci-inp" id="ci-cliente-nome" placeholder="Nome do produtor *">
                 <input class="ci-inp" id="ci-cliente-email" placeholder="E-mail (opcional)">
+                <input class="ci-inp" id="ci-cliente-mun" placeholder="Município onde reside *">
+                <input class="ci-inp" id="ci-cliente-pais" placeholder="País *" value="Brasil">
+                <div style="font-size:10.5px;color:#9a9088;margin-top:-2px;">Município e país são usados na previsão do tempo do cliente.</div>
               </div>
             </div>
             <div class="ff">
@@ -623,6 +626,14 @@ async function salvarTalhao(){
     if(!clienteId && !novoClienteNome){ toast('Selecione ou crie um cliente','⚠️'); return; }
     if(!fazendaId && !novaFazendaNome){ toast('Selecione ou crie uma fazenda','⚠️'); return; }
 
+    // município e país obrigatórios ao criar novo cliente (para o clima)
+    const novoClienteMun=document.getElementById('ci-cliente-mun').value.trim();
+    const novoClientePais=document.getElementById('ci-cliente-pais').value.trim();
+    if(!clienteId){
+      if(!novoClienteMun){ toast('Informe o município do cliente','⚠️'); return; }
+      if(!novoClientePais){ toast('Informe o país do cliente','⚠️'); return; }
+    }
+
     btn.disabled=true; btn.textContent='Salvando…';
 
     // 1. cliente
@@ -630,7 +641,9 @@ async function salvarTalhao(){
       const { data, error } = await sb.from('clientes').insert({
         consultor_id: USER.id,
         nome: novoClienteNome,
-        email: document.getElementById('ci-cliente-email').value.trim()||null
+        email: document.getElementById('ci-cliente-email').value.trim()||null,
+        municipio: novoClienteMun,
+        pais: novoClientePais
       }).select('id').single();
       if(error) throw error;
       clienteId=data.id;
