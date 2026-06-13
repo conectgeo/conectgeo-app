@@ -221,6 +221,7 @@ body.mode-coleta #sec-pdf,
 body.mode-coleta #view-banner{display:none!important;}
 body.mode-coleta #painel-coleta{display:block!important;}
 body.consultor-mode .consultor-only{display:block!important;}
+.zona-rot-wrap{background:none;border:none;}
 .zona-rot{font-size:11px;font-weight:700;color:#1a1a1a;background:rgba(255,255,255,.8);padding:1px 5px;border-radius:6px;white-space:nowrap;text-align:center;transform:translate(-50%,-50%);}
 body.has-data .basemap-float{display:flex;}
 .base-btn{padding:7px 12px;background:transparent;border:1.5px solid transparent;border-radius:7px;font-size:11px;color:var(--muted);cursor:pointer;transition:.15s;font-family:var(--f);white-space:nowrap;}
@@ -369,8 +370,8 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       <div class="invert-row"><span class="label" data-i18n="cltVerPontos">Mostrar pontos de coleta</span><div class="toggle on" id="clt-pontos-toggle"></div></div>
       <div class="invert-row"><span class="label" data-i18n="cltVerZonas">Mostrar zonas de manejo</span><div class="toggle on" id="clt-zonas-toggle"></div></div>
     </div>
-    <div class="sec">
-      <div class="sec-label"><span class="txt"><span class="sec-num">⚙</span><span data-i18n="cltAjustes">Ajustes</span></span></div>
+    <div class="sec" id="sec-clt-ajustes">
+      <div class="sec-label"><span class="txt"><span class="sec-num">⚙</span><span data-i18n="cltAjustes">Ajustes dos Pontos</span></span></div>
       <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamPonto">Tamanho dos pontos</span> <span class="ctrl-val" id="cv-clt-pt">100%</span></div><input type="range" id="sl-clt-pt" min="40" max="220" value="100"></div>
       <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamRotPonto">Tamanho do rótulo dos pontos</span> <span class="ctrl-val" id="cv-clt-rpt">100%</span></div><input type="range" id="sl-clt-rpt" min="40" max="220" value="100"></div>
       <div class="invert-row"><span class="label" data-i18n="cltMostrarRotPonto">Mostrar rótulo dos pontos</span><div class="toggle on" id="clt-rpt-toggle"></div></div>
@@ -795,7 +796,7 @@ const I18N = {
   viewBanner:'Visualização do projeto. Explore os nutrientes, ajuste cores e gere o relatório em PDF.',
   modoNutrientes:'Mapa de Nutrientes', modoColeta:'Mapa de Coleta de Solo',
   cltCamadas:'Camadas', cltVerRaster:'Mostrar imagem (raster)', cltVerPontos:'Mostrar pontos de coleta', cltVerZonas:'Mostrar zonas de manejo',
-  cltAjustes:'Ajustes', cltTamPonto:'Tamanho dos pontos', cltTamRotPonto:'Tamanho do rótulo dos pontos', cltMostrarRotPonto:'Mostrar rótulo dos pontos',
+  cltAjustes:'Ajustes dos Pontos', cltTamPonto:'Tamanho dos pontos', cltTamRotPonto:'Tamanho do rótulo dos pontos', cltMostrarRotPonto:'Mostrar rótulo dos pontos',
   cltRotZonas:'Rótulos das Zonas', cltMostrarRotZona:'Mostrar rótulo nas zonas', cltCampoZona:'Campo a mostrar', cltTamRotZona:'Tamanho do rótulo das zonas',
   cltDownload:'Baixar Shapefiles', cltBaixarZip:'Baixar zonas e pontos (.zip)',
   cltAddArquivos:'Adicionar arquivos', cltAddShp:'Zonas / Pontos (.zip)', cltAddRaster:'Raster colorido (.tif)',
@@ -835,7 +836,7 @@ const I18N = {
   viewBanner:'Visualización del proyecto. Explore los nutrientes, ajuste colores y genere el informe en PDF.',
   modoNutrientes:'Mapa de Nutrientes', modoColeta:'Mapa de Muestreo de Suelo',
   cltCamadas:'Capas', cltVerRaster:'Mostrar imagen (raster)', cltVerPontos:'Mostrar puntos de muestreo', cltVerZonas:'Mostrar zonas de manejo',
-  cltAjustes:'Ajustes', cltTamPonto:'Tamaño de los puntos', cltTamRotPonto:'Tamaño de la etiqueta de puntos', cltMostrarRotPonto:'Mostrar etiqueta de puntos',
+  cltAjustes:'Ajustes de los Puntos', cltTamPonto:'Tamaño de los puntos', cltTamRotPonto:'Tamaño de la etiqueta de puntos', cltMostrarRotPonto:'Mostrar etiqueta de puntos',
   cltRotZonas:'Etiquetas de Zonas', cltMostrarRotZona:'Mostrar etiqueta en zonas', cltCampoZona:'Campo a mostrar', cltTamRotZona:'Tamaño de la etiqueta de zonas',
   cltDownload:'Descargar Shapefiles', cltBaixarZip:'Descargar zonas y puntos (.zip)',
   cltAddArquivos:'Agregar archivos', cltAddShp:'Zonas / Puntos (.zip)', cltAddRaster:'Raster a color (.tif)',
@@ -1912,7 +1913,7 @@ function renderZonaLabels(){
     let val=(f.properties&&f.properties[campo]!=null)?f.properties[campo]:'';
     if(typeof val==='number') val=Math.round(val*100)/100;
     if(val==='') return;
-    const m=L.marker(c,{icon:L.divIcon({className:'zona-rot',html:'<div class="zona-rot" style="font-size:'+fs+'px;">'+val+'</div>',iconSize:null}),interactive:false});
+    const m=L.marker(c,{icon:L.divIcon({className:'zona-rot-wrap',html:'<div class="zona-rot" style="font-size:'+fs+'px;">'+val+'</div>',iconSize:null}),interactive:false});
     m.addTo(S.map); S.coletaZonaLabels.push(m);
   });
 }
@@ -1930,7 +1931,10 @@ function refreshPontos(){
 function wireColetaControls(){
   const tgl=(id,cb)=>{ const el=document.getElementById(id); if(el) el.addEventListener('click',()=>{ el.classList.toggle('on'); cb(el.classList.contains('on')); }); };
   tgl('clt-raster-toggle',on=>{ if(!S.coletaLayers.raster)return; on?S.coletaLayers.raster.addTo(S.map):S.map.removeLayer(S.coletaLayers.raster); });
-  tgl('clt-pontos-toggle',on=>{ if(!S.coletaLayers.pontos)return; on?S.coletaLayers.pontos.addTo(S.map):S.map.removeLayer(S.coletaLayers.pontos); });
+  tgl('clt-pontos-toggle',on=>{
+    if(S.coletaLayers.pontos){ on?S.coletaLayers.pontos.addTo(S.map):S.map.removeLayer(S.coletaLayers.pontos); }
+    const sa=document.getElementById('sec-clt-ajustes'); if(sa) sa.style.display=on?'':'none';
+  });
   tgl('clt-zonas-toggle',on=>{ if(!S.coletaLayers.zonas)return; on?S.coletaLayers.zonas.addTo(S.map):S.map.removeLayer(S.coletaLayers.zonas); });
   tgl('clt-rpt-toggle',on=>{ S.cltCfg.showPtLbl=on; refreshPontos(); });
   tgl('clt-rzona-toggle',on=>{
@@ -1960,7 +1964,8 @@ function wireColetaControls(){
         const tipos=(gj.features||[]).map(ft=>ft.geometry&&ft.geometry.type);
         const ehPonto=tipos.some(t=>t==='Point'||t==='MultiPoint');
         const path='coleta/'+S.tokenAtual+'/'+(ehPonto?'pontos':'zonas')+'.zip';
-        await sb.storage.from('arquivos').upload(path, f, {upsert:true});
+        const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
+        if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
         const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
         await sb.rpc('atualizar_coleta', ehPonto?{p_token:S.tokenAtual,p_pontos_url:url}:{p_token:S.tokenAtual,p_zonas_url:url});
       }
@@ -1977,7 +1982,8 @@ function wireColetaControls(){
     st.textContent='Enviando raster…';
     try{
       const path='coleta/'+S.tokenAtual+'/raster.tif';
-      await sb.storage.from('arquivos').upload(path, f, {upsert:true});
+      const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
+      if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
       const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
       await sb.rpc('atualizar_coleta', {p_token:S.tokenAtual,p_raster_url:url});
       st.textContent='✅ Salvo! Recarregando…';
@@ -1986,33 +1992,46 @@ function wireColetaControls(){
   });
 }
 
-// baixa zonas+pontos num único ZIP
+// baixa zonas+pontos num único ZIP, com os shapefiles SOLTOS (sem zips/pastas internas)
 async function baixarShpColeta(){
   try{
     const partes=[];
     if(S.coleta&&S.coleta.zonas) partes.push({url:S.coleta.zonas,nome:'zonas'});
     if(S.coleta&&S.coleta.pontos) partes.push({url:S.coleta.pontos,nome:'pontos'});
     if(!partes.length){ alert('Sem arquivos de coleta para baixar.'); return; }
-    // se só houver os .zip originais, baixa o de zonas e o de pontos
-    // monta nome padrão
     const meta=S.coletaMeta||{cliente:'cliente',fazenda:'fazenda',talhao:'talhao'};
     const base='Arquivos SHP para Amostragem de Solo_'+meta.cliente+'_'+meta.fazenda+'_'+meta.talhao;
-    // usa JSZip se disponível; senão baixa os zips separados
-    if(window.JSZip){
-      const zip=new JSZip();
-      for(const p of partes){
-        const r=await fetch(p.url); const b=await r.arrayBuffer();
-        zip.file(p.nome+'.zip', b);
-      }
-      const blob=await zip.generateAsync({type:'blob'});
-      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=base+'.zip'; a.click();
-    }else{
-      // fallback: baixa cada zip separadamente
+    if(!window.JSZip){
+      // fallback: baixa os zips originais separados
       for(const p of partes){
         const a=document.createElement('a'); a.href=p.url; a.download=base+'_'+p.nome+'.zip'; a.click();
         await new Promise(r=>setTimeout(r,400));
       }
+      return;
     }
+    const out=new JSZip();
+    const usados={};
+    for(const p of partes){
+      const r=await fetch(p.url); if(!r.ok) throw new Error('Falha ao baixar '+p.nome);
+      const b=await r.arrayBuffer();
+      const inner=await JSZip.loadAsync(b);
+      const arquivos=Object.values(inner.files).filter(f=>!f.dir);
+      for(const f of arquivos){
+        // descarta qualquer pasta interna: fica só o nome do arquivo
+        let nome=f.name.split('/').pop().split('\\').pop();
+        if(!nome) continue;
+        // se já existir um arquivo com o mesmo nome (zonas e pontos), prefixa para não sobrescrever
+        if(usados[nome.toLowerCase()]){
+          const dot=nome.lastIndexOf('.');
+          const raiz=dot>=0?nome.slice(0,dot):nome, ext=dot>=0?nome.slice(dot):'';
+          nome=raiz+'_'+p.nome+ext;
+        }
+        usados[nome.toLowerCase()]=1;
+        out.file(nome, await f.async('uint8array'));
+      }
+    }
+    const blob=await out.generateAsync({type:'blob'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=base+'.zip'; a.click();
   }catch(err){ alert('Erro ao baixar: '+err.message); }
 }
 
@@ -2071,11 +2090,11 @@ async function loadFromToken(token, params){
     if(S.activeDepth) applyActiveDepth(); else tryActivate();
 
     // ── MAPA DE COLETA DE SOLO (Onda 2) ──
-    if(data.tem_coleta_solo && (data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url)){
-      S.coleta = { zonas:data.coleta_zonas_url||'', pontos:data.coleta_pontos_url||'', raster:data.coleta_raster_url||'' };
-      S.coletaMeta = { cliente:(data.cliente||'cliente'), fazenda:(data.fazenda||'fazenda'), talhao:(data.talhao||'talhao') };
-      const ms=document.getElementById('mode-switch'); if(ms) ms.style.display='flex';
-    }
+    const temColeta = !!(data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url);
+    S.coleta = { zonas:data.coleta_zonas_url||'', pontos:data.coleta_pontos_url||'', raster:data.coleta_raster_url||'' };
+    S.coletaMeta = { cliente:(data.cliente||'cliente'), fazenda:(data.fazenda||'fazenda'), talhao:(data.talhao||'talhao') };
+    // mostra o seletor de modo se já houver coleta, ou se for o consultor (para subir arquivos pelo mapa)
+    const ms=document.getElementById('mode-switch'); if(ms && (temColeta || S.consultorMode)) ms.style.display='flex';
 
     document.getElementById('loader-screen').classList.remove('show');
     return true;
