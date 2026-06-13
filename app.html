@@ -93,6 +93,13 @@ body{font-family:var(--f);background:var(--sand);color:var(--ink);font-size:13px
 .proj-card{background:#fff;border-radius:var(--rl);box-shadow:var(--sh);overflow:hidden;border:2px solid transparent;transition:.15s;}
 .proj-card:hover{border-color:var(--leaf);}
 .proj-map{height:96px;background:linear-gradient(135deg,#d4e8c2,#a8d080,#7ab855);display:flex;align-items:center;justify-content:center;font-size:30px;}
+.proj-map-cta{cursor:pointer;position:relative;transition:.2s;}
+.proj-map-cta:hover{filter:brightness(1.05);}
+.cta-overlay{display:flex;flex-direction:column;align-items:center;gap:4px;color:#2c4318;font-weight:700;}
+.cta-ic{font-size:32px;}
+.cta-txt{font-size:12px;background:rgba(255,255,255,.85);padding:3px 12px;border-radius:20px;box-shadow:0 1px 4px rgba(0,0,0,.1);}
+.ab-primary{background:var(--leaf)!important;color:#fff!important;border-color:var(--leaf)!important;}
+.ab-primary:hover{background:var(--leaf2)!important;}
 .proj-body{padding:13px 14px;}
 .proj-name{font-family:var(--fd);font-size:13px;font-weight:700;margin-bottom:3px;}
 .proj-meta{font-size:11px;color:var(--muted);}
@@ -222,19 +229,19 @@ tr:hover td{background:var(--sand);}
     <div class="sb-user"><div class="av" id="u-av">·</div><div><div class="sb-name" id="u-nome">—</div><div class="sb-role">Consultor</div></div></div>
     <div class="sb-nav">
       <div class="ni on" data-view="dash" onclick="showView('dash')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Dashboard
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg><span data-i18n="dashboard">Dashboard</span>
       </div>
       <div class="ni" onclick="openSO()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>Meus Clientes
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><span data-i18n="meusClientes">Meus Clientes</span>
       </div>
       <div class="ni" data-view="novo" onclick="showView('novo')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>Criar Novo
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg><span data-i18n="criarNovoNav">Criar Novo</span>
       </div>
       <div class="ni" data-view="links" onclick="showView('links')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7L12.5 19.5"/></svg>Links Compartilhados
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7L12.5 19.5"/></svg><span data-i18n="linksCompart">Links Compartilhados</span>
       </div>
       <div class="ni" onclick="sair()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>Sair
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg><span data-i18n="sair">Sair</span>
       </div>
     </div>
   </div>
@@ -251,21 +258,21 @@ tr:hover td{background:var(--sand);}
         </div>
         <div class="tbr">
           <button class="btn sec" id="lang-btn" onclick="toggleLang()" title="Idioma / Idioma">🌐 PT</button>
-          <button class="btn sec" onclick="openSO()" style="background:var(--leaf-bg);border-color:var(--leaf);color:var(--leaf2);font-weight:700">▶ Ver clientes</button>
-          <button class="btn pri" onclick="showView('novo')">+ Criar Novo</button>
+          <button class="btn sec" onclick="openSO()" style="background:var(--leaf-bg);border-color:var(--leaf);color:var(--leaf2);font-weight:700" data-i18n="verClientes">▶ Ver clientes</button>
+          <button class="btn pri" onclick="showView('novo')" data-i18n="criarNovo">+ Criar Novo</button>
         </div>
       </div>
       <div class="content">
         <div class="stat-row">
-          <div class="sc"><div class="sc-ic g"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div><div class="sc-lbl">Clientes</div><div class="sc-val" id="st-clientes">—</div><div class="sc-sub">produtores ativos</div></div>
-          <div class="sc"><div class="sc-ic e"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg></div><div class="sc-lbl">Talhões</div><div class="sc-val" id="st-talhoes">—</div><div class="sc-sub" id="st-fazendas">— fazendas</div></div>
-          <div class="sc"><div class="sc-ic b"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div><div class="sc-lbl">Hectares</div><div class="sc-val" id="st-hectares">—</div><div class="sc-sub">área total mapeada</div></div>
-          <div class="sc"><div class="sc-ic w"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1.5 1.5"/></svg></div><div class="sc-lbl">Links ativos</div><div class="sc-val" id="st-links">—</div><div class="sc-sub" id="st-views">— visualizações</div></div>
+          <div class="sc"><div class="sc-ic g"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div><div class="sc-lbl" data-i18n="clientes">Clientes</div><div class="sc-val" id="st-clientes">—</div><div class="sc-sub" data-i18n="produtoresAtivos">produtores ativos</div></div>
+          <div class="sc"><div class="sc-ic e"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg></div><div class="sc-lbl" data-i18n="talhoes">Talhões</div><div class="sc-val" id="st-talhoes">—</div><div class="sc-sub" id="st-fazendas">— fazendas</div></div>
+          <div class="sc"><div class="sc-ic b"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div><div class="sc-lbl" data-i18n="hectares">Hectares</div><div class="sc-val" id="st-hectares">—</div><div class="sc-sub" data-i18n="areaTotal">área total mapeada</div></div>
+          <div class="sc"><div class="sc-ic w"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1.5 1.5"/></svg></div><div class="sc-lbl" data-i18n="linksAtivos">Links ativos</div><div class="sc-val" id="st-links">—</div><div class="sc-sub" id="st-views">— visualizações</div></div>
         </div>
 
         <div id="weather"></div>
 
-        <div class="sh"><div class="sh-title">Talhões recentes</div><button class="btn sec" onclick="openSO()">Ver todos →</button></div>
+        <div class="sh"><div class="sh-title" data-i18n="talhoesRecentes">Talhões recentes</div><button class="btn sec" onclick="openSO()" data-i18n="verTodos">Ver todos →</button></div>
         <div class="card-grid" id="recentes"></div>
       </div>
     </div>
@@ -369,8 +376,17 @@ tr:hover td{background:var(--sand);}
       </div>
       <div class="mapa-wrap">
         <div class="mapa-side" id="mapa-side">
-          <div class="mapa-side-head">Talhões desta fazenda</div>
-          <div class="mapa-side-body" id="mapa-talhoes"></div>
+          <div class="mapa-side-head" data-i18n="mapaTalhoes">Navegação</div>
+          <div class="mapa-side-body">
+            <div style="padding:0 4px 10px;">
+              <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selProdutor">Produtor</label>
+              <select id="mv-cliente" onchange="mvSelCliente()" style="width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;margin-bottom:10px;"></select>
+              <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selFazenda">Fazenda</label>
+              <select id="mv-fazenda" onchange="mvSelFazenda()" style="width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;margin-bottom:10px;"></select>
+              <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selTalhao">Talhão</label>
+            </div>
+            <div id="mapa-talhoes" style="padding:0 4px;"></div>
+          </div>
         </div>
         <div class="mapa-frame-wrap">
           <iframe id="mapa-frame" class="mapa-frame" title="Mapa do talhão"></iframe>
@@ -419,22 +435,26 @@ let USER = null;
 // ═══════════════════════════════════════════════
 const I18N={
   pt:{
-    verClientes:'▶ Ver clientes', criarNovo:'+ Criar Novo', voltar:'← Voltar',
+    verClientes:'▶ Ver clientes', criarNovo:'+ Criar Novo', criarNovoNav:'Criar Novo', voltar:'← Voltar',
     clientes:'Clientes', talhoes:'Talhões', hectares:'Hectares', linksAtivos:'Links ativos',
     produtoresAtivos:'produtores ativos', areaTotal:'área total mapeada', visualizacoes:'visualizações',
     talhoesRecentes:'Talhões recentes', verTodos:'Ver todos →', criarPrimeiro:'Criar primeiro talhão',
     meusClientes:'Meus Clientes', linksCompart:'Links Compartilhados', sair:'Sair', dashboard:'Dashboard',
     abrir:'👁 Abrir', mapaTalhoes:'Talhões desta fazenda', criarTalhao:'Criar novo talhão',
-    trocarCidade:'Trocar cidade…', buscar:'Buscar', editar:'Editar', excluir:'Excluir'
+    trocarCidade:'Trocar cidade…', buscar:'Buscar', editar:'Editar', excluir:'Excluir',
+    verMapaResultados:'Ver mapa de resultados', abrirMapa:'Abrir mapa',
+    selProdutor:'Produtor', selFazenda:'Fazenda', selTalhao:'Talhão'
   },
   es:{
-    verClientes:'▶ Ver clientes', criarNovo:'+ Crear Nuevo', voltar:'← Volver',
+    verClientes:'▶ Ver clientes', criarNovo:'+ Crear Nuevo', criarNovoNav:'Crear Nuevo', voltar:'← Volver',
     clientes:'Clientes', talhoes:'Lotes', hectares:'Hectáreas', linksAtivos:'Enlaces activos',
     produtoresAtivos:'productores activos', areaTotal:'área total mapeada', visualizacoes:'visualizaciones',
     talhoesRecentes:'Lotes recientes', verTodos:'Ver todos →', criarPrimeiro:'Crear primer lote',
     meusClientes:'Mis Clientes', linksCompart:'Enlaces Compartidos', sair:'Salir', dashboard:'Panel',
     abrir:'👁 Abrir', mapaTalhoes:'Lotes de esta finca', criarTalhao:'Crear nuevo lote',
-    trocarCidade:'Cambiar ciudad…', buscar:'Buscar', editar:'Editar', excluir:'Eliminar'
+    trocarCidade:'Cambiar ciudad…', buscar:'Buscar', editar:'Editar', excluir:'Eliminar',
+    verMapaResultados:'Ver mapa de resultados', abrirMapa:'Abrir mapa',
+    selProdutor:'Productor', selFazenda:'Finca', selTalhao:'Lote'
   }
 };
 function getLang(){ try{ return localStorage.getItem('cg_lang')||'pt'; }catch(e){ return 'pt'; } }
@@ -535,17 +555,20 @@ async function carregarDashboard(){
   }
   el.innerHTML = rec.map(t=>`
     <div class="proj-card">
-      <div class="proj-map">🗺</div>
+      <div class="proj-map proj-map-cta" onclick="abrirTalhao('${t.id}')" title="Ver mapa de resultados">
+        <div class="cta-overlay"><span class="cta-ic">🗺</span><span class="cta-txt" data-i18n="verMapaResultados">Ver mapa de resultados</span></div>
+      </div>
       <div class="proj-body">
         <div class="proj-name">${t.fazenda?.nome||'—'} — ${t.nome}</div>
         <div class="proj-meta">👤 ${t.fazenda?.cliente?.nome||'—'} · 📍 ${t.zonas||'?'} zonas${t.hectares?' · '+Math.round(t.hectares)+' ha':''}</div>
       </div>
       <div class="proj-foot">
-        <button class="ab" onclick="abrirTalhao('${t.id}')">👁 Abrir</button>
+        <button class="ab ab-primary" onclick="abrirTalhao('${t.id}')">🗺 <span data-i18n="abrirMapa">Abrir mapa</span></button>
         <button class="ab" onclick="gerarOuCopiarLink('${t.id}')">🔗 Link</button>
       </div>
     </div>`).join('')
     + `<div class="proj-card" onclick="showView('novo')" style="border:2px dashed var(--sand2);box-shadow:none;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:170px;cursor:pointer"><div style="font-size:28px;margin-bottom:8px">+</div><div style="font-weight:700;color:var(--muted)">Novo talhão</div></div>`;
+  aplicarIdioma();
 }
 
 // ═══════════════════════════════════════════════
@@ -814,8 +837,9 @@ async function copiarLink(){
 // ═══════════════════════════════════════════════
 // ═══════════════════════════════════════════════
 // MAPA EMBUTIDO (ponto 6/11) — abre na mesma página
+// com seletor dinâmico Produtor → Fazenda → Talhão (ponto 7)
 // ═══════════════════════════════════════════════
-let MAPA_CTX={fazendaId:null,talhoes:[],fazendaNome:''};
+let MAPA_CTX={clienteId:null,fazendaId:null,talhaoAtivo:null};
 
 async function tokenDoTalhao(talhaoId){
   const { data } = await sb.from('links_view').select('token').eq('talhao_id',talhaoId).eq('ativo',true).limit(1);
@@ -829,35 +853,72 @@ async function tokenDoTalhao(talhaoId){
 }
 
 async function abrirTalhao(talhaoId){
-  // descobre a fazenda do talhão para montar a lista lateral
-  const { data:tal } = await sb.from('talhoes').select('id,nome,hectares,fazenda_id,fazenda:fazendas(nome)').eq('id',talhaoId).single();
+  // descobre cliente+fazenda do talhão
+  const { data:tal } = await sb.from('talhoes').select('id,nome,hectares,fazenda_id,fazenda:fazendas(id,nome,cliente_id,cliente:clientes(id,nome))').eq('id',talhaoId).single();
   if(!tal){ toast('Talhão não encontrado','⚠️'); return; }
-  const { data:irmaos } = await sb.from('talhoes').select('id,nome,hectares').eq('fazenda_id',tal.fazenda_id).order('nome');
-  MAPA_CTX={fazendaId:tal.fazenda_id,talhoes:irmaos||[tal],fazendaNome:(tal.fazenda&&tal.fazenda.nome)||''};
-  document.getElementById('mapa-title').textContent=MAPA_CTX.fazendaNome||'Mapa';
-  renderMapaLista(talhaoId);
+  MAPA_CTX.clienteId=tal.fazenda&&tal.fazenda.cliente_id;
+  MAPA_CTX.fazendaId=tal.fazenda_id;
+  MAPA_CTX.talhaoAtivo=talhaoId;
+  document.getElementById('mapa-title').textContent=(tal.fazenda&&tal.fazenda.nome)||'Mapa';
   showView('mapa');
+  await mvPopularClientes();
   await carregarTalhaoNoMapa(talhaoId, tal.nome);
 }
 
-function renderMapaLista(ativoId){
+async function mvPopularClientes(){
+  const { data } = await sb.from('clientes').select('id,nome').order('nome');
+  const sel=document.getElementById('mv-cliente');
+  sel.innerHTML=(data||[]).map(c=>`<option value="${c.id}" ${c.id===MAPA_CTX.clienteId?'selected':''}>${c.nome}</option>`).join('');
+  await mvPopularFazendas();
+}
+async function mvSelCliente(){
+  MAPA_CTX.clienteId=document.getElementById('mv-cliente').value;
+  MAPA_CTX.fazendaId=null;
+  await mvPopularFazendas();
+}
+async function mvPopularFazendas(){
+  const { data } = await sb.from('fazendas').select('id,nome').eq('cliente_id',MAPA_CTX.clienteId).order('nome');
+  const sel=document.getElementById('mv-fazenda');
+  const list=data||[];
+  if(!MAPA_CTX.fazendaId && list.length) MAPA_CTX.fazendaId=list[0].id;
+  sel.innerHTML=list.map(f=>`<option value="${f.id}" ${f.id===MAPA_CTX.fazendaId?'selected':''}>${f.nome}</option>`).join('');
+  await mvPopularTalhoes();
+}
+async function mvSelFazenda(){
+  MAPA_CTX.fazendaId=document.getElementById('mv-fazenda').value;
+  await mvPopularTalhoes(true);
+}
+async function mvPopularTalhoes(autoAbrir){
+  const { data } = await sb.from('talhoes').select('id,nome,hectares').eq('fazenda_id',MAPA_CTX.fazendaId).order('nome');
+  const list=data||[];
   const box=document.getElementById('mapa-talhoes');
   box.innerHTML='';
-  MAPA_CTX.talhoes.forEach(t=>{
+  list.forEach(t=>{
     const div=document.createElement('div');
-    div.className='mapa-tal'+(t.id===ativoId?' active':'');
+    div.className='mapa-tal'+(t.id===MAPA_CTX.talhaoAtivo?' active':'');
     div.innerHTML='<div class="mt-nm">'+t.nome+'</div><div class="mt-sub">'+(Number(t.hectares)||0).toFixed(1)+' ha</div>';
-    div.onclick=()=>{ carregarTalhaoNoMapa(t.id,t.nome); renderMapaLista(t.id); if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed'); };
+    div.onclick=()=>{ carregarTalhaoNoMapa(t.id,t.nome); MAPA_CTX.talhaoAtivo=t.id; mvMarcarAtivo(t.id); if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed'); };
     box.appendChild(div);
   });
+  if(autoAbrir && list.length){ MAPA_CTX.talhaoAtivo=list[0].id; mvMarcarAtivo(list[0].id); carregarTalhaoNoMapa(list[0].id,list[0].nome); }
+}
+function mvMarcarAtivo(id){
+  document.querySelectorAll('#mapa-talhoes .mapa-tal').forEach(d=>d.classList.remove('active'));
+  const items=document.querySelectorAll('#mapa-talhoes .mapa-tal');
+  // re-render marca via classe; simplificado: recoloca a classe pelo texto não é confiável, então deixamos o clique controlar
 }
 
 async function carregarTalhaoNoMapa(talhaoId, nome){
   document.getElementById('mapa-sub').textContent=nome||'';
+  MAPA_CTX.talhaoAtivo=talhaoId;
   const token=await tokenDoTalhao(talhaoId);
   if(!token) return;
   const lang=getLang();
   document.getElementById('mapa-frame').src='viewer.html?t='+token+'&lang='+lang+'&embed=1';
+  // marca ativo na lista
+  document.querySelectorAll('#mapa-talhoes .mapa-tal').forEach(d=>{
+    d.classList.toggle('active', d.querySelector('.mt-nm') && d.querySelector('.mt-nm').textContent===nome);
+  });
 }
 
 function fecharMapa(){

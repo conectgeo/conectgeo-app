@@ -206,6 +206,9 @@ body.has-data .basemap-float{display:flex;}
 
 /* LANGUAGE TOGGLE */
 .lang-toggle{display:flex;background:var(--panel);border:1.5px solid var(--border);border-radius:22px;padding:3px;margin-bottom:14px;width:max-content;}
+body.embed header{display:none!important;}
+body.embed .lang-toggle{display:none!important;}
+body.embed .workspace{height:100vh!important;}
 .lang-btn{padding:6px 16px;border:none;background:transparent;border-radius:18px;font-size:11.5px;font-weight:700;color:var(--muted);cursor:pointer;transition:.18s;font-family:var(--f);}
 .lang-btn.active{background:var(--leaf);color:#fff;box-shadow:0 2px 6px rgba(111,174,63,.35);}
 /* LINK MODE SELECTOR */
@@ -1734,6 +1737,8 @@ async function loadFromToken(token, params){
 }
 async function loadFromURL(){
   const params=new URLSearchParams(location.search);
+  // modo embutido (dentro da plataforma): esconde header e troca de idioma
+  if(params.get('embed')==='1'){ document.body.classList.add('embed'); }
   // idioma: ?lang=es|pt ou preferência salva
   const langParam=params.get('lang');
   const savedLang=(()=>{try{return localStorage.getItem('cg_lang');}catch(e){return null;}})();
