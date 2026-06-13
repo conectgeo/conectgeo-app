@@ -1768,6 +1768,20 @@ async function fetchBufColeta(url){
   const r=await fetch(url); if(!r.ok) throw new Error('Falha ao baixar '+url); return await r.arrayBuffer();
 }
 
+// estilo base das zonas no Mapa de Coleta: linha preta grossa, sem preenchimento
+function estiloZonaColeta(){ return { color:'#1a1a1a', weight:2.5, opacity:0.9, fillColor:'#1a1a1a', fillOpacity:0 }; }
+// monta o tooltip com as informações do shape da zona
+function infoZonaColeta(props){
+  props=props||{};
+  const ent=Object.entries(props).slice(0,12);
+  if(!ent.length) return '<div class="tt-head">Zona de manejo</div>';
+  const linhas=ent.map(([k,v])=>{
+    let val=v; if(typeof val==='number') val=Math.round(val*1000)/1000;
+    return '<div style="display:flex;justify-content:space-between;gap:14px"><span style="color:#667">'+k+'</span><strong>'+(val==null||val===''?'—':val)+'</strong></div>';
+  }).join('');
+  return '<div class="tt-head">Zona de manejo</div>'+linhas;
+}
+
 function setMapMode(mode){
   S.mapMode=mode;
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
@@ -1828,14 +1842,27 @@ async function carregarColeta(){
       });
       S.coletaLayers.raster.addTo(S.map);
     }
+    let gjZonas=null;
     if(S.coleta.zonas){
       const buf=await fetchBufColeta(S.coleta.zonas);
-      let gj=await shp(buf);
-      if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])};
-      S.coletaGeo.zonas=gj;
-      S.coletaLayers.zonas=L.geoJSON(gj,{ style:{ color:'#1a1a1a', weight:2.5, fillOpacity:0, opacity:0.9 } });
+      gjZonas=await shp(buf);
+      if(Array.isArray(gjZonas)) gjZonas={type:'FeatureCollection',features:gjZonas.flatMap(l=>l.features||[])};
+    } else if(S.geoData && S.geoData.features && S.geoData.features.length){
+      // sem shapefile de coleta próprio → usa o MESMO shapefile do Mapa de Nutrientes
+      gjZonas=S.geoData;
+    }
+    if(gjZonas){
+      S.coletaGeo.zonas=gjZonas;
+      S.coletaLayers.zonas=L.geoJSON(gjZonas,{
+        style:estiloZonaColeta,
+        onEachFeature:(f,layer)=>{
+          layer.bindTooltip(infoZonaColeta(f.properties),{sticky:true,opacity:1});
+          layer.on('mouseover',function(){ this.setStyle({weight:3.5,color:'#0a7d2c',fillOpacity:0.12,fillColor:'#5fa832'}); this.bringToFront(); });
+          layer.on('mouseout',function(){ this.setStyle(estiloZonaColeta()); });
+        }
+      });
       // detecta campos disponíveis nas zonas para o seletor de rótulo
-      popularCamposZona(gj);
+      popularCamposZona(gjZonas);
     }
     if(S.coleta.pontos){
       const buf=await fetchBufColeta(S.coleta.pontos);
@@ -1909,7 +1936,8 @@ function renderZonaLabels(){
   const campo=S.cltCfg.zonaCampo, fs=Math.round(11*(S.cltCfg.zonaLblSize/100));
   (S.coletaGeo.zonas.features||[]).forEach(f=>{
     if(!f.geometry) return;
-    const c=centroidePoly(f.geometry); if(!c) return;
+    let c; try{ c=interiorPoint(f.geometry); }catch(e){ c=centroidePoly(f.geometry); }
+    if(!c) return;
     let val=(f.properties&&f.properties[campo]!=null)?f.properties[campo]:'';
     if(typeof val==='number') val=Math.round(val*100)/100;
     if(val==='') return;
@@ -1925,6 +1953,25 @@ function refreshPontos(){
   if(S.coletaLayers.pontos) S.map.removeLayer(S.coletaLayers.pontos);
   S.coletaLayers.pontos=criarCamadaPontos(S.coletaGeo.pontos);
   if(visivel) S.coletaLayers.pontos.addTo(S.map);
+}
+
+// recarrega as camadas de coleta sem recarregar a página (mantém o usuário no Mapa de Coleta)
+async function recarregarColetaInPlace(){
+  try{
+    if(sb && S.tokenAtual){
+      const { data } = await sb.rpc('get_link_data',{p_token:S.tokenAtual});
+      if(data && !data.erro){
+        S.coleta = { zonas:data.coleta_zonas_url||'', pontos:data.coleta_pontos_url||'', raster:data.coleta_raster_url||'' };
+      }
+    }
+  }catch(e){ console.warn('Falha ao reler get_link_data:',e); }
+  Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
+  S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l)); S.coletaZonaLabels=[];
+  S.coletaLayers={raster:null,pontos:null,zonas:null};
+  S.coletaGeo={pontos:null,zonas:null};
+  S.coletaLoaded=false;
+  if(S.mapMode!=='coleta') setMapMode('coleta');
+  else { await carregarColeta(); renderZonaLabels(); }
 }
 
 // liga os controles do painel de coleta (chamado uma vez no boot)
@@ -1969,8 +2016,9 @@ function wireColetaControls(){
         const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
         await sb.rpc('atualizar_coleta', ehPonto?{p_token:S.tokenAtual,p_pontos_url:url}:{p_token:S.tokenAtual,p_zonas_url:url});
       }
-      st.textContent='✅ Salvo! Recarregando…';
-      setTimeout(()=>location.reload(),900);
+      st.textContent='✅ Salvo! Atualizando…';
+      await recarregarColetaInPlace();
+      st.textContent='✅ Arquivos atualizados.';
     }catch(err){ st.textContent='Erro: '+err.message; }
   });
   const elRas=document.getElementById('f-clt-raster');
@@ -1986,8 +2034,9 @@ function wireColetaControls(){
       if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
       const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
       await sb.rpc('atualizar_coleta', {p_token:S.tokenAtual,p_raster_url:url});
-      st.textContent='✅ Salvo! Recarregando…';
-      setTimeout(()=>location.reload(),900);
+      st.textContent='✅ Salvo! Atualizando…';
+      await recarregarColetaInPlace();
+      st.textContent='✅ Raster atualizado.';
     }catch(err){ st.textContent='Erro: '+err.message; }
   });
 }
@@ -2068,26 +2117,31 @@ async function loadFromToken(token, params){
     applyGeoData(JSON.parse(decodeBuffer(geoBuf)), (data.talhao||'zonas'));
 
     document.getElementById('ls-text').textContent='Carregando análises…';
-    const csvBuf=await fetchBuf(data.planilha_url);
-    const ext=data.planilha_url.split('?')[0].split('.').pop().toLowerCase();
-    let rows,fields;
-    if(ext==='csv'){({rows,fields}=parseCSVText(decodeBuffer(csvBuf)));}
-    else{({rows,fields}=parseXLSX(csvBuf));}
-    applyCsvData(rows,fields,(data.talhao||'analises'));
+    if(data.planilha_url){
+      const csvBuf=await fetchBuf(data.planilha_url);
+      const ext=data.planilha_url.split('?')[0].split('.').pop().toLowerCase();
+      let rows,fields;
+      if(ext==='csv'){({rows,fields}=parseCSVText(decodeBuffer(csvBuf)));}
+      else{({rows,fields}=parseXLSX(csvBuf));}
+      applyCsvData(rows,fields,(data.talhao||'analises'));
 
-    // profundidade/nutriente via parâmetros opcionais (?depth= ?nut=)
-    const depthParam=params.get('depth')||data.profundidade;
-    if(S.depthCol){
-      const want=depthParam && S.availDepths.find(d=>normDepth(d)===normDepth(depthParam));
-      S.activeDepth = want || S.availDepths[0] || null;
-    } else if(depthParam){
-      S.manualDepth=depthParam; S.activeDepth=depthParam;
+      // profundidade/nutriente via parâmetros opcionais (?depth= ?nut=)
+      const depthParam=params.get('depth')||data.profundidade;
+      if(S.depthCol){
+        const want=depthParam && S.availDepths.find(d=>normDepth(d)===normDepth(depthParam));
+        S.activeDepth = want || S.availDepths[0] || null;
+      } else if(depthParam){
+        S.manualDepth=depthParam; S.activeDepth=depthParam;
+      }
+      const nutParam=params.get('nut');
+      if(nutParam && fields.includes(nutParam)) S.colorCol=nutParam;
+
+      renderDepthGrid();
+      if(S.activeDepth) applyActiveDepth(); else tryActivate();
+    } else {
+      // talhão sem planilha de análises: abre só as zonas (sem travar)
+      toast('Este talhão ainda não tem planilha de análises.','wrn');
     }
-    const nutParam=params.get('nut');
-    if(nutParam && fields.includes(nutParam)) S.colorCol=nutParam;
-
-    renderDepthGrid();
-    if(S.activeDepth) applyActiveDepth(); else tryActivate();
 
     // ── MAPA DE COLETA DE SOLO (Onda 2) ──
     const temColeta = !!(data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url);
