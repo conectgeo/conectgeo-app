@@ -333,6 +333,38 @@ tr:hover td{background:var(--sand);}
             </div>
           </div>
 
+          <div class="fdiv" style="margin-top:14px">3 · Mapa de Coleta de Solo <span style="font-weight:400;color:#9a9088;font-size:11px">(opcional)</span></div>
+          <div style="font-size:11.5px;color:#9a9088;margin:-4px 0 10px">Para o mapa de coleta, envie os 3 arquivos juntos: zonas, pontos e o raster colorido.</div>
+          <div class="form-row">
+            <div class="ff">
+              <label>Zonas de coleta (Shapefile .zip)</label>
+              <div class="upa" id="upa-cz">
+                <input type="file" id="f-cz" accept=".zip" onchange="onColetaFile(this,'cz')">
+                <div class="upa-ic" id="upa-cz-ic">🗂</div>
+                <div class="upa-txt" id="upa-cz-txt">Escolher .zip</div>
+                <div class="upa-sub" id="upa-cz-sub">shapefile (.shp+.dbf+.shx)</div>
+              </div>
+            </div>
+            <div class="ff">
+              <label>Pontos de coleta (Shapefile .zip)</label>
+              <div class="upa" id="upa-cp">
+                <input type="file" id="f-cp" accept=".zip" onchange="onColetaFile(this,'cp')">
+                <div class="upa-ic" id="upa-cp-ic">📍</div>
+                <div class="upa-txt" id="upa-cp-txt">Escolher .zip</div>
+                <div class="upa-sub" id="upa-cp-sub">shapefile de pontos</div>
+              </div>
+            </div>
+          </div>
+          <div class="ff">
+            <label>Raster colorido (GeoTIFF)</label>
+            <div class="upa" id="upa-cr">
+              <input type="file" id="f-cr" accept=".tif,.tiff" onchange="onColetaFile(this,'cr')">
+              <div class="upa-ic" id="upa-cr-ic">🖼</div>
+              <div class="upa-txt" id="upa-cr-txt">Escolher .tif</div>
+              <div class="upa-sub" id="upa-cr-sub">.tif ou .tiff (até 5 MB) — RGB já colorido</div>
+            </div>
+          </div>
+
           <div style="display:flex;gap:10px;margin-top:8px;justify-content:flex-end">
             <button class="btn sec" onclick="showView('dash')">Cancelar</button>
             <button class="btn pri" id="btn-salvar" onclick="salvarTalhao()">Salvar e gerar link →</button>
@@ -647,14 +679,20 @@ function soMob(col){ // mobile column nav
 // CRIAR NOVO (cliente / fazenda / talhão / arquivos)
 // ═══════════════════════════════════════════════
 let geoFile=null, geoJson=null, csvFile=null;
+let coletaFiles={cz:null, cp:null, cr:null};
 
 async function prepararFormNovo(){
   geoFile=null; geoJson=null; csvFile=null;
+  coletaFiles={cz:null, cp:null, cr:null};
   document.getElementById('inp-talhao').value='';
   document.getElementById('resultado-link').classList.add('hidden');
   resetUpa('geo','📂','Arraste ou clique para escolher','.geojson, .json ou .zip (shapefile com .shp + .dbf)');
   resetUpa('csv','📊','Arraste ou clique para escolher','.csv, .xlsx ou .xls');
+  resetUpa('cz','🗂','Escolher .zip','shapefile (.shp+.dbf+.shx)');
+  resetUpa('cp','📍','Escolher .zip','shapefile de pontos');
+  resetUpa('cr','🖼','Escolher .tif','.tif ou .tiff (até 5 MB) — RGB já colorido');
   document.getElementById('f-geo').value=''; document.getElementById('f-csv').value='';
+  ['f-cz','f-cp','f-cr'].forEach(id=>{ const e=document.getElementById(id); if(e) e.value=''; });
 
   const { data } = await sb.from('clientes').select('id,nome').order('nome');
   const sel=document.getElementById('sel-cliente');
@@ -719,6 +757,16 @@ function onCsvFile(inp){
   const f=inp.files[0]; if(!f) return;
   csvFile=f;
   doneUpa('csv', f.name, (f.size/1024).toFixed(0)+' KB');
+}
+function onColetaFile(inp, tipo){
+  const f=inp.files[0]; if(!f) return;
+  const ext=f.name.split('.').pop().toLowerCase();
+  // valida tipo
+  if((tipo==='cz'||tipo==='cp') && ext!=='zip'){ toast('Envie um arquivo .zip (shapefile)','⚠️'); inp.value=''; return; }
+  if(tipo==='cr' && !['tif','tiff'].includes(ext)){ toast('Envie um arquivo .tif ou .tiff','⚠️'); inp.value=''; return; }
+  if(tipo==='cr' && f.size>5*1024*1024){ toast('O raster passa de 5 MB. Reduza o arquivo.','⚠️'); inp.value=''; return; }
+  coletaFiles[tipo]=f;
+  doneUpa(tipo, f.name, (f.size/1024).toFixed(0)+' KB');
 }
 
 // área geodésica (hectares) — soma dos polígonos, descontando buracos
@@ -808,6 +856,27 @@ async function salvarTalhao(){
     await sb.from('talhoes').update({ zonas_geojson_url: geoUrl }).eq('id', tal.id);
     const { error:aErr } = await sb.from('analises').insert({ talhao_id: tal.id, planilha_url: csvUrl });
     if(aErr) throw aErr;
+
+    // 5b. MAPA DE COLETA DE SOLO (Onda 2) — só se os 3 arquivos foram enviados
+    if(coletaFiles.cz && coletaFiles.cp && coletaFiles.cr){
+      btn.textContent='Enviando mapa de coleta…';
+      const czExt=coletaFiles.cz.name.split('.').pop().toLowerCase();
+      const cpExt=coletaFiles.cp.name.split('.').pop().toLowerCase();
+      const crExt=coletaFiles.cr.name.split('.').pop().toLowerCase();
+      const up=async(file,nome)=>{
+        const { error } = await sb.storage.from('arquivos').upload(`${base}/${nome}`, file, { upsert:true });
+        if(error) throw error;
+        return sb.storage.from('arquivos').getPublicUrl(`${base}/${nome}`).data.publicUrl;
+      };
+      const czUrl=await up(coletaFiles.cz, `coleta_zonas.${czExt}`);
+      const cpUrl=await up(coletaFiles.cp, `coleta_pontos.${cpExt}`);
+      const crUrl=await up(coletaFiles.cr, `coleta_raster.${crExt}`);
+      await sb.from('talhoes').update({
+        coleta_zonas_url: czUrl, coleta_pontos_url: cpUrl, coleta_raster_url: crUrl, tem_coleta_solo: true
+      }).eq('id', tal.id);
+    } else if(coletaFiles.cz || coletaFiles.cp || coletaFiles.cr){
+      toast('Mapa de coleta ignorado: envie os 3 arquivos (zonas, pontos e raster) juntos.','⚠️');
+    }
 
     // 6. link
     const token=tokenGen();
