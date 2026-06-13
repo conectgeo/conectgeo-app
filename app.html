@@ -314,7 +314,7 @@ tr:hover td{background:var(--sand);}
           <div class="ff"><label>Nome do talhão</label><input type="text" id="inp-talhao" placeholder="Ex: Gleba Norte, Talhão A, Pivô 3…"></div>
 
           <div class="fdiv" style="margin-top:14px">2 · Arquivos</div>
-          <div style="font-size:11.5px;color:#9a9088;margin:-4px 0 12px">Envie os shapefiles (.zip) de zonas e/ou pontos — a plataforma identifica qual é qual. A planilha de análises é obrigatória (para o Mapa de Nutrientes); o raster é opcional.</div>
+          <div style="font-size:11.5px;color:#9a9088;margin:-4px 0 12px">Envie os shapefiles (.zip) de zonas e/ou pontos — a plataforma identifica qual é qual. A planilha de análises e o raster são opcionais (você pode subir depois).</div>
 
           <div class="ff">
             <label>Shapefiles de manejo (.zip) — zonas e/ou pontos</label>
@@ -329,7 +329,7 @@ tr:hover td{background:var(--sand);}
 
           <div class="form-row">
             <div class="ff">
-              <label>Planilha de análises <span style="font-weight:400;color:#c0392b;font-size:11px">(obrigatória)</span></label>
+              <label>Planilha de análises <span style="font-weight:400;color:#9a9088;font-size:11px">(opcional)</span></label>
               <div class="upa" id="upa-csv">
                 <input type="file" id="f-csv" accept=".csv,.xlsx,.xls" onchange="onCsvFile(this)">
                 <div class="upa-ic" id="upa-csv-ic">📊</div>
@@ -796,7 +796,6 @@ async function salvarTalhao(){
     const talhaoNome=document.getElementById('inp-talhao').value.trim();
     if(!talhaoNome){ toast('Digite o nome do talhão','⚠️'); return; }
     if(!geoJson){ toast('Envie ao menos o shapefile de zonas de manejo','⚠️'); return; }
-    if(!csvFile){ toast('Envie também a planilha de análises (.xlsx/.csv) — sem ela o Mapa de Nutrientes não abre','⚠️'); return; }
 
     let clienteId=document.getElementById('sel-cliente').value;
     let fazendaId=document.getElementById('sel-fazenda').value;

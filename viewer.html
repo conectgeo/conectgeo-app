@@ -372,15 +372,15 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     </div>
     <div class="sec" id="sec-clt-ajustes">
       <div class="sec-label"><span class="txt"><span class="sec-num">⚙</span><span data-i18n="cltAjustes">Ajustes dos Pontos</span></span></div>
-      <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamPonto">Tamanho dos pontos</span> <span class="ctrl-val" id="cv-clt-pt">100%</span></div><input type="range" id="sl-clt-pt" min="40" max="220" value="100"></div>
-      <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamRotPonto">Tamanho do rótulo dos pontos</span> <span class="ctrl-val" id="cv-clt-rpt">100%</span></div><input type="range" id="sl-clt-rpt" min="40" max="220" value="100"></div>
+      <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamPonto">Tamanho dos pontos</span> <span class="ctrl-val" id="cv-clt-pt">100%</span></div><input type="range" id="sl-clt-pt" min="0" max="100" value="100"></div>
+      <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamRotPonto">Tamanho do rótulo dos pontos</span> <span class="ctrl-val" id="cv-clt-rpt">100%</span></div><input type="range" id="sl-clt-rpt" min="0" max="100" value="100"></div>
       <div class="invert-row"><span class="label" data-i18n="cltMostrarRotPonto">Mostrar rótulo dos pontos</span><div class="toggle on" id="clt-rpt-toggle"></div></div>
     </div>
     <div class="sec">
       <div class="sec-label"><span class="txt"><span class="sec-num">🏷</span><span data-i18n="cltRotZonas">Rótulos das Zonas</span></span></div>
       <div class="invert-row"><span class="label" data-i18n="cltMostrarRotZona">Mostrar rótulo nas zonas</span><div class="toggle" id="clt-rzona-toggle"></div></div>
       <div class="ctrl" id="clt-campo-row" style="display:none;"><div class="ctrl-label" data-i18n="cltCampoZona">Campo a mostrar</div><select id="sel-clt-campo"></select></div>
-      <div class="ctrl" id="clt-tamrz-row" style="display:none;"><div class="ctrl-label"><span data-i18n="cltTamRotZona">Tamanho do rótulo das zonas</span> <span class="ctrl-val" id="cv-clt-rz">100%</span></div><input type="range" id="sl-clt-rz" min="40" max="220" value="100"></div>
+      <div class="ctrl" id="clt-tamrz-row" style="display:none;"><div class="ctrl-label"><span data-i18n="cltTamRotZona">Tamanho do rótulo das zonas</span> <span class="ctrl-val" id="cv-clt-rz">100%</span></div><input type="range" id="sl-clt-rz" min="0" max="100" value="100"></div>
     </div>
     <div class="sec">
       <div class="sec-label"><span class="txt"><span class="sec-num">⬇</span><span data-i18n="cltDownload">Baixar Shapefiles</span></span></div>
@@ -1341,7 +1341,7 @@ document.getElementById('sl-cls').addEventListener('input',function(){S.classes=
 document.getElementById('sl-opa').addEventListener('input',function(){S.opacity=this.value/100;document.getElementById('cv-opa').textContent=this.value+'%';renderMap();});
 document.getElementById('sl-lbl').addEventListener('input',function(){S.labelScale=this.value/100;document.getElementById('cv-lbl').textContent=this.value+'%';if(S.compare && S.compare.on){renderCompare();return;}if(S.showLabels){clearLabels();drawLabels();}});
 document.getElementById('invert-row').addEventListener('click',function(){S.invert=!S.invert;S.userTouchedPal=true;document.getElementById('invert-toggle').classList.toggle('on',S.invert);buildPalUI();renderMap();});
-document.getElementById('labels-row').addEventListener('click',function(){S.showLabels=!S.showLabels;document.getElementById('labels-toggle').classList.toggle('on',S.showLabels);clearLabels();if(S.showLabels)drawLabels();});
+document.getElementById('labels-row').addEventListener('click',function(){S.showLabels=!S.showLabels;document.getElementById('labels-toggle').classList.toggle('on',S.showLabels);if(S.compare&&S.compare.on){renderCompare();return;}clearLabels();if(S.showLabels)drawLabels();});
 document.querySelectorAll('.base-btn').forEach(b=>b.addEventListener('click',function(){setBasemap(this.dataset.base);}));
 
 // ══ GERAR LINK DE VISUALIZAÇÃO ══
@@ -1769,7 +1769,7 @@ async function fetchBufColeta(url){
 }
 
 // estilo base das zonas no Mapa de Coleta: linha preta grossa, sem preenchimento
-function estiloZonaColeta(){ return { color:'#1a1a1a', weight:2.5, opacity:0.9, fillColor:'#1a1a1a', fillOpacity:0 }; }
+function estiloZonaColeta(){ return { color:'#1a1a1a', weight:1.2, opacity:0.9, fillColor:'#1a1a1a', fillOpacity:0 }; }
 // monta o tooltip com as informações do shape da zona
 function infoZonaColeta(props){
   props=props||{};
@@ -1857,7 +1857,7 @@ async function carregarColeta(){
         style:estiloZonaColeta,
         onEachFeature:(f,layer)=>{
           layer.bindTooltip(infoZonaColeta(f.properties),{sticky:true,opacity:1});
-          layer.on('mouseover',function(){ this.setStyle({weight:3.5,color:'#0a7d2c',fillOpacity:0.12,fillColor:'#5fa832'}); this.bringToFront(); });
+          layer.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
           layer.on('mouseout',function(){ this.setStyle(estiloZonaColeta()); });
         }
       });
@@ -2358,6 +2358,7 @@ function renderCompare(){
   document.getElementById('mleg-left').innerHTML  = legHTML(L1,mnL,mxL);
   document.getElementById('mleg-right').innerHTML = legHTML(R1,mnR,mxR);
   clearLabels();
+  if(S.labelLayers2 && S.compare.map2){ S.labelLayers2.forEach(l=>{try{S.compare.map2.removeLayer(l);}catch(e){}}); } S.labelLayers2=[];
   _renderSide(S.map, 'layer', 'labelLayers', L1, mnL, mxL);
   _renderSide(S.compare.map2, 'layer2', 'labelLayers2', R1, mnR, mxR);
   if(S.layer)  S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
