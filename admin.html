@@ -258,21 +258,15 @@ async function carregarTudo(){
   try{
     document.getElementById('loading').style.display='block';
     document.getElementById('view-dashboard').style.display='none';
-    const [cons,cli,faz,tal,lnk]=await Promise.all([
-      sb.from('consultores').select('id,nome,email,empresa,ativo,is_admin'),
-      sb.from('clientes').select('id,nome,email,municipio,pais,consultor_id'),
-      sb.from('fazendas').select('id,nome,estado,municipio,hectares,cliente_id'),
-      sb.from('talhoes').select('id,nome,hectares,fazenda_id'),
-      sb.from('links_view').select('id,ativo,talhao_id')
-    ]);
-    if(cons.error) throw cons.error;
-    if(faz.error) console.warn('Erro fazendas:', faz.error.message);
-    if(tal.error) console.warn('Erro talhoes:', tal.error.message);
-    DATA.consultores=cons.data||[];
-    DATA.clientes=cli.data||[];
-    DATA.fazendas=faz.data||[];
-    DATA.talhoes=tal.data||[];
-    DATA.links=lnk.data||[];
+    // Busca TODOS os dados via função SECURITY DEFINER (ignora RLS, à prova de política)
+    const { data: pacote, error: pErr } = await sb.rpc('admin_dados');
+    if(pErr) throw pErr;
+    if(!pacote || pacote.erro){ throw new Error('Acesso de administrador negado. Rode o admin_funcao.sql no Supabase.'); }
+    DATA.consultores=pacote.consultores||[];
+    DATA.clientes=pacote.clientes||[];
+    DATA.fazendas=pacote.fazendas||[];
+    DATA.talhoes=pacote.talhoes||[];
+    DATA.links=pacote.links||[];
     console.log('Admin carregou:', {consultores:DATA.consultores.length, clientes:DATA.clientes.length, fazendas:DATA.fazendas.length, talhoes:DATA.talhoes.length});
     renderDashboard();
     renderConfig();
