@@ -167,23 +167,53 @@ tr:hover td{background:var(--sand);}
 .link-copy{padding:6px 12px;border-radius:7px;background:var(--leaf);color:#fff;border:none;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--f);white-space:nowrap;flex-shrink:0;}
 
 /* TOASTS */
+.mapa-wrap{display:flex;height:calc(100vh - 54px);overflow:hidden;}
+.mapa-side{width:260px;flex-shrink:0;background:#fff;border-right:1px solid var(--sand2);display:flex;flex-direction:column;overflow:hidden;}
+.mapa-side-head{padding:14px 16px;font-weight:700;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);border-bottom:1px solid var(--sand2);}
+.mapa-side-body{flex:1;overflow-y:auto;padding:10px;}
+.mapa-tal{padding:11px 13px;border-radius:9px;cursor:pointer;font-size:13px;margin-bottom:6px;border:1.5px solid var(--sand2);transition:.13s;}
+.mapa-tal:hover{border-color:var(--leaf);background:var(--leaf-bg);}
+.mapa-tal.active{border-color:var(--leaf);background:var(--leaf-bg);font-weight:600;color:var(--leaf2);}
+.mapa-tal .mt-nm{font-weight:600;}
+.mapa-tal .mt-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+.mapa-frame-wrap{flex:1;position:relative;background:#e8eae6;}
+.mapa-frame{width:100%;height:100%;border:0;display:block;}
+@media(max-width:760px){
+  .mapa-wrap{flex-direction:column;height:calc(100vh - 54px);}
+  .mapa-side{width:100%;height:auto;max-height:38vh;border-right:0;border-bottom:1px solid var(--sand2);}
+  .mapa-side.collapsed{display:none;}
+  #mapa-toggle-list{display:inline-flex!important;}
+}
 .toast-wrap{position:fixed;bottom:18px;right:18px;z-index:9999;display:flex;flex-direction:column;gap:8px;}
 .toast{background:#fff;border-radius:10px;padding:11px 15px;box-shadow:var(--sh-md);font-size:12px;display:flex;gap:8px;align-items:center;animation:tIn .2s ease;max-width:340px;}
 @keyframes tIn{from{transform:translateY(10px);opacity:0}to{transform:none;opacity:1}}
 
 @media(max-width:800px){
-  .sb{display:none;}
+  .sb{position:fixed;left:0;top:0;height:100vh;z-index:600;transform:translateX(-100%);transition:.25s;box-shadow:4px 0 30px rgba(0,0,0,.25);}
+  .sb.mobile-open{transform:translateX(0);}
   .stat-row{grid-template-columns:1fr 1fr;}
   .card-grid{grid-template-columns:1fr;}
   .so-panel{width:100vw;}
   .so-col{width:100%;display:none;}
   .so-col.mob-on{display:flex;}
+  .topbar{padding:0 14px;gap:8px;}
+  .tb-title{font-size:15px;}
+  .tbr{gap:6px;}
+  .tbr .btn{padding:7px 9px;font-size:12px;}
+  .content{padding:16px 13px;}
+  .mob-burger{display:inline-flex!important;}
 }
+@media(max-width:430px){ .stat-row{grid-template-columns:1fr;} }
+.mob-burger{display:none;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;border:1px solid var(--sand2);background:#fff;cursor:pointer;font-size:17px;flex-shrink:0;}
+.mob-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:550;}
+.mob-backdrop.show{display:block;}
 </style>
 </head>
 <body>
 
 <div id="splash"><div class="spin"></div><div style="font-size:12px;color:var(--muted)">Carregando…</div></div>
+
+<div class="mob-backdrop" id="mob-backdrop" onclick="toggleSidebar()"></div>
 
 <div class="app hidden" id="app">
   <!-- SIDEBAR -->
@@ -215,8 +245,12 @@ tr:hover td{background:var(--sand);}
     <!-- ══ VIEW: DASHBOARD ══ -->
     <div id="view-dash">
       <div class="topbar">
-        <div><div class="tb-title" id="saudacao">Bom dia 👋</div><div class="tb-sub" id="data-hoje"></div></div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          <button class="mob-burger" onclick="toggleSidebar()">☰</button>
+          <div style="min-width:0"><div class="tb-title" id="saudacao">Bom dia 👋</div><div class="tb-sub" id="data-hoje"></div></div>
+        </div>
         <div class="tbr">
+          <button class="btn sec" id="lang-btn" onclick="toggleLang()" title="Idioma / Idioma">🌐 PT</button>
           <button class="btn sec" onclick="openSO()" style="background:var(--leaf-bg);border-color:var(--leaf);color:var(--leaf2);font-weight:700">▶ Ver clientes</button>
           <button class="btn pri" onclick="showView('novo')">+ Criar Novo</button>
         </div>
@@ -239,7 +273,7 @@ tr:hover td{background:var(--sand);}
     <!-- ══ VIEW: CRIAR NOVO ══ -->
     <div id="view-novo" class="hidden">
       <div class="topbar">
-        <div><div class="tb-title">Criar novo talhão</div><div class="tb-sub">Vincule a um cliente e fazenda, depois suba os arquivos</div></div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0"><button class="mob-burger" onclick="toggleSidebar()">☰</button><div><div class="tb-title">Criar novo talhão</div><div class="tb-sub">Vincule a um cliente e fazenda, depois suba os arquivos</div></div></div>
         <button class="btn sec" onclick="showView('dash')">← Voltar</button>
       </div>
       <div class="content">
@@ -311,7 +345,7 @@ tr:hover td{background:var(--sand);}
     <!-- ══ VIEW: LINKS ══ -->
     <div id="view-links" class="hidden">
       <div class="topbar">
-        <div><div class="tb-title">Links compartilhados</div><div class="tb-sub">Links de visualização enviados aos produtores</div></div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0"><button class="mob-burger" onclick="toggleSidebar()">☰</button><div><div class="tb-title">Links compartilhados</div><div class="tb-sub">Links de visualização enviados aos produtores</div></div></div>
         <button class="btn sec" onclick="showView('dash')">← Voltar</button>
       </div>
       <div class="content">
@@ -320,6 +354,26 @@ tr:hover td{background:var(--sand);}
             <thead><tr><th>Talhão</th><th>Produtor</th><th>Link</th><th>Criado</th><th>Views</th><th>Status</th><th></th></tr></thead>
             <tbody id="links-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Carregando…</td></tr></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══ VIEW: MAPA EMBUTIDO ══ -->
+    <div id="view-mapa" class="hidden">
+      <div class="topbar">
+        <div style="display:flex;align-items:center;gap:12px;min-width:0">
+          <button class="btn sec" onclick="fecharMapa()">← Voltar</button>
+          <div style="min-width:0"><div class="tb-title" id="mapa-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Mapa</div><div class="tb-sub" id="mapa-sub"></div></div>
+        </div>
+        <button class="btn sec" id="mapa-toggle-list" onclick="toggleMapaList()" style="display:none">☰ Talhões</button>
+      </div>
+      <div class="mapa-wrap">
+        <div class="mapa-side" id="mapa-side">
+          <div class="mapa-side-head">Talhões desta fazenda</div>
+          <div class="mapa-side-body" id="mapa-talhoes"></div>
+        </div>
+        <div class="mapa-frame-wrap">
+          <iframe id="mapa-frame" class="mapa-frame" title="Mapa do talhão"></iframe>
         </div>
       </div>
     </div>
@@ -361,6 +415,49 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 let USER = null;
 
 // ═══════════════════════════════════════════════
+// IDIOMA (PT/ES) — persiste em localStorage (ponto 7)
+// ═══════════════════════════════════════════════
+const I18N={
+  pt:{
+    verClientes:'▶ Ver clientes', criarNovo:'+ Criar Novo', voltar:'← Voltar',
+    clientes:'Clientes', talhoes:'Talhões', hectares:'Hectares', linksAtivos:'Links ativos',
+    produtoresAtivos:'produtores ativos', areaTotal:'área total mapeada', visualizacoes:'visualizações',
+    talhoesRecentes:'Talhões recentes', verTodos:'Ver todos →', criarPrimeiro:'Criar primeiro talhão',
+    meusClientes:'Meus Clientes', linksCompart:'Links Compartilhados', sair:'Sair', dashboard:'Dashboard',
+    abrir:'👁 Abrir', mapaTalhoes:'Talhões desta fazenda', criarTalhao:'Criar novo talhão',
+    trocarCidade:'Trocar cidade…', buscar:'Buscar', editar:'Editar', excluir:'Excluir'
+  },
+  es:{
+    verClientes:'▶ Ver clientes', criarNovo:'+ Crear Nuevo', voltar:'← Volver',
+    clientes:'Clientes', talhoes:'Lotes', hectares:'Hectáreas', linksAtivos:'Enlaces activos',
+    produtoresAtivos:'productores activos', areaTotal:'área total mapeada', visualizacoes:'visualizaciones',
+    talhoesRecentes:'Lotes recientes', verTodos:'Ver todos →', criarPrimeiro:'Crear primer lote',
+    meusClientes:'Mis Clientes', linksCompart:'Enlaces Compartidos', sair:'Salir', dashboard:'Panel',
+    abrir:'👁 Abrir', mapaTalhoes:'Lotes de esta finca', criarTalhao:'Crear nuevo lote',
+    trocarCidade:'Cambiar ciudad…', buscar:'Buscar', editar:'Editar', excluir:'Eliminar'
+  }
+};
+function getLang(){ try{ return localStorage.getItem('cg_lang')||'pt'; }catch(e){ return 'pt'; } }
+function setLang(l){ try{ localStorage.setItem('cg_lang',l); }catch(e){} aplicarIdioma(); }
+function t(k){ const l=getLang(); return (I18N[l]&&I18N[l][k])||I18N.pt[k]||k; }
+function aplicarIdioma(){
+  const l=getLang();
+  document.documentElement.lang = l==='es'?'es':'pt-BR';
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent=t(el.dataset.i18n); });
+  const bt=document.getElementById('lang-btn'); if(bt) bt.textContent = l==='es'?'🌐 ES':'🌐 PT';
+  // se o mapa estiver aberto, recarrega o idioma do iframe
+  const fr=document.getElementById('mapa-frame');
+  if(fr && fr.src && fr.src.indexOf('viewer.html')>=0){
+    fr.src=fr.src.replace(/lang=(pt|es)/,'lang='+l);
+  }
+}
+function toggleLang(){ setLang(getLang()==='es'?'pt':'es'); }
+function toggleSidebar(){
+  const sb=document.querySelector('.sb'); const bd=document.getElementById('mob-backdrop');
+  sb.classList.toggle('mobile-open'); bd.classList.toggle('show');
+}
+
+// ═══════════════════════════════════════════════
 // AUTH GUARD + BOOT
 // ═══════════════════════════════════════════════
 (async function boot(){
@@ -385,6 +482,7 @@ let USER = null;
 
   document.getElementById('splash').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
+  aplicarIdioma();
 
   await carregarDashboard();
   carregarClima();
@@ -396,8 +494,10 @@ async function sair(){ await sb.auth.signOut(); location.href='index.html'; }
 // NAVEGAÇÃO
 // ═══════════════════════════════════════════════
 function showView(name){
-  ['dash','novo','links'].forEach(v=>document.getElementById('view-'+v).classList.toggle('hidden', v!==name));
+  ['dash','novo','links','mapa'].forEach(v=>document.getElementById('view-'+v).classList.toggle('hidden', v!==name));
   document.querySelectorAll('.ni[data-view]').forEach(n=>n.classList.toggle('on', n.dataset.view===name));
+  // fecha menu mobile
+  const sbEl=document.querySelector('.sb'); if(sbEl&&sbEl.classList.contains('mobile-open')){ sbEl.classList.remove('mobile-open'); document.getElementById('mob-backdrop').classList.remove('show'); }
   if(name==='novo'){ prepararFormNovo(); }
   if(name==='links'){ carregarLinks(); }
   if(name==='dash'){ carregarDashboard(); }
@@ -459,10 +559,11 @@ async function openSO(){
   const list=data||[];
   document.getElementById('so-cli-sub').textContent = `${list.length} produtor${list.length!==1?'es':''}`;
   document.getElementById('so-clientes').innerHTML = list.length ? list.map(c=>`
-    <div class="so-item" onclick="soSelCliente(this,'${c.id}','${esc(c.nome)}')">
-      <div class="so-av">${c.nome[0].toUpperCase()}</div>
-      <div><div class="so-nm">${c.nome}</div><div class="so-mt">${(c.fazendas||[]).length} fazenda${(c.fazendas||[]).length!==1?'s':''}</div></div>
-      <div class="so-badge">→</div>
+    <div class="so-item">
+      <div class="so-av" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')">${c.nome[0].toUpperCase()}</div>
+      <div style="flex:1;min-width:0" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')"><div class="so-nm">${c.nome}</div><div class="so-mt">${(c.fazendas||[]).length} fazenda${(c.fazendas||[]).length!==1?'s':''}</div></div>
+      <button class="ab" onclick="event.stopPropagation();excluirCliente('${c.id}','${esc(c.nome)}')" title="Excluir cliente" style="color:#d94f3d">🗑</button>
+      <div class="so-badge" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')">→</div>
     </div>`).join('')
     : `<div class="so-empty"><div class="ic">👥</div>Nenhum cliente ainda.<br><br><button class="btn pri" onclick="closeSO();showView('novo')">+ Criar Novo</button></div>`;
 }
@@ -479,10 +580,11 @@ async function soSelCliente(el, id, nome){
   const list=data||[];
   document.getElementById('so-faz-sub').textContent = `${list.length} fazenda${list.length!==1?'s':''}`;
   document.getElementById('so-fazendas').innerHTML = list.length ? list.map(f=>`
-    <div class="so-item" onclick="soSelFazenda(this,'${f.id}','${esc(f.nome)}')">
-      <div class="so-av" style="background:#f0ede8;color:#5c4d3c">🏡</div>
-      <div><div class="so-nm">${f.nome}</div><div class="so-mt">${f.municipio||''} ${(f.talhoes||[]).length} talhõe${(f.talhoes||[]).length!==1?'s':'s'}</div></div>
-      <div class="so-badge">${(f.talhoes||[]).length} →</div>
+    <div class="so-item">
+      <div class="so-av" style="background:#f0ede8;color:#5c4d3c" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')">🏡</div>
+      <div style="flex:1;min-width:0" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')"><div class="so-nm">${f.nome}</div><div class="so-mt">${f.municipio||''} ${(f.talhoes||[]).length} talhõe${(f.talhoes||[]).length!==1?'s':'s'}</div></div>
+      <button class="ab" onclick="event.stopPropagation();excluirFazenda('${f.id}','${esc(f.nome)}','${id}','${esc(nome)}')" title="Excluir fazenda" style="color:#d94f3d">🗑</button>
+      <div class="so-badge" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')">${(f.talhoes||[]).length} →</div>
     </div>`).join('')
     : `<div class="so-empty"><div class="ic">🏡</div>Sem fazendas</div>`;
   document.getElementById('so-talhoes').innerHTML='<div class="so-empty"><div class="ic">🗺</div>Selecione uma fazenda</div>';
@@ -507,8 +609,9 @@ async function soSelFazenda(el, id, nome){
         <div class="tal-mt">${t.zonas||'?'} zonas${t.hectares?' · '+Math.round(t.hectares)+' ha':''}${link?' · 🔗 link ativo':''}</div>
       </div>
       <div class="tal-acts">
-        <button class="ab" onclick="abrirTalhao('${t.id}')">👁</button>
-        <button class="ab" onclick="gerarOuCopiarLink('${t.id}')">🔗</button>
+        <button class="ab" onclick="abrirTalhao('${t.id}')" title="Ver no mapa">👁</button>
+        <button class="ab" onclick="gerarOuCopiarLink('${t.id}')" title="Copiar link">🔗</button>
+        <button class="ab" onclick="excluirTalhao('${t.id}','${esc(t.nome)}','${id}','${esc(nome)}')" title="Excluir talhão" style="color:#d94f3d">🗑</button>
       </div>
     </div>`;}).join('')
     : `<div class="so-empty"><div class="ic">🗺</div>Sem talhões<br><br><button class="btn pri" onclick="closeSO();showView('novo')">+ Criar talhão</button></div>`;
@@ -709,16 +812,60 @@ async function copiarLink(){
 // ═══════════════════════════════════════════════
 // AÇÕES (abrir viewer / gerar-copiar link)
 // ═══════════════════════════════════════════════
-async function abrirTalhao(talhaoId){
+// ═══════════════════════════════════════════════
+// MAPA EMBUTIDO (ponto 6/11) — abre na mesma página
+// ═══════════════════════════════════════════════
+let MAPA_CTX={fazendaId:null,talhoes:[],fazendaNome:''};
+
+async function tokenDoTalhao(talhaoId){
   const { data } = await sb.from('links_view').select('token').eq('talhao_id',talhaoId).eq('ativo',true).limit(1);
-  let token=data?.[0]?.token;
+  let token=data&&data[0]&&data[0].token;
   if(!token){
     token=tokenGen();
     const { error } = await sb.from('links_view').insert({ token, talhao_id: talhaoId });
-    if(error){ toast('Erro ao criar link: '+error.message,'⚠️'); return; }
+    if(error){ toast('Erro ao criar link: '+error.message,'⚠️'); return null; }
   }
-  window.open(`viewer.html?t=${token}`,'_blank');
+  return token;
 }
+
+async function abrirTalhao(talhaoId){
+  // descobre a fazenda do talhão para montar a lista lateral
+  const { data:tal } = await sb.from('talhoes').select('id,nome,hectares,fazenda_id,fazenda:fazendas(nome)').eq('id',talhaoId).single();
+  if(!tal){ toast('Talhão não encontrado','⚠️'); return; }
+  const { data:irmaos } = await sb.from('talhoes').select('id,nome,hectares').eq('fazenda_id',tal.fazenda_id).order('nome');
+  MAPA_CTX={fazendaId:tal.fazenda_id,talhoes:irmaos||[tal],fazendaNome:(tal.fazenda&&tal.fazenda.nome)||''};
+  document.getElementById('mapa-title').textContent=MAPA_CTX.fazendaNome||'Mapa';
+  renderMapaLista(talhaoId);
+  showView('mapa');
+  await carregarTalhaoNoMapa(talhaoId, tal.nome);
+}
+
+function renderMapaLista(ativoId){
+  const box=document.getElementById('mapa-talhoes');
+  box.innerHTML='';
+  MAPA_CTX.talhoes.forEach(t=>{
+    const div=document.createElement('div');
+    div.className='mapa-tal'+(t.id===ativoId?' active':'');
+    div.innerHTML='<div class="mt-nm">'+t.nome+'</div><div class="mt-sub">'+(Number(t.hectares)||0).toFixed(1)+' ha</div>';
+    div.onclick=()=>{ carregarTalhaoNoMapa(t.id,t.nome); renderMapaLista(t.id); if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed'); };
+    box.appendChild(div);
+  });
+}
+
+async function carregarTalhaoNoMapa(talhaoId, nome){
+  document.getElementById('mapa-sub').textContent=nome||'';
+  const token=await tokenDoTalhao(talhaoId);
+  if(!token) return;
+  const lang=getLang();
+  document.getElementById('mapa-frame').src='viewer.html?t='+token+'&lang='+lang+'&embed=1';
+}
+
+function fecharMapa(){
+  document.getElementById('mapa-frame').src='about:blank';
+  showView('dash');
+}
+function toggleMapaList(){ document.getElementById('mapa-side').classList.toggle('collapsed'); }
+
 
 async function gerarOuCopiarLink(talhaoId){
   const { data } = await sb.from('links_view').select('token').eq('talhao_id',talhaoId).eq('ativo',true).limit(1);
@@ -732,6 +879,50 @@ async function gerarOuCopiarLink(talhaoId){
   try{ await navigator.clipboard.writeText(url); toast('Link copiado!','✅'); }
   catch(e){ prompt('Copie o link:', url); }
 }
+
+// ═══════════════════════════════════════════════
+// EXCLUSÕES (ponto 8) — talhão, fazenda, cliente
+// ═══════════════════════════════════════════════
+async function excluirTalhao(id,nome,fazendaId,fazendaNome){
+  if(!confirm('Excluir o talhão "'+nome+'"?\n\nOs arquivos e o link de visualização serão removidos. Esta ação não pode ser desfeita.')) return;
+  try{
+    // remove arquivos do storage
+    try{ await sb.storage.from('arquivos').remove([USER.id+'/'+id+'/zonas.geojson', USER.id+'/'+id+'/analises.csv', USER.id+'/'+id+'/analises.xlsx']); }catch(e){}
+    const { error } = await sb.from('talhoes').delete().eq('id',id);
+    if(error) throw error;
+    toast('Talhão excluído','✅');
+    // recarrega a coluna de talhões
+    const fakeEl=document.querySelector('#so-fazendas .so-item.sel')||document.createElement('div');
+    await soSelFazenda(fakeEl, fazendaId, fazendaNome);
+    carregarDashboard();
+  }catch(err){ toast('Erro ao excluir: '+err.message,'⚠️'); }
+}
+
+async function excluirFazenda(id,nome,clienteId,clienteNome){
+  if(!confirm('Excluir a fazenda "'+nome+'"?\n\nTODOS os talhões, arquivos e links dela serão removidos. Esta ação não pode ser desfeita.')) return;
+  try{
+    const { error } = await sb.from('fazendas').delete().eq('id',id);
+    if(error) throw error;
+    toast('Fazenda excluída','✅');
+    const fakeEl=document.querySelector('#so-clientes .so-item.sel')||document.createElement('div');
+    await soSelCliente(fakeEl, clienteId, clienteNome);
+    carregarDashboard();
+  }catch(err){ toast('Erro ao excluir: '+err.message,'⚠️'); }
+}
+
+async function excluirCliente(id,nome){
+  if(!confirm('Excluir o cliente "'+nome+'"?\n\nTODAS as fazendas, talhões, arquivos e links dele serão removidos. Esta ação não pode ser desfeita.')) return;
+  try{
+    const { error } = await sb.from('clientes').delete().eq('id',id);
+    if(error) throw error;
+    toast('Cliente excluído','✅');
+    openSO(); // recarrega lista de clientes
+    document.getElementById('so-fazendas').innerHTML='<div class="so-empty"><div class="ic">🏡</div>Selecione um cliente</div>';
+    document.getElementById('so-talhoes').innerHTML='<div class="so-empty"><div class="ic">🗺</div>Selecione uma fazenda</div>';
+    carregarDashboard();
+  }catch(err){ toast('Erro ao excluir: '+err.message,'⚠️'); }
+}
+
 
 // ═══════════════════════════════════════════════
 // LINKS VIEW
