@@ -513,7 +513,7 @@ async function verMapaAdmin(talhaoId, nome){
     div.onclick=()=>verMapaAdmin(tt.id,tt.nome);
     lista.appendChild(div);
   }
-  document.getElementById('mapa-iframe').src='viewer.html?t='+token+'&lang='+getLang()+'&embed=1';
+  document.getElementById('mapa-iframe').src='viewer.html?t='+token+'&lang='+getLang()+'&embed=1&consultor=1';
   showView('mapa');
 }
 function voltarDoMapa(){ document.getElementById('mapa-iframe').src='about:blank'; if(CLIENTE_CTX.cid) verCliente(CLIENTE_CTX.cid,CLIENTE_CTX.consultorId); else showView('dashboard'); }

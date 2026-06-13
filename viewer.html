@@ -14,6 +14,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
 <script src="https://unpkg.com/georaster-layer-for-leaflet@4.1.2/dist/georaster-layer-for-leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 :root{
   --bg:#eceae3;--surface:#fbfaf6;--panel:#f2f0e8;--border:#dcd8cc;--border2:#c4bfb0;
@@ -208,6 +209,19 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 .pt-coleta{display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);}
 .pt-coleta-dot{width:10px;height:10px;border-radius:50%;background:#e63946;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.5);}
 .pt-coleta-lbl{font-size:10px;font-weight:700;color:#fff;background:rgba(0,0,0,.65);padding:1px 5px;border-radius:8px;margin-top:2px;white-space:nowrap;}
+/* modo coleta: esconde controles de nutriente, mostra painel de coleta */
+body.mode-coleta #sec-depth,
+body.mode-coleta #sec-join,
+body.mode-coleta #sec-viz,
+body.mode-coleta #sec-pal,
+body.mode-coleta #sec-app,
+body.mode-coleta #sec-leg,
+body.mode-coleta #sec-stat,
+body.mode-coleta #sec-pdf,
+body.mode-coleta #view-banner{display:none!important;}
+body.mode-coleta #painel-coleta{display:block!important;}
+body.consultor-mode .consultor-only{display:block!important;}
+.zona-rot{font-size:11px;font-weight:700;color:#1a1a1a;background:rgba(255,255,255,.8);padding:1px 5px;border-radius:6px;white-space:nowrap;text-align:center;transform:translate(-50%,-50%);}
 body.has-data .basemap-float{display:flex;}
 .base-btn{padding:7px 12px;background:transparent;border:1.5px solid transparent;border-radius:7px;font-size:11px;color:var(--muted);cursor:pointer;transition:.15s;font-family:var(--f);white-space:nowrap;}
 .base-btn:hover{color:var(--accent2);}
@@ -331,6 +345,49 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
   <div class="view-banner" id="view-banner" data-i18n="viewBanner">
     Visualização do projeto. Explore os nutrientes, ajuste cores e gere o relatório em PDF.
+  </div>
+
+  <!-- ══ PAINEL DO MODO COLETA DE SOLO (Onda 2) ══ -->
+  <div id="painel-coleta" style="display:none;">
+    <div class="sec consultor-only" style="display:none">
+      <div class="sec-label"><span class="txt"><span class="sec-num">⬆</span><span data-i18n="cltAddArquivos">Adicionar arquivos</span></span></div>
+      <div class="up-zone" id="uz-clt-shp" style="margin-bottom:8px">
+        <input type="file" id="f-clt-shp" accept=".zip,.geojson,.json" multiple>
+        <div class="up-icon">🗺</div>
+        <div class="up-text"><div class="up-title" data-i18n="cltAddShp">Zonas / Pontos (.zip)</div><div class="up-sub">detecta o tipo</div></div>
+      </div>
+      <div class="up-zone" id="uz-clt-raster">
+        <input type="file" id="f-clt-raster" accept=".tif,.tiff">
+        <div class="up-icon">🖼</div>
+        <div class="up-text"><div class="up-title" data-i18n="cltAddRaster">Raster colorido (.tif)</div><div class="up-sub">até 5 MB</div></div>
+      </div>
+      <div id="clt-up-status" style="font-size:11px;margin-top:6px"></div>
+    </div>
+    <div class="sec">
+      <div class="sec-label"><span class="txt"><span class="sec-num">📍</span><span data-i18n="cltCamadas">Camadas</span></span></div>
+      <div class="invert-row"><span class="label" data-i18n="cltVerRaster">Mostrar imagem (raster)</span><div class="toggle on" id="clt-raster-toggle"></div></div>
+      <div class="invert-row"><span class="label" data-i18n="cltVerPontos">Mostrar pontos de coleta</span><div class="toggle on" id="clt-pontos-toggle"></div></div>
+      <div class="invert-row"><span class="label" data-i18n="cltVerZonas">Mostrar zonas de manejo</span><div class="toggle on" id="clt-zonas-toggle"></div></div>
+    </div>
+    <div class="sec">
+      <div class="sec-label"><span class="txt"><span class="sec-num">⚙</span><span data-i18n="cltAjustes">Ajustes</span></span></div>
+      <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamPonto">Tamanho dos pontos</span> <span class="ctrl-val" id="cv-clt-pt">100%</span></div><input type="range" id="sl-clt-pt" min="40" max="220" value="100"></div>
+      <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamRotPonto">Tamanho do rótulo dos pontos</span> <span class="ctrl-val" id="cv-clt-rpt">100%</span></div><input type="range" id="sl-clt-rpt" min="40" max="220" value="100"></div>
+      <div class="invert-row"><span class="label" data-i18n="cltMostrarRotPonto">Mostrar rótulo dos pontos</span><div class="toggle on" id="clt-rpt-toggle"></div></div>
+    </div>
+    <div class="sec">
+      <div class="sec-label"><span class="txt"><span class="sec-num">🏷</span><span data-i18n="cltRotZonas">Rótulos das Zonas</span></span></div>
+      <div class="invert-row"><span class="label" data-i18n="cltMostrarRotZona">Mostrar rótulo nas zonas</span><div class="toggle" id="clt-rzona-toggle"></div></div>
+      <div class="ctrl" id="clt-campo-row" style="display:none;"><div class="ctrl-label" data-i18n="cltCampoZona">Campo a mostrar</div><select id="sel-clt-campo"></select></div>
+      <div class="ctrl" id="clt-tamrz-row" style="display:none;"><div class="ctrl-label"><span data-i18n="cltTamRotZona">Tamanho do rótulo das zonas</span> <span class="ctrl-val" id="cv-clt-rz">100%</span></div><input type="range" id="sl-clt-rz" min="40" max="220" value="100"></div>
+    </div>
+    <div class="sec">
+      <div class="sec-label"><span class="txt"><span class="sec-num">⬇</span><span data-i18n="cltDownload">Baixar Shapefiles</span></span></div>
+      <button class="pdf-btn" id="btn-clt-download" style="background:var(--leaf);" onclick="baixarShpColeta()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span data-i18n="cltBaixarZip">Baixar zonas e pontos (.zip)</span>
+      </button>
+    </div>
   </div>
 
   <div class="upload-banner" id="upload-banner">
@@ -635,6 +692,9 @@ const S = {
   map:null, layer:null, layer2:null, labelLayers:[], labelLayers2:[], joined:{}, stats:{},
   compare:{on:false,left:null,right:null,map2:null,baseLayers2:null},
   coleta:null, mapMode:'nutrientes', coletaLayers:{raster:null,pontos:null,zonas:null}, coletaLoaded:false,
+  coletaGeo:{pontos:null,zonas:null},
+  cltCfg:{ptSize:100,ptLblSize:100,showPtLbl:true,zonaLblSize:100,showZonaLbl:false,zonaCampo:null},
+  coletaZonaLabels:[], consultorMode:false, tokenAtual:null,
 };
 
 // ══ DEPTH COLUMN DETECTION ══
@@ -734,6 +794,11 @@ const I18N = {
  pt:{
   viewBanner:'Visualização do projeto. Explore os nutrientes, ajuste cores e gere o relatório em PDF.',
   modoNutrientes:'Mapa de Nutrientes', modoColeta:'Mapa de Coleta de Solo',
+  cltCamadas:'Camadas', cltVerRaster:'Mostrar imagem (raster)', cltVerPontos:'Mostrar pontos de coleta', cltVerZonas:'Mostrar zonas de manejo',
+  cltAjustes:'Ajustes', cltTamPonto:'Tamanho dos pontos', cltTamRotPonto:'Tamanho do rótulo dos pontos', cltMostrarRotPonto:'Mostrar rótulo dos pontos',
+  cltRotZonas:'Rótulos das Zonas', cltMostrarRotZona:'Mostrar rótulo nas zonas', cltCampoZona:'Campo a mostrar', cltTamRotZona:'Tamanho do rótulo das zonas',
+  cltDownload:'Baixar Shapefiles', cltBaixarZip:'Baixar zonas e pontos (.zip)',
+  cltAddArquivos:'Adicionar arquivos', cltAddShp:'Zonas / Pontos (.zip)', cltAddRaster:'Raster colorido (.tif)',
   uploadBanner:'Carregue suas zonas e a planilha de análises. Os dados ficam salvos neste dispositivo — se a internet cair, nada se perde.',
   clearData:'🗑 Limpar dados salvos',
   secZonas:'Zonas de Manejo',secPlanilha:'Planilha de Análises',secProf:'Profundidade',secJoin:'Junção de Dados',
@@ -769,6 +834,11 @@ const I18N = {
  es:{
   viewBanner:'Visualización del proyecto. Explore los nutrientes, ajuste colores y genere el informe en PDF.',
   modoNutrientes:'Mapa de Nutrientes', modoColeta:'Mapa de Muestreo de Suelo',
+  cltCamadas:'Capas', cltVerRaster:'Mostrar imagen (raster)', cltVerPontos:'Mostrar puntos de muestreo', cltVerZonas:'Mostrar zonas de manejo',
+  cltAjustes:'Ajustes', cltTamPonto:'Tamaño de los puntos', cltTamRotPonto:'Tamaño de la etiqueta de puntos', cltMostrarRotPonto:'Mostrar etiqueta de puntos',
+  cltRotZonas:'Etiquetas de Zonas', cltMostrarRotZona:'Mostrar etiqueta en zonas', cltCampoZona:'Campo a mostrar', cltTamRotZona:'Tamaño de la etiqueta de zonas',
+  cltDownload:'Descargar Shapefiles', cltBaixarZip:'Descargar zonas y puntos (.zip)',
+  cltAddArquivos:'Agregar archivos', cltAddShp:'Zonas / Puntos (.zip)', cltAddRaster:'Raster a color (.tif)',
   uploadBanner:'Cargue sus zonas y la planilla de análisis. Los datos quedan guardados en este dispositivo — si se cae internet, no se pierde nada.',
   clearData:'🗑 Borrar datos guardados',
   secZonas:'Zonas de Manejo',secPlanilha:'Planilla de Análisis',secProf:'Profundidad',secJoin:'Unión de Datos',
@@ -1706,9 +1776,10 @@ function setMapMode(mode){
     clearLabels();
     document.getElementById('mleg-left').style.display='none';
     document.body.classList.add('mode-coleta');
-    carregarColeta();
+    carregarColeta().then(()=>{ renderZonaLabels(); });
   }else{
     Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
+    S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l));
     document.getElementById('mleg-left').style.display='';
     document.body.classList.remove('mode-coleta');
     if(S.layer) S.layer.addTo(S.map);
@@ -1734,24 +1805,43 @@ async function carregarColeta(){
       if(!_parse) throw new Error('Biblioteca de raster (georaster) não carregou — verifique a internet');
       const georaster=await _parse(buf);
       const _Layer = (typeof GeoRasterLayer!=='undefined')?GeoRasterLayer:window.GeoRasterLayer;
-      S.coletaLayers.raster=new _Layer({ georaster, opacity:1, resolution:256 });
+      const noData = georaster.noDataValue;
+      const nBands = georaster.numberOfRasters || (georaster.values?georaster.values.length:1);
+      S.coletaLayers.raster=new _Layer({
+        georaster, opacity:1, resolution:256,
+        // pinta cada pixel com a cor RGB original; torna transparente o fundo (nodata, preto puro ou branco puro)
+        pixelValuesToColorFn: (vals)=>{
+          // valores ausentes → transparente
+          if(vals==null) return null;
+          let r,g,b,a=255;
+          if(nBands>=3){ r=vals[0]; g=vals[1]; b=vals[2]; if(nBands>=4 && vals[3]!=null) a=vals[3]; }
+          else { r=g=b=vals[0]; } // 1 banda (tons de cinza)
+          // pixel sem dado
+          if(r==null||g==null||b==null) return null;
+          if(noData!=null && (vals[0]===noData)) return null;
+          // fundo preto puro (0,0,0) que normalmente é a borda nodata do GeoTIFF → transparente
+          if(r===0 && g===0 && b===0) return null;
+          if(a===0) return null;
+          return 'rgba('+r+','+g+','+b+','+(a/255)+')';
+        }
+      });
       S.coletaLayers.raster.addTo(S.map);
     }
     if(S.coleta.zonas){
       const buf=await fetchBufColeta(S.coleta.zonas);
-      const gj=await shp(buf);
+      let gj=await shp(buf);
+      if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])};
+      S.coletaGeo.zonas=gj;
       S.coletaLayers.zonas=L.geoJSON(gj,{ style:{ color:'#1a1a1a', weight:2.5, fillOpacity:0, opacity:0.9 } });
+      // detecta campos disponíveis nas zonas para o seletor de rótulo
+      popularCamposZona(gj);
     }
     if(S.coleta.pontos){
       const buf=await fetchBufColeta(S.coleta.pontos);
-      const gj=await shp(buf);
-      S.coletaLayers.pontos=L.geoJSON(gj,{
-        pointToLayer:(feat,latlng)=>{
-          const props=feat.properties||{};
-          const rotulo=props.id||props.ID||props.ponto||props.PONTO||props.nome||props.NOME||props.numero||props.NUMERO||props.Name||props.name||'';
-          return L.marker(latlng,{ icon:L.divIcon({ className:'pt-coleta', html:'<div class="pt-coleta-dot"></div>'+(rotulo!==''?'<div class="pt-coleta-lbl">'+rotulo+'</div>':''), iconSize:null }) });
-        }
-      });
+      let gj=await shp(buf);
+      if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])};
+      S.coletaGeo.pontos=gj;
+      S.coletaLayers.pontos=criarCamadaPontos(gj);
     }
     if(S.coletaLayers.pontos) S.coletaLayers.pontos.addTo(S.map);
     if(S.coletaLayers.zonas) S.coletaLayers.zonas.addTo(S.map);
@@ -1774,8 +1864,161 @@ function ajustarVistaColeta(){
   if(b && b.isValid()) S.map.fitBounds(b,{padding:[30,30]});
 }
 
+// cria a camada de pontos respeitando os tamanhos configurados
+function criarCamadaPontos(gj){
+  const ptScale=S.cltCfg.ptSize/100, lblScale=S.cltCfg.ptLblSize/100, showLbl=S.cltCfg.showPtLbl;
+  const dot=Math.round(10*ptScale), lblFs=Math.round(10*lblScale);
+  return L.geoJSON(gj,{
+    pointToLayer:(feat,latlng)=>{
+      const props=feat.properties||{};
+      const rotulo=props.id||props.ID||props.ponto||props.PONTO||props.nome||props.NOME||props.numero||props.NUMERO||props.Name||props.name||'';
+      const html='<div class="pt-coleta-dot" style="width:'+dot+'px;height:'+dot+'px;"></div>'+
+        ((showLbl&&rotulo!=='')?'<div class="pt-coleta-lbl" style="font-size:'+lblFs+'px;">'+rotulo+'</div>':'');
+      return L.marker(latlng,{ icon:L.divIcon({ className:'pt-coleta', html, iconSize:null }) });
+    }
+  });
+}
+
+// detecta campos das zonas (ex: ZG, Area) e popula o seletor
+function popularCamposZona(gj){
+  const props=(gj.features&&gj.features[0]&&gj.features[0].properties)||{};
+  const campos=Object.keys(props);
+  const sel=document.getElementById('sel-clt-campo');
+  if(!sel) return;
+  sel.innerHTML=campos.map(c=>'<option value="'+c+'">'+c+'</option>').join('');
+  // tenta pré-selecionar ZG
+  const zg=campos.find(c=>/^zg$/i.test(c)||/zona/i.test(c));
+  if(zg) sel.value=zg; else if(campos.length) sel.value=campos[0];
+  S.cltCfg.zonaCampo=sel.value;
+}
+
+// centroide simples de um polígono/multipolígono (para posicionar o rótulo)
+function centroidePoly(geom){
+  let pts=[];
+  const coords=geom.type==='Polygon'?geom.coordinates:geom.type==='MultiPolygon'?geom.coordinates.flat():[];
+  coords.forEach(ring=>{ (Array.isArray(ring[0][0])?ring.flat():ring).forEach(c=>{ if(typeof c[0]==='number') pts.push(c); }); });
+  if(!pts.length) return null;
+  let x=0,y=0; pts.forEach(p=>{x+=p[0];y+=p[1];}); return [y/pts.length, x/pts.length];
+}
+
+function renderZonaLabels(){
+  // limpa rótulos anteriores
+  S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l)); S.coletaZonaLabels=[];
+  if(!S.cltCfg.showZonaLbl || !S.coletaGeo.zonas) return;
+  const campo=S.cltCfg.zonaCampo, fs=Math.round(11*(S.cltCfg.zonaLblSize/100));
+  (S.coletaGeo.zonas.features||[]).forEach(f=>{
+    if(!f.geometry) return;
+    const c=centroidePoly(f.geometry); if(!c) return;
+    let val=(f.properties&&f.properties[campo]!=null)?f.properties[campo]:'';
+    if(typeof val==='number') val=Math.round(val*100)/100;
+    if(val==='') return;
+    const m=L.marker(c,{icon:L.divIcon({className:'zona-rot',html:'<div class="zona-rot" style="font-size:'+fs+'px;">'+val+'</div>',iconSize:null}),interactive:false});
+    m.addTo(S.map); S.coletaZonaLabels.push(m);
+  });
+}
+
+// reaplica pontos (quando muda tamanho)
+function refreshPontos(){
+  if(!S.coletaGeo.pontos) return;
+  const visivel = S.coletaLayers.pontos && S.map.hasLayer(S.coletaLayers.pontos);
+  if(S.coletaLayers.pontos) S.map.removeLayer(S.coletaLayers.pontos);
+  S.coletaLayers.pontos=criarCamadaPontos(S.coletaGeo.pontos);
+  if(visivel) S.coletaLayers.pontos.addTo(S.map);
+}
+
+// liga os controles do painel de coleta (chamado uma vez no boot)
+function wireColetaControls(){
+  const tgl=(id,cb)=>{ const el=document.getElementById(id); if(el) el.addEventListener('click',()=>{ el.classList.toggle('on'); cb(el.classList.contains('on')); }); };
+  tgl('clt-raster-toggle',on=>{ if(!S.coletaLayers.raster)return; on?S.coletaLayers.raster.addTo(S.map):S.map.removeLayer(S.coletaLayers.raster); });
+  tgl('clt-pontos-toggle',on=>{ if(!S.coletaLayers.pontos)return; on?S.coletaLayers.pontos.addTo(S.map):S.map.removeLayer(S.coletaLayers.pontos); });
+  tgl('clt-zonas-toggle',on=>{ if(!S.coletaLayers.zonas)return; on?S.coletaLayers.zonas.addTo(S.map):S.map.removeLayer(S.coletaLayers.zonas); });
+  tgl('clt-rpt-toggle',on=>{ S.cltCfg.showPtLbl=on; refreshPontos(); });
+  tgl('clt-rzona-toggle',on=>{
+    S.cltCfg.showZonaLbl=on;
+    document.getElementById('clt-campo-row').style.display=on?'block':'none';
+    document.getElementById('clt-tamrz-row').style.display=on?'block':'none';
+    renderZonaLabels();
+  });
+  const sl=(id,valId,cb)=>{ const el=document.getElementById(id); if(el) el.addEventListener('input',()=>{ const v=+el.value; if(valId)document.getElementById(valId).textContent=v+'%'; cb(v); }); };
+  sl('sl-clt-pt','cv-clt-pt',v=>{ S.cltCfg.ptSize=v; refreshPontos(); });
+  sl('sl-clt-rpt','cv-clt-rpt',v=>{ S.cltCfg.ptLblSize=v; refreshPontos(); });
+  sl('sl-clt-rz','cv-clt-rz',v=>{ S.cltCfg.zonaLblSize=v; renderZonaLabels(); });
+  const selc=document.getElementById('sel-clt-campo');
+  if(selc) selc.addEventListener('change',()=>{ S.cltCfg.zonaCampo=selc.value; renderZonaLabels(); });
+
+  // uploads do consultor (modo consultor) — coleta
+  const elShp=document.getElementById('f-clt-shp');
+  if(elShp) elShp.addEventListener('change', async()=>{
+    const st=document.getElementById('clt-up-status');
+    const files=Array.from(elShp.files||[]); if(!files.length) return;
+    if(!sb||!S.tokenAtual){ st.textContent='Sem conexão para salvar.'; return; }
+    st.textContent='Enviando…';
+    try{
+      for(const f of files){
+        const buf=await f.arrayBuffer();
+        let gj=await shp(buf); if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])};
+        const tipos=(gj.features||[]).map(ft=>ft.geometry&&ft.geometry.type);
+        const ehPonto=tipos.some(t=>t==='Point'||t==='MultiPoint');
+        const path='coleta/'+S.tokenAtual+'/'+(ehPonto?'pontos':'zonas')+'.zip';
+        await sb.storage.from('arquivos').upload(path, f, {upsert:true});
+        const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
+        await sb.rpc('atualizar_coleta', ehPonto?{p_token:S.tokenAtual,p_pontos_url:url}:{p_token:S.tokenAtual,p_zonas_url:url});
+      }
+      st.textContent='✅ Salvo! Recarregando…';
+      setTimeout(()=>location.reload(),900);
+    }catch(err){ st.textContent='Erro: '+err.message; }
+  });
+  const elRas=document.getElementById('f-clt-raster');
+  if(elRas) elRas.addEventListener('change', async()=>{
+    const st=document.getElementById('clt-up-status');
+    const f=elRas.files[0]; if(!f) return;
+    if(f.size>5*1024*1024){ st.textContent='Raster acima de 5 MB.'; return; }
+    if(!sb||!S.tokenAtual){ st.textContent='Sem conexão para salvar.'; return; }
+    st.textContent='Enviando raster…';
+    try{
+      const path='coleta/'+S.tokenAtual+'/raster.tif';
+      await sb.storage.from('arquivos').upload(path, f, {upsert:true});
+      const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
+      await sb.rpc('atualizar_coleta', {p_token:S.tokenAtual,p_raster_url:url});
+      st.textContent='✅ Salvo! Recarregando…';
+      setTimeout(()=>location.reload(),900);
+    }catch(err){ st.textContent='Erro: '+err.message; }
+  });
+}
+
+// baixa zonas+pontos num único ZIP
+async function baixarShpColeta(){
+  try{
+    const partes=[];
+    if(S.coleta&&S.coleta.zonas) partes.push({url:S.coleta.zonas,nome:'zonas'});
+    if(S.coleta&&S.coleta.pontos) partes.push({url:S.coleta.pontos,nome:'pontos'});
+    if(!partes.length){ alert('Sem arquivos de coleta para baixar.'); return; }
+    // se só houver os .zip originais, baixa o de zonas e o de pontos
+    // monta nome padrão
+    const meta=S.coletaMeta||{cliente:'cliente',fazenda:'fazenda',talhao:'talhao'};
+    const base='Arquivos SHP para Amostragem de Solo_'+meta.cliente+'_'+meta.fazenda+'_'+meta.talhao;
+    // usa JSZip se disponível; senão baixa os zips separados
+    if(window.JSZip){
+      const zip=new JSZip();
+      for(const p of partes){
+        const r=await fetch(p.url); const b=await r.arrayBuffer();
+        zip.file(p.nome+'.zip', b);
+      }
+      const blob=await zip.generateAsync({type:'blob'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=base+'.zip'; a.click();
+    }else{
+      // fallback: baixa cada zip separadamente
+      for(const p of partes){
+        const a=document.createElement('a'); a.href=p.url; a.download=base+'_'+p.nome+'.zip'; a.click();
+        await new Promise(r=>setTimeout(r,400));
+      }
+    }
+  }catch(err){ alert('Erro ao baixar: '+err.message); }
+}
+
 async function loadFromToken(token, params){
   document.body.classList.add('viewmode');
+  S.tokenAtual=token;
   document.getElementById('ls-logo').src=LOGO_DATA;
   document.getElementById('loader-screen').classList.add('show');
   try{
@@ -1828,8 +2071,9 @@ async function loadFromToken(token, params){
     if(S.activeDepth) applyActiveDepth(); else tryActivate();
 
     // ── MAPA DE COLETA DE SOLO (Onda 2) ──
-    if(data.tem_coleta_solo && data.coleta_raster_url){
-      S.coleta = { zonas:data.coleta_zonas_url, pontos:data.coleta_pontos_url, raster:data.coleta_raster_url };
+    if(data.tem_coleta_solo && (data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url)){
+      S.coleta = { zonas:data.coleta_zonas_url||'', pontos:data.coleta_pontos_url||'', raster:data.coleta_raster_url||'' };
+      S.coletaMeta = { cliente:(data.cliente||'cliente'), fazenda:(data.fazenda||'fazenda'), talhao:(data.talhao||'talhao') };
       const ms=document.getElementById('mode-switch'); if(ms) ms.style.display='flex';
     }
 
@@ -1846,6 +2090,8 @@ async function loadFromURL(){
   const params=new URLSearchParams(location.search);
   // modo embutido (dentro da plataforma): esconde header e troca de idioma
   if(params.get('embed')==='1'){ document.body.classList.add('embed'); }
+  // modo consultor (logado): habilita campos de upload dentro do mapa
+  if(params.get('consultor')==='1'){ S.consultorMode=true; document.body.classList.add('consultor-mode'); }
   // idioma: ?lang=es|pt ou preferência salva
   const langParam=params.get('lang');
   const savedLang=(()=>{try{return localStorage.getItem('cg_lang');}catch(e){return null;}})();
@@ -1921,6 +2167,7 @@ function toast(msg,type='ok',dur=3800){const el=document.createElement('div');el
 
 initMap();
 loadFromURL();
+wireColetaControls();
 
 
 /* ═══ MODO COMPARAÇÃO ═══ */
