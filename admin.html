@@ -233,6 +233,24 @@ tr:hover td{background:var(--sand);}
   </div>
 </div>
 
+<div class="modal" id="modal-cliente">
+  <div class="modal-content">
+    <h2>Editar Cliente</h2>
+    <div class="msg error" id="ec-erro"></div>
+    <form onsubmit="salvarCliente(event)">
+      <input type="hidden" id="ec-id">
+      <div class="form-group"><label>Nome</label><input type="text" id="ec-nome" required></div>
+      <div class="form-group"><label>E-mail</label><input type="email" id="ec-email" placeholder="email@exemplo.com"></div>
+      <div class="form-group"><label>Município</label><input type="text" id="ec-municipio" placeholder="Ex: Londrina"><div class="form-hint">Usado na previsão do tempo do cliente.</div></div>
+      <div class="form-group"><label>País</label><input type="text" id="ec-pais" placeholder="Brasil"></div>
+      <div class="modal-buttons">
+        <button type="button" class="btn-cancel" onclick="closeModal('modal-cliente')">Cancelar</button>
+        <button type="submit" class="btn-save">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 const SB_URL='https://xlhwhhettdnssvvppiuf.supabase.co';
 const SB_KEY='sb_publishable_HK6W6kBCMF627z31zvGFZA_VjcaGlSe';
@@ -426,21 +444,52 @@ function verCliente(clienteId, consultorId){
   let fazHtml='';
   fs.forEach(f=>{
     const tals=talhoesDaFazenda(f.id);
+    const haFaz=tals.reduce((s,t)=>s+(Number(t.hectares)||0),0);
     let talHtml='';
     tals.forEach(t=>{
       talHtml+='<tr><td style="padding-left:28px;">🗺 '+t.nome+'</td><td>'+(Number(t.hectares)||0).toFixed(1)+' ha</td><td><button class="action-btn" onclick="verMapaAdmin(\''+t.id+'\',\''+(t.nome||'').replace(/'/g,'')+'\')">Ver no mapa</button></td></tr>';
     });
     if(!talHtml) talHtml='<tr><td style="padding-left:28px;color:var(--muted);" colspan="3">Sem talhões</td></tr>';
-    fazHtml+='<tr style="background:var(--sand);"><td><strong>🏡 '+f.nome+'</strong></td><td>'+(Number(f.hectares)||0).toFixed(1)+' ha</td><td>'+(f.municipio||'')+'</td></tr>'+talHtml;
+    fazHtml+='<tr style="background:var(--sand);"><td><strong>🏡 '+f.nome+'</strong></td><td><strong>'+haFaz.toFixed(1)+' ha</strong></td><td>'+(f.municipio||'')+'</td></tr>'+talHtml;
   });
   if(!fazHtml) fazHtml='<tr><td colspan="3" class="empty">Nenhuma fazenda.</td></tr>';
   const local=[cl.municipio||'—',cl.pais||'Brasil'].filter(Boolean).join(' / ');
   document.getElementById('view-cliente').innerHTML=
     '<button class="back-btn" onclick="verConsultor(\''+consultorId+'\')">← Voltar ao consultor</button>'+
-    '<div class="stat-card" style="margin-bottom:20px;"><div style="font-family:var(--fd);font-size:19px;font-weight:700;">'+cl.nome+'</div>'+
+    '<div class="stat-card" style="margin-bottom:20px;display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">'+
+    '<div><div style="font-family:var(--fd);font-size:19px;font-weight:700;">'+cl.nome+'</div>'+
     '<div style="color:var(--muted);font-size:13px;margin-top:5px;">'+(cl.email||'sem e-mail')+' · '+local+'</div></div>'+
+    '<button class="action-btn" onclick="editarCliente(\''+cl.id+'\')">Editar dados</button></div>'+
     '<div class="table-card"><h3>Fazendas e Talhões</h3><table><thead><tr><th>Fazenda / Talhão</th><th>Hectares</th><th>Ação / Local</th></tr></thead><tbody>'+fazHtml+'</tbody></table></div>';
   showView('cliente');
+}
+
+function editarCliente(clienteId){
+  const cl=DATA.clientes.find(c=>c.id===clienteId); if(!cl) return;
+  document.getElementById('ec-id').value=cl.id;
+  document.getElementById('ec-nome').value=cl.nome||'';
+  document.getElementById('ec-email').value=cl.email||'';
+  document.getElementById('ec-municipio').value=cl.municipio||'';
+  document.getElementById('ec-pais').value=cl.pais||'Brasil';
+  document.getElementById('ec-erro').classList.remove('show');
+  openModal('modal-cliente');
+}
+async function salvarCliente(e){
+  e.preventDefault();
+  const erro=document.getElementById('ec-erro'); erro.classList.remove('show');
+  const id=document.getElementById('ec-id').value;
+  const nome=document.getElementById('ec-nome').value.trim();
+  const email=document.getElementById('ec-email').value.trim();
+  const municipio=document.getElementById('ec-municipio').value.trim();
+  const pais=document.getElementById('ec-pais').value.trim();
+  try{
+    const { error } = await sb.from('clientes').update({nome,email,municipio,pais}).eq('id',id);
+    if(error) throw error;
+    showSuccess('Cliente atualizado!');
+    closeModal('modal-cliente');
+    const cl=DATA.clientes.find(c=>c.id===id);
+    setTimeout(()=>{ carregarTudo().then(()=>verCliente(id, cl?cl.consultor_id:null)); }, 500);
+  }catch(err){ erro.textContent=err.message; erro.classList.add('show'); }
 }
 
 async function verMapaAdmin(talhaoId, nome){
