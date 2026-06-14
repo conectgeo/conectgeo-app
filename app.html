@@ -258,6 +258,10 @@ tr:hover td{background:var(--sand);}
 .ed-faz{border:1px dashed var(--sand2);border-radius:10px;padding:13px;margin-bottom:12px;background:var(--sand);}
 .ed-tals{margin-top:10px;padding-left:8px;border-left:3px solid var(--leaf-bg);}
 .ed-tal{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+.ed-arqs{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 10px;padding-left:2px;}
+.ed-arq{display:inline-flex;align-items:center;gap:7px;background:var(--leaf-bg);border:1px solid var(--sand2);border-radius:7px;padding:3px 4px 3px 9px;font-size:11px;color:var(--ink);}
+.ed-arq button{border:none;background:var(--danger);color:#fff;width:17px;height:17px;border-radius:5px;cursor:pointer;font-size:10px;line-height:1;display:flex;align-items:center;justify-content:center;}
+.ed-arqs-vazio{font-size:11px;color:var(--muted);font-style:italic;margin:-2px 0 10px;}
 .ed-vazio{font-size:12px;color:var(--muted);font-style:italic;padding:4px 0;}
 @media(max-width:620px){.ed-grid,.ed-grid3{grid-template-columns:1fr;}}
 .map-widget{position:relative;height:118px;border-radius:var(--rl);overflow:hidden;cursor:pointer;margin-bottom:22px;box-shadow:var(--sh-md);background:#33442a url('https://services.arcgisonline.com/arcgis/rest/services/World_Imagery/MapServer/tile/13/4641/2932') center/cover no-repeat;}
@@ -1112,8 +1116,31 @@ async function abrirEdicaoCliente(clienteId){
   await renderEdicao();
 }
 function emClose(){ document.getElementById('edit-modal').classList.remove('open'); EDIT_CLI=null; }
+let ARQ_URLS={};
+async function excluirArquivo(tipo, talhaoId){
+  const url=ARQ_URLS[talhaoId+'_'+tipo]||'';
+  const nomes={gj:'as zonas de nutrientes',cz:'as zonas de coleta',cp:'os pontos de coleta',cr:'o raster',pl:'a planilha de análises'};
+  confirmarExclusao('Excluir arquivo', 'Tem certeza que quer excluir <b>'+(nomes[tipo]||'este arquivo')+'</b>? Esta ação não pode ser desfeita.', async()=>{
+    try{
+      if(url){ const p=url.split('/object/public/arquivos/')[1]; if(p){ try{ await sb.storage.from('arquivos').remove([decodeURIComponent(p)]); }catch(e){} } }
+      if(tipo==='pl'){
+        const { error } = await sb.from('analises').delete().eq('talhao_id',talhaoId);
+        if(error) throw error;
+      } else {
+        const col={gj:'zonas_geojson_url',cz:'coleta_zonas_url',cp:'coleta_pontos_url',cr:'coleta_raster_url'}[tipo];
+        const upd={}; upd[col]=null;
+        const { error } = await sb.from('talhoes').update(upd).eq('id',talhaoId);
+        if(error) throw error;
+      }
+      toast('Arquivo excluído','✅');
+      await renderEdicao();
+      carregarDashboard();
+    }catch(err){ toast('Erro: '+(err.message||err),'⚠️'); }
+  });
+}
 async function renderEdicao(){
-  const { data:c } = await sb.from('clientes').select('id,nome,email,municipio,pais,fazendas(id,nome,municipio,estado,talhoes(id,nome,hectares))').eq('id',EDIT_CLI).single();
+  ARQ_URLS={};
+  const { data:c } = await sb.from('clientes').select('id,nome,email,municipio,pais,fazendas(id,nome,municipio,estado,talhoes(id,nome,hectares,coleta_zonas_url,coleta_pontos_url,coleta_raster_url,zonas_geojson_url,analises(id,planilha_url)))').eq('id',EDIT_CLI).single();
   if(!c){ document.getElementById('em-body').innerHTML='<div style="padding:24px">Cliente não encontrado.</div>'; return; }
   document.getElementById('em-title').textContent='Editar — '+c.nome;
   const fazendas=(c.fazendas||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
@@ -1143,13 +1170,23 @@ async function renderEdicao(){
       <div class="ed-tals">`;
     if(!tals.length) h+='<div class="ed-vazio">Sem talhões.</div>';
     tals.forEach(t=>{
+      const arqs=[];
+      if(t.zonas_geojson_url){ arqs.push(['gj','Zonas (nutrientes)']); ARQ_URLS[t.id+'_gj']=t.zonas_geojson_url; }
+      if(t.coleta_zonas_url){ arqs.push(['cz','Zonas (coleta)']); ARQ_URLS[t.id+'_cz']=t.coleta_zonas_url; }
+      if(t.coleta_pontos_url){ arqs.push(['cp','Pontos (coleta)']); ARQ_URLS[t.id+'_cp']=t.coleta_pontos_url; }
+      if(t.coleta_raster_url){ arqs.push(['cr','Raster']); ARQ_URLS[t.id+'_cr']=t.coleta_raster_url; }
+      const planilha=(t.analises||[]).find(a=>a.planilha_url);
+      if(planilha){ arqs.push(['pl','Planilha']); ARQ_URLS[t.id+'_pl']=planilha.planilha_url; }
+      const arqHtml = arqs.length
+        ? '<div class="ed-arqs">'+arqs.map(a=>'<span class="ed-arq">'+a[1]+'<button title="Excluir arquivo" onclick="excluirArquivo(\''+a[0]+'\',\''+t.id+'\')">✕</button></span>').join('')+'</div>'
+        : '<div class="ed-arqs-vazio">Nenhum arquivo enviado.</div>';
       h+=`<div class="ed-tal">
         <input id="et-nome-${t.id}" value="${attr(t.nome)}" style="flex:1;min-width:120px">
         <input id="et-ha-${t.id}" value="${t.hectares??''}" type="number" step="0.01" placeholder="ha" style="width:88px">
         <button class="btn sec sm" onclick="emClose();abrirTalhao('${t.id}')" title="Editar no mapa">🗺 Mapa</button>
         <button class="btn sec sm" onclick="salvarTalhao('${t.id}')">Salvar</button>
         <button class="btn danger sm" onclick="pedirExcluirTalhao('${t.id}','${esc(t.nome)}')">Excluir</button>
-      </div>`;
+      </div>${arqHtml}`;
     });
     h+=`</div></div>`;
   });

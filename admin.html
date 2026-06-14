@@ -120,6 +120,10 @@ tr:hover td{background:var(--sand);}
 .ed-faz{border:1px dashed var(--sand2);border-radius:10px;padding:13px;margin-bottom:12px;background:var(--sand);}
 .ed-tals{margin-top:10px;padding-left:8px;border-left:3px solid #e6f0db;}
 .ed-tal{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+.ed-arqs{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 10px;padding-left:2px;}
+.ed-arq{display:inline-flex;align-items:center;gap:7px;background:#eef6e3;border:1px solid var(--sand2);border-radius:7px;padding:3px 4px 3px 9px;font-size:11px;color:var(--ink);}
+.ed-arq button{border:none;background:var(--danger);color:#fff;width:17px;height:17px;border-radius:5px;cursor:pointer;font-size:10px;line-height:1;display:flex;align-items:center;justify-content:center;}
+.ed-arqs-vazio{font-size:11px;color:var(--muted);font-style:italic;margin:-2px 0 10px;}
 .ed-vazio{font-size:12px;color:var(--muted);font-style:italic;padding:4px 0;}
 .ed-bp,.ed-bs,.ed-bd{border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid transparent;font-family:var(--f);}
 .ed-bp{background:var(--leaf);color:#fff;border-color:var(--leaf);}
@@ -521,11 +525,38 @@ function admEsc(s){ return String(s??'').replace(/'/g,"\\'").replace(/"/g,'&quot
 function admHtml(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function admVal(id){ const e=document.getElementById(id); return e?e.value.trim():''; }
 function admEditClose(){ document.getElementById('adm-edit-modal').classList.remove('open'); }
-function admRenderEdicao(){
+let ADM_ARQ_URL={};
+async function admExcluirArquivo(tipo, talhaoId){
+  const url=ADM_ARQ_URL[talhaoId+'_'+tipo]||'';
+  const nomes={gj:'as zonas de nutrientes',cz:'as zonas de coleta',cp:'os pontos de coleta',cr:'o raster',pl:'a planilha de análises'};
+  admConfirm('Excluir arquivo', 'Tem certeza que quer excluir <b>'+(nomes[tipo]||'este arquivo')+'</b>? Esta ação não pode ser desfeita.', async()=>{
+    try{
+      if(url){ const p=url.split('/object/public/arquivos/')[1]; if(p){ try{ await sb.storage.from('arquivos').remove([decodeURIComponent(p)]); }catch(e){} } }
+      if(tipo==='pl'){
+        const { error } = await sb.from('analises').delete().eq('talhao_id',talhaoId); if(error) throw error;
+      } else {
+        const col={gj:'zonas_geojson_url',cz:'coleta_zonas_url',cp:'coleta_pontos_url',cr:'coleta_raster_url'}[tipo];
+        const upd={}; upd[col]=null;
+        const { error } = await sb.from('talhoes').update(upd).eq('id',talhaoId); if(error) throw error;
+      }
+      showSuccess('Arquivo excluído!'); admRenderEdicao();
+    }catch(err){ showError('Erro: '+(err.message||err)); }
+  });
+}
+let ADM_ARQ={};
+async function admRenderEdicao(){
   const c=DATA.clientes.find(x=>x.id===ADM_EDIT_CLI);
   if(!c){ document.getElementById('adm-em-body').innerHTML='<div style="padding:24px">Cliente não encontrado.</div>'; return; }
   document.getElementById('adm-em-title').textContent='Editar — '+(c.nome||'');
   const fazendas=fazendasDoCliente(c.id).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  ADM_ARQ={};
+  try{
+    const fids=fazendas.map(f=>f.id);
+    if(fids.length){
+      const { data:tdata } = await sb.from('talhoes').select('id,coleta_zonas_url,coleta_pontos_url,coleta_raster_url,zonas_geojson_url,analises(id,planilha_url)').in('fazenda_id',fids);
+      (tdata||[]).forEach(t=>{ ADM_ARQ[t.id]=t; });
+    }
+  }catch(e){}
   let h='';
   h+='<div class="ed-sec"><div class="ed-h">Cadastro do cliente</div><div class="ed-grid">'+
      '<label>Nome<input id="axe-nome" value="'+admAttr(c.nome)+'"></label>'+
@@ -551,6 +582,16 @@ function admRenderEdicao(){
          '<button class="ed-bs sm" onclick="admEditClose();verMapaAdmin(\''+t.id+'\',\''+admEsc(t.nome)+'\')" title="Editar no mapa">🗺 Mapa</button>'+
          '<button class="ed-bs sm" onclick="admSalvarTalhao(\''+t.id+'\')">Salvar</button>'+
          '<button class="ed-bd sm" onclick="admPedirExcluirTalhao(\''+t.id+'\',\''+admEsc(t.nome)+'\')">Excluir</button></div>';
+      const af=ADM_ARQ[t.id]||{}; const arqs=[];
+      if(af.zonas_geojson_url){ arqs.push(['gj','Zonas (nutrientes)',af.zonas_geojson_url]); }
+      if(af.coleta_zonas_url){ arqs.push(['cz','Zonas (coleta)',af.coleta_zonas_url]); }
+      if(af.coleta_pontos_url){ arqs.push(['cp','Pontos (coleta)',af.coleta_pontos_url]); }
+      if(af.coleta_raster_url){ arqs.push(['cr','Raster',af.coleta_raster_url]); }
+      const pl=(af.analises||[]).find(a=>a.planilha_url); if(pl){ arqs.push(['pl','Planilha',pl.planilha_url]); }
+      arqs.forEach(a=>{ ADM_ARQ_URL[t.id+'_'+a[0]]=a[2]; });
+      h+= arqs.length
+        ? '<div class="ed-arqs">'+arqs.map(a=>'<span class="ed-arq">'+a[1]+'<button title="Excluir arquivo" onclick="admExcluirArquivo(\''+a[0]+'\',\''+t.id+'\')">✕</button></span>').join('')+'</div>'
+        : '<div class="ed-arqs-vazio">Nenhum arquivo enviado.</div>';
     });
     h+='</div></div>';
   });

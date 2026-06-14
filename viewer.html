@@ -211,6 +211,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 .pt-coleta-lbl{font-size:10px;font-weight:700;color:#fff;background:rgba(0,0,0,.65);padding:1px 5px;border-radius:8px;margin-top:2px;white-space:nowrap;}
 /* modo coleta: esconde controles de nutriente, mostra painel de coleta */
 body.mode-coleta #sec-depth,
+body.mode-coleta #sec-nut-add,
 body.mode-coleta #sec-join,
 body.mode-coleta #sec-viz,
 body.mode-coleta #sec-pal,
@@ -397,6 +398,21 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="upload-banner" id="upload-banner">
     <span data-i18n="uploadBanner">Carregue suas zonas e a planilha de análises. Os dados ficam salvos neste dispositivo — se a internet cair, nada se perde.</span>
     <button class="clear-data-btn" id="btn-clear-data" data-i18n="clearData">🗑 Limpar dados salvos</button>
+  </div>
+
+  <div class="sec consultor-only" id="sec-nut-add" style="display:none">
+    <div class="sec-label"><span class="txt"><span class="sec-num">⬆</span><span data-i18n="nutAddArquivos">Adicionar arquivos</span></span></div>
+    <div class="up-zone" id="uz-nut-shp" style="margin-bottom:8px">
+      <input type="file" id="f-nut-shp" accept=".zip,.geojson,.json">
+      <div class="up-icon">🗺</div>
+      <div class="up-text"><div class="up-title" data-i18n="nutAddShp">Zonas (.zip / GeoJSON)</div><div class="up-sub">shapefile ou geojson</div></div>
+    </div>
+    <div class="up-zone" id="uz-nut-csv">
+      <input type="file" id="f-nut-csv" accept=".csv,.xlsx,.xls">
+      <div class="up-icon">📊</div>
+      <div class="up-text"><div class="up-title" data-i18n="nutAddCsv">Planilha (Excel / CSV)</div><div class="up-sub">.csv / .xlsx / .xls</div></div>
+    </div>
+    <div id="nut-up-status" style="font-size:11px;color:var(--leaf2);margin-top:6px;"></div>
   </div>
 
   <div class="sec" id="sec-upload-geo">
@@ -802,7 +818,7 @@ const I18N = {
   cltAjustes:'Ajustes dos Pontos', cltTamPonto:'Tamanho dos pontos', cltTamRotPonto:'Tamanho do rótulo dos pontos', cltMostrarRotPonto:'Mostrar rótulo dos pontos',
   cltRotZonas:'Rótulos das Zonas', cltMostrarRotZona:'Mostrar rótulo nas zonas', cltCampoZona:'Campo a mostrar', cltTamRotZona:'Tamanho do rótulo das zonas',
   cltDownload:'Baixar Shapefiles', cltBaixarZip:'Baixar zonas e pontos (.zip)',
-  cltAddArquivos:'Adicionar arquivos', cltAddShp:'Zonas / Pontos (.zip)', cltAddRaster:'Raster colorido (.tif)',
+  cltAddArquivos:'Adicionar arquivos', cltAddShp:'Zonas / Pontos (.zip)', cltAddRaster:'Raster colorido (.tif)', nutAddArquivos:'Adicionar arquivos', nutAddShp:'Zonas (.zip / GeoJSON)', nutAddCsv:'Planilha (Excel / CSV)',
   uploadBanner:'Carregue suas zonas e a planilha de análises. Os dados ficam salvos neste dispositivo — se a internet cair, nada se perde.',
   clearData:'🗑 Limpar dados salvos',
   secZonas:'Zonas de Manejo',secPlanilha:'Planilha de Análises',secProf:'Profundidade',secJoin:'Junção de Dados',
@@ -842,7 +858,7 @@ const I18N = {
   cltAjustes:'Ajustes de los Puntos', cltTamPonto:'Tamaño de los puntos', cltTamRotPonto:'Tamaño de la etiqueta de puntos', cltMostrarRotPonto:'Mostrar etiqueta de puntos',
   cltRotZonas:'Etiquetas de Zonas', cltMostrarRotZona:'Mostrar etiqueta en zonas', cltCampoZona:'Campo a mostrar', cltTamRotZona:'Tamaño de la etiqueta de zonas',
   cltDownload:'Descargar Shapefiles', cltBaixarZip:'Descargar zonas y puntos (.zip)',
-  cltAddArquivos:'Agregar archivos', cltAddShp:'Zonas / Puntos (.zip)', cltAddRaster:'Raster a color (.tif)',
+  cltAddArquivos:'Agregar archivos', cltAddShp:'Zonas / Puntos (.zip)', cltAddRaster:'Raster a color (.tif)', nutAddArquivos:'Agregar archivos', nutAddShp:'Zonas (.zip / GeoJSON)', nutAddCsv:'Planilla (Excel / CSV)',
   uploadBanner:'Cargue sus zonas y la planilla de análisis. Los datos quedan guardados en este dispositivo — si se cae internet, no se pierde nada.',
   clearData:'🗑 Borrar datos guardados',
   secZonas:'Zonas de Manejo',secPlanilha:'Planilla de Análisis',secProf:'Profundidad',secJoin:'Unión de Datos',
@@ -2063,6 +2079,52 @@ function wireColetaControls(){
       st.textContent='✅ Salvo! Atualizando…';
       await recarregarColetaInPlace();
       st.textContent='✅ Raster atualizado.';
+    }catch(err){ st.textContent='Erro: '+err.message; }
+  });
+  // uploads do consultor — nutrientes (zonas geojson + planilha)
+  const elNutShp=document.getElementById('f-nut-shp');
+  if(elNutShp) elNutShp.addEventListener('change', async()=>{
+    const st=document.getElementById('nut-up-status');
+    const f=elNutShp.files[0]; if(!f) return;
+    if(!sb||!S.tokenAtual){ st.textContent='Sem conexão para salvar.'; return; }
+    st.textContent='Enviando zonas…';
+    try{
+      let geojson;
+      const nome=(f.name||'').toLowerCase();
+      if(nome.endsWith('.zip')){
+        const buf=await f.arrayBuffer();
+        let gj=await shp(buf); if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])};
+        geojson=gj;
+      } else {
+        geojson=JSON.parse(await f.text());
+      }
+      const blob=new Blob([JSON.stringify(geojson)],{type:'application/json'});
+      const path='nutrientes/'+S.tokenAtual+'/zonas.geojson';
+      const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'application/json'});
+      if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
+      const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
+      const r=await sb.rpc('atualizar_nutrientes', {p_token:S.tokenAtual, p_zonas_geojson_url:url});
+      if(r&&r.error) throw new Error(r.error.message);
+      st.textContent='✅ Zonas salvas! Atualizando…';
+      setTimeout(()=>location.reload(), 700);
+    }catch(err){ st.textContent='Erro: '+err.message; }
+  });
+  const elNutCsv=document.getElementById('f-nut-csv');
+  if(elNutCsv) elNutCsv.addEventListener('change', async()=>{
+    const st=document.getElementById('nut-up-status');
+    const f=elNutCsv.files[0]; if(!f) return;
+    if(!sb||!S.tokenAtual){ st.textContent='Sem conexão para salvar.'; return; }
+    st.textContent='Enviando planilha…';
+    try{
+      const ext=(f.name.split('.').pop()||'csv').toLowerCase();
+      const path='nutrientes/'+S.tokenAtual+'/planilha.'+ext;
+      const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
+      if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
+      const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
+      const r=await sb.rpc('atualizar_nutrientes', {p_token:S.tokenAtual, p_planilha_url:url});
+      if(r&&r.error) throw new Error(r.error.message);
+      st.textContent='✅ Planilha salva! Atualizando…';
+      setTimeout(()=>location.reload(), 700);
     }catch(err){ st.textContent='Erro: '+err.message; }
   });
 }
