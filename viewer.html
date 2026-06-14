@@ -38,7 +38,13 @@ header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;ba
 .sdot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.3);transition:.3s;}
 .sdot.ok{background:var(--leaf);box-shadow:0 0 9px rgba(111,174,63,.6);}
 
-.workspace{display:flex;flex:1;overflow:hidden;}
+.workspace{display:flex;flex:1;overflow:hidden;position:relative;}
+.sb-toggle{position:absolute;top:14px;left:302px;z-index:1100;width:24px;height:42px;background:#fff;border:1px solid var(--border);border-left:none;border-radius:0 9px 9px 0;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:2px 1px 9px rgba(0,0,0,.12);font-size:15px;color:var(--muted);transition:left .22s ease;}
+.sb-toggle:hover{color:var(--accent2);background:var(--accent3);}
+.sb-toggle::before{content:'◂';}
+body.sb-collapsed .sidebar{display:none;}
+body.sb-collapsed .sb-toggle{left:0;border-left:1px solid var(--border);}
+body.sb-collapsed .sb-toggle::before{content:'▸';}
 .sidebar{width:302px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;}
 .sidebar::-webkit-scrollbar{width:5px;}.sidebar::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
 .sec{padding:16px 18px;border-bottom:1px solid var(--border);}
@@ -342,6 +348,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 </header>
 
 <div class="workspace">
+<button class="sb-toggle" id="sb-toggle" onclick="toggleSidebar()" title="Retrair / expandir painel" aria-label="Retrair ou expandir painel"></button>
 <div class="sidebar">
 
   <div class="lang-toggle" id="lang-toggle">
@@ -1810,6 +1817,13 @@ async function fetchBufColeta(url){
 
 // estilo base das zonas no Mapa de Coleta: linha preta grossa, sem preenchimento
 function estiloZonaColeta(){ return { color:'#1a1a1a', weight:1.2, opacity:0.9, fillColor:'#1a1a1a', fillOpacity:0 }; }
+function toggleSidebar(){
+  document.body.classList.toggle('sb-collapsed');
+  setTimeout(()=>{ try{
+    if(S.map) S.map.invalidateSize(true);
+    if(S.compare && S.compare.map2) S.compare.map2.invalidateSize(true);
+  }catch(e){} }, 250);
+}
 // monta o tooltip com as informações do shape da zona
 function infoZonaColeta(props){
   props=props||{};
