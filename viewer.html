@@ -445,7 +445,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div class="ctrl"><div class="ctrl-label">Campo ID — Planilha</div><select id="sel-csvf"></select></div>
   </div>
 
-  <div class="sec highlighted" id="sec-viz" style="display:none">
+  <div class="sec" id="sec-viz" style="display:none">
     <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secNut">Nutriente</span></span></div>
     <div class="ctrl"><select id="sel-col"></select></div>
   </div>
@@ -1918,6 +1918,7 @@ function criarCamadaPontos(gj){
   const ptScale=S.cltCfg.ptSize/100, lblScale=S.cltCfg.ptLblSize/100, showLbl=S.cltCfg.showPtLbl;
   const dot=Math.round(10*ptScale), lblFs=Math.round(10*lblScale);
   return L.geoJSON(gj,{
+    filter:(feat)=> feat && feat.geometry && (feat.geometry.type==='Point' || feat.geometry.type==='MultiPoint'),
     pointToLayer:(feat,latlng)=>{
       const props=feat.properties||{};
       const rotulo=props.id||props.ID||props.ponto||props.PONTO||props.nome||props.NOME||props.numero||props.NUMERO||props.Name||props.name||'';
