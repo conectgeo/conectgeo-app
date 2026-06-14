@@ -273,7 +273,7 @@ body.viewmode #sec-viz .sec-num::before,
 body.viewmode #sec-app .sec-num::before,
 body.viewmode #sec-pdf .sec-num::before{
   counter-increment:secnum;
-  content:counter(secnum);
+  content:'';
   font-size:9px;font-weight:700;color:#fff;
 }
 /* No modo cliente: esconde também Aparência (7) e renumera */
@@ -293,6 +293,9 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 #sec-viz.highlighted .ctrl-label{color:var(--accent2);font-weight:700;}
 #sec-viz.highlighted select{border-color:var(--leaf);background:#fff;font-weight:700;font-size:12px;padding:10px 12px;}
 .compare-row{display:flex;align-items:center;gap:9px;padding:9px 11px;background:var(--panel);border:1.5px solid var(--border);border-radius:9px;cursor:pointer;transition:.15s;margin-bottom:10px;}
+#sec-viz .sec-label .txt{color:var(--leaf2);font-weight:800;}
+#sec-viz #sel-col{border:2px solid var(--leaf);background:var(--accent3);border-radius:9px;font-weight:700;color:var(--ink);padding:11px 13px;width:100%;cursor:pointer;}
+#sec-viz #sel-col:hover{background:#fff;}
 .compare-row:hover{border-color:var(--leaf);}
 .compare-row.on{border-color:var(--leaf);background:var(--accent3);}
 .compare-row .label{font-size:11px;color:var(--ink);flex:1;font-weight:700;}
