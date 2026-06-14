@@ -128,6 +128,17 @@ tr:hover td{background:var(--sand);}
 .ed-bp:hover{background:var(--leaf2);} .ed-bd:hover{filter:brightness(.93);}
 .sm{padding:6px 11px !important;font-size:12px !important;}
 @media(max-width:620px){.ed-grid,.ed-grid3{grid-template-columns:1fr;}}
+.acc-item{border:1px solid var(--sand2);border-radius:10px;margin-bottom:8px;overflow:hidden;background:#fff;}
+.acc-sum{list-style:none;cursor:pointer;padding:13px 15px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.acc-sum::-webkit-details-marker{display:none;}
+.acc-sum::before{content:'▸';color:var(--muted);font-size:12px;transition:.15s;}
+.acc-item[open]>.acc-sum::before{transform:rotate(90deg);}
+.acc-nm{font-weight:700;font-size:14px;}
+.acc-mini{font-size:12px;color:var(--muted);margin-left:auto;}
+.acc-body{padding:6px 15px 15px 30px;border-top:1px solid var(--sand2);background:var(--sand);}
+.acc-row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:13px;border-bottom:1px dashed var(--sand2);}
+.acc-row span{color:var(--muted);}
+.acc-tal{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;font-size:13px;border-bottom:1px dashed var(--sand2);flex-wrap:wrap;}
 </style>
 </head>
 <body>
@@ -176,10 +187,7 @@ tr:hover td{background:var(--sand);}
         </div>
         <div class="table-card">
           <h3>Consultores e suas Áreas</h3>
-          <table>
-            <thead><tr><th>Consultor</th><th>E-mail</th><th>Clientes</th><th>Talhões</th><th>Hectares</th><th>Detalhes</th></tr></thead>
-            <tbody id="tbl-consultores"><tr><td colspan="7" class="empty">Carregando…</td></tr></tbody>
-          </table>
+          <div id="acc-consultores"><div class="empty" style="padding:16px">Carregando…</div></div>
         </div>
       </div>
 
@@ -358,19 +366,23 @@ function renderDashboard(){
   document.getElementById('s-hectares').textContent=totHa.toFixed(0);
   document.getElementById('s-links').textContent=DATA.links.filter(l=>l.ativo).length;
 
-  const tb=document.getElementById('tbl-consultores');
+  const tb=document.getElementById('acc-consultores');
   const consVisiveis=DATA.consultores.filter(c=>!c.is_admin);
-  if(consVisiveis.length===0){ tb.innerHTML='<tr><td colspan="6" class="empty">Nenhum consultor cadastrado.</td></tr>'; }
+  if(consVisiveis.length===0){ tb.innerHTML='<div class="empty" style="padding:16px">Nenhum consultor cadastrado.</div>'; }
   else{
-    tb.innerHTML='';
-    consVisiveis.forEach(c=>{
+    tb.innerHTML=consVisiveis.map(c=>{
       const st=statsConsultor(c.id);
-      const tr=document.createElement('tr');
-      tr.innerHTML='<td><span class="link-name" onclick="verConsultor(\''+c.id+'\')">'+(c.nome||'—')+'</span></td>'+
-        '<td>'+c.email+'</td><td>'+st.clientes+'</td><td>'+st.talhoes+'</td><td>'+st.hectares.toFixed(1)+' ha</td>'+
-        '<td><button class="action-btn ghost" onclick="verConsultor(\''+c.id+'\')">Ver</button></td>';
-      tb.appendChild(tr);
-    });
+      return '<details class="acc-item"><summary class="acc-sum">'+
+        '<span class="acc-nm">'+(c.nome||'—')+'</span>'+
+        '<span class="acc-mini">'+st.clientes+' cli · '+st.talhoes+' tal · '+st.hectares.toFixed(1)+' ha</span></summary>'+
+        '<div class="acc-body">'+
+        '<div class="acc-row"><span>E-mail</span><b>'+(c.email||'—')+'</b></div>'+
+        '<div class="acc-row"><span>Clientes</span><b>'+st.clientes+'</b></div>'+
+        '<div class="acc-row"><span>Talhões</span><b>'+st.talhoes+'</b></div>'+
+        '<div class="acc-row"><span>Hectares</span><b>'+st.hectares.toFixed(1)+' ha</b></div>'+
+        '<button class="ed-bp sm" style="margin-top:10px" onclick="verConsultor(\''+c.id+'\')">Ver detalhes →</button>'+
+        '</div></details>';
+    }).join('');
   }
 
   const porEstado={};
@@ -477,12 +489,15 @@ function verCliente(clienteId, consultorId){
     const haFaz=tals.reduce((s,t)=>s+(Number(t.hectares)||0),0);
     let talHtml='';
     tals.forEach(t=>{
-      talHtml+='<tr><td style="padding-left:28px;">🗺 '+t.nome+'</td><td>'+(Number(t.hectares)||0).toFixed(1)+' ha</td><td><button class="action-btn" onclick="verMapaAdmin(\''+t.id+'\',\''+(t.nome||'').replace(/'/g,'')+'\')">Ver no mapa</button></td></tr>';
+      talHtml+='<div class="acc-tal"><span>🗺 '+t.nome+' · '+(Number(t.hectares)||0).toFixed(1)+' ha</span>'+
+        '<button class="ed-bp sm" onclick="verMapaAdmin(\''+t.id+'\',\''+(t.nome||'').replace(/'/g,'')+'\')">Ver no mapa</button></div>';
     });
-    if(!talHtml) talHtml='<tr><td style="padding-left:28px;color:var(--muted);" colspan="3">Sem talhões</td></tr>';
-    fazHtml+='<tr style="background:var(--sand);"><td><strong>🏡 '+f.nome+'</strong></td><td><strong>'+haFaz.toFixed(1)+' ha</strong></td><td>'+(f.municipio||'')+'</td></tr>'+talHtml;
+    if(!talHtml) talHtml='<div class="acc-tal" style="color:var(--muted)">Sem talhões</div>';
+    fazHtml+='<details class="acc-item"><summary class="acc-sum"><span class="acc-nm">🏡 '+f.nome+'</span>'+
+      '<span class="acc-mini">'+haFaz.toFixed(1)+' ha'+(f.municipio?' · '+f.municipio:'')+' · '+tals.length+' talhão(ões)</span></summary>'+
+      '<div class="acc-body">'+talHtml+'</div></details>';
   });
-  if(!fazHtml) fazHtml='<tr><td colspan="3" class="empty">Nenhuma fazenda.</td></tr>';
+  if(!fazHtml) fazHtml='<div class="empty" style="padding:16px">Nenhuma fazenda.</div>';
   const local=[cl.municipio||'—',cl.pais||'Brasil'].filter(Boolean).join(' / ');
   document.getElementById('view-cliente').innerHTML=
     '<button class="back-btn" onclick="verConsultor(\''+consultorId+'\')">← Voltar ao consultor</button>'+
@@ -490,7 +505,7 @@ function verCliente(clienteId, consultorId){
     '<div><div style="font-family:var(--fd);font-size:19px;font-weight:700;">'+cl.nome+'</div>'+
     '<div style="color:var(--muted);font-size:13px;margin-top:5px;">'+(cl.email||'sem e-mail')+' · '+local+'</div></div>'+
     '<button class="action-btn" onclick="editarCliente(\''+cl.id+'\')">Editar dados</button></div>'+
-    '<div class="table-card"><h3>Fazendas e Talhões</h3><table><thead><tr><th>Fazenda / Talhão</th><th>Hectares</th><th>Ação / Local</th></tr></thead><tbody>'+fazHtml+'</tbody></table></div>';
+    '<div class="table-card"><h3>Fazendas e Talhões</h3>'+fazHtml+'</div>';
   showView('cliente');
 }
 
