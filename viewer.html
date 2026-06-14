@@ -2200,6 +2200,14 @@ async function loadFromToken(token, params){
     }
     document.title = `${data.fazenda||'ConectGeo'}${data.talhao?' — '+data.talhao:''}`;
 
+    if(!data.geojson_url){
+      // talhão sem zonas (todos os arquivos removidos): abre vazio, sem travar, permitindo re-upload
+      const em=document.getElementById('empty-msg');
+      if(em){ em.style.display='block'; em.innerHTML = S.consultorMode
+        ? 'Este talhão está sem arquivos.<br>Use <strong>“Adicionar arquivos”</strong> no painel para enviar as zonas e a planilha.'
+        : 'Este talhão ainda não tem dados publicados.'; }
+      try{ if(S.map){ S.map.setView([-15,-55],4); S.map.invalidateSize(); } }catch(e){}
+    } else {
     document.getElementById('ls-text').textContent='Carregando zonas…';
     const geoBuf=await fetchBuf(data.geojson_url);
     applyGeoData(JSON.parse(decodeBuffer(geoBuf)), (data.talhao||'zonas'));
@@ -2230,6 +2238,7 @@ async function loadFromToken(token, params){
       // talhão sem planilha de análises: mostra só as zonas (vazias), sem travar
       renderMap();
       toast('Este talhão ainda não tem planilha — mostrando só as zonas.','wrn');
+    }
     }
 
     // ── MAPA DE COLETA DE SOLO (Onda 2) ──
