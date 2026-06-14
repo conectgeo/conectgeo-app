@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ConectGeo — Produtor</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{ --leaf:#6cb32d; --leaf2:#559426; --leaf-bg:#eef6e3; --sand:#f5f6f3; --sand2:#dfe2da; --ink:#24271f; --muted:#646a5e; }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--ink);background:var(--sand);}
+  #app{display:flex;flex-direction:column;height:100vh;}
+  .top{display:flex;align-items:center;gap:14px;padding:12px 18px;background:#fff;border-bottom:1px solid var(--sand2);flex-wrap:wrap;}
+  .brand{font-weight:700;font-size:16px;}
+  .brand span{color:var(--leaf);}
+  .who{min-width:0;}
+  .who .f{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .who .c{font-size:12px;color:var(--muted);}
+  .picker{margin-left:auto;display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .pk{display:flex;align-items:center;gap:7px;}
+  .picker label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+  select{padding:9px 11px;border:1.5px solid var(--sand2);border-radius:9px;font-size:14px;background:#fff;min-width:170px;}
+  #frameWrap{flex:1;min-height:0;position:relative;}
+  iframe{width:100%;height:100%;border:0;}
+  .msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);text-align:center;padding:24px;}
+  .err{color:#c0392b;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top">
+    <div class="brand">Conect<span>Geo</span></div>
+    <div class="who"><div class="f" id="cli-nome">Carregando…</div><div class="c" id="cli-loc"></div></div>
+    <div class="picker">
+      <div class="pk"><label>Fazenda</label><select id="sel-fazenda" onchange="onFazenda()"></select></div>
+      <div class="pk"><label>Talhão</label><select id="sel-talhao" onchange="abrir()"></select></div>
+    </div>
+  </div>
+  <div id="frameWrap">
+    <div class="msg" id="msg">Carregando produtor…</div>
+    <iframe id="frame" style="display:none"></iframe>
+  </div>
+</div>
+<script>
+  const SUPABASE_URL = 'https://xlhwhhettdnssvvppiuf.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_HK6W6kBCMF627z31zvGFZA_VjcaGlSe';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const params = new URLSearchParams(location.search);
+  const cToken = params.get('c');
+  const lang = params.get('lang') || 'pt';
+  let FAZENDAS = [];
+
+  function setMsg(txt, isErr){
+    const m=document.getElementById('msg');
+    m.style.display='flex'; m.textContent=txt; m.className='msg'+(isErr?' err':'');
+    document.getElementById('frame').style.display='none';
+  }
+
+  async function init(){
+    if(!cToken){ setMsg('Link inválido (sem token de produtor).', true); return; }
+    try{
+      const { data, error } = await sb.rpc('get_cliente_link_data', { p_token: cToken });
+      if(error) throw error;
+      const d = (typeof data==='string') ? JSON.parse(data) : data;
+      if(!d || d.erro){ setMsg('Este link de produtor não é válido ou foi revogado.', true); return; }
+      document.getElementById('cli-nome').textContent = d.cliente || 'Produtor';
+      document.getElementById('cli-loc').textContent = [d.municipio, d.pais].filter(Boolean).join(' · ');
+      document.title = 'ConectGeo — ' + (d.cliente||'Produtor');
+      FAZENDAS = (d.fazendas||[]).filter(f=>(f.talhoes||[]).some(t=>t.token));
+      if(!FAZENDAS.length){ setMsg('Este produtor ainda não tem talhões disponíveis.', true); return; }
+      const selF=document.getElementById('sel-fazenda');
+      selF.innerHTML = FAZENDAS.map((f,i)=>`<option value="${i}">${f.nome}</option>`).join('');
+      onFazenda();
+    }catch(err){
+      setMsg('Erro ao abrir o produtor: ' + (err.message||err), true);
+    }
+  }
+
+  function onFazenda(){
+    const i=+document.getElementById('sel-fazenda').value;
+    const f=FAZENDAS[i]; if(!f) return;
+    const tals=(f.talhoes||[]).filter(t=>t.token);
+    const selT=document.getElementById('sel-talhao');
+    selT.innerHTML = tals.map(t=>`<option value="${t.token}">${t.nome} · ${(Number(t.hectares)||0).toFixed(1)} ha</option>`).join('');
+    abrir();
+  }
+
+  function abrir(){
+    const token=document.getElementById('sel-talhao').value;
+    if(!token){ setMsg('Selecione um talhão.', false); return; }
+    const fr=document.getElementById('frame');
+    document.getElementById('msg').style.display='none';
+    fr.style.display='block';
+    fr.src='viewer.html?t='+token+'&lang='+lang+'&embed=1';
+  }
+
+  init();
+</script>
+</body>
+</html>

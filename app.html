@@ -317,16 +317,14 @@ tr:hover td{background:var(--sand);}
         </div>
         <div class="tbr">
           <button class="btn sec" id="lang-btn" onclick="toggleLang()" title="Idioma / Idioma">🌐 PT</button>
-          <button class="btn sec" onclick="openSO()" style="background:var(--leaf-bg);border-color:var(--leaf);color:var(--leaf2);font-weight:700" data-i18n="verClientes">▶ Ver clientes</button>
-          <button class="btn pri" onclick="showView('novo')" data-i18n="criarNovo">+ Criar Novo</button>
         </div>
       </div>
       <div class="content">
         <div class="stat-row">
           <div class="sc"><div class="sc-ic g"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg></div><div class="sc-lbl" data-i18n="clientes">Clientes</div><div class="sc-val" id="st-clientes">—</div><div class="sc-sub" data-i18n="produtoresAtivos">produtores ativos</div></div>
-          <div class="sc"><div class="sc-ic e"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg></div><div class="sc-lbl" data-i18n="talhoes">Talhões</div><div class="sc-val" id="st-talhoes">—</div><div class="sc-sub" id="st-fazendas">— fazendas</div></div>
-          <div class="sc"><div class="sc-ic b"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div><div class="sc-lbl" data-i18n="hectares">Hectares</div><div class="sc-val" id="st-hectares">—</div><div class="sc-sub" data-i18n="areaTotal">área total mapeada</div></div>
-          <div class="sc"><div class="sc-ic w"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1.5 1.5"/></svg></div><div class="sc-lbl" data-i18n="linksAtivos">Links ativos</div><div class="sc-val" id="st-links">—</div><div class="sc-sub" id="st-views">— visualizações</div></div>
+          <div class="sc"><div class="sc-ic e"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div><div class="sc-lbl" data-i18n="fazendas">Fazendas</div><div class="sc-val" id="st-fazendas-n">—</div><div class="sc-sub" data-i18n="propriedades">propriedades</div></div>
+          <div class="sc"><div class="sc-ic b"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/></svg></div><div class="sc-lbl" data-i18n="talhoes">Talhões</div><div class="sc-val" id="st-talhoes">—</div><div class="sc-sub" data-i18n="areasMapeadas">áreas mapeadas</div></div>
+          <div class="sc"><div class="sc-ic w"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg></div><div class="sc-lbl" data-i18n="hectares">Hectares</div><div class="sc-val" id="st-hectares">—</div><div class="sc-sub" data-i18n="areaTotal">área total mapeada</div></div>
         </div>
 
         <div id="weather"></div>
@@ -515,7 +513,7 @@ const I18N={
   pt:{
     verClientes:'▶ Ver clientes', criarNovo:'+ Criar Novo', criarNovoNav:'Criar Novo', voltar:'← Voltar',
     clientes:'Clientes', talhoes:'Talhões', hectares:'Hectares', linksAtivos:'Links ativos',
-    produtoresAtivos:'produtores ativos', areaTotal:'área total mapeada', visualizacoes:'visualizações',
+    produtoresAtivos:'produtores ativos', areaTotal:'área total mapeada', visualizacoes:'visualizações', fazendas:'Fazendas', propriedades:'propriedades', areasMapeadas:'áreas mapeadas',
     talhoesRecentes:'Talhões recentes', verTodos:'Ver todos →', criarPrimeiro:'Criar primeiro talhão', abrirMapaWidget:'Abrir o mapa', abrirMapaWidgetSub:'Ver seus talhões no mapa de resultados',
     meusClientes:'Meus Clientes', linksCompart:'Links Compartilhados', sair:'Sair', dashboard:'Dashboard',
     abrir:'👁 Abrir', mapaTalhoes:'Talhões desta fazenda', criarTalhao:'Criar novo talhão',
@@ -526,7 +524,7 @@ const I18N={
   es:{
     verClientes:'▶ Ver clientes', criarNovo:'+ Crear Nuevo', criarNovoNav:'Crear Nuevo', voltar:'← Volver',
     clientes:'Clientes', talhoes:'Lotes', hectares:'Hectáreas', linksAtivos:'Enlaces activos',
-    produtoresAtivos:'productores activos', areaTotal:'área total mapeada', visualizacoes:'visualizaciones',
+    produtoresAtivos:'productores activos', areaTotal:'área total mapeada', visualizacoes:'visualizaciones', fazendas:'Fincas', propriedades:'propiedades', areasMapeadas:'áreas mapeadas',
     talhoesRecentes:'Lotes recientes', verTodos:'Ver todos →', criarPrimeiro:'Crear primer lote', abrirMapaWidget:'Abrir el mapa', abrirMapaWidgetSub:'Ver sus lotes en el mapa de resultados',
     meusClientes:'Mis Clientes', linksCompart:'Enlaces Compartidos', sair:'Salir', dashboard:'Panel',
     abrir:'👁 Abrir', mapaTalhoes:'Lotes de esta finca', criarTalhao:'Crear nuevo lote',
@@ -619,16 +617,11 @@ async function carregarDashboard(){
   ]);
 
   document.getElementById('st-clientes').textContent = cli.count ?? 0;
+  document.getElementById('st-fazendas-n').textContent = faz.count ?? 0;
   document.getElementById('st-talhoes').textContent  = (tal.data||[]).length;
-  document.getElementById('st-fazendas').textContent = `em ${faz.count ?? 0} fazenda${(faz.count||0)!==1?'s':''}`;
 
   const ha = (tal.data||[]).reduce((s,t)=>s+(parseFloat(t.hectares)||0),0);
   document.getElementById('st-hectares').textContent = ha>=1000 ? (ha/1000).toFixed(1).replace('.',',')+' mil' : Math.round(ha).toLocaleString('pt-BR');
-
-  const ativos=(lnk.data||[]).filter(l=>l.ativo);
-  document.getElementById('st-links').textContent = ativos.length;
-  const views=(lnk.data||[]).reduce((s,l)=>s+(l.visualizacoes||0),0);
-  document.getElementById('st-views').textContent = `${views} visualizações`;
 
   // recentes
   const rec=(tal.data||[]).slice(0,3);
@@ -1264,9 +1257,9 @@ function renderLinksTree(q){
     if(q && !cHit && !fazendas.length) return;
     algum=true;
     const open = q ? 'open' : '';
-    html+=`<details class="lk-cli" ${open}><summary><span class="lk-ico">👤</span><b>${lkEsc(c.nome)}</b><span class="lk-cnt">${(c.fazendas||[]).length} fazenda(s)</span></summary>`;
+    html+=`<details class="lk-cli" ${open}><summary><span class="lk-ico">👤</span><b>${lkEsc(c.nome)}</b><span class="lk-cnt">${(c.fazendas||[]).length} fazenda(s)</span><button class="lk-fbtn" onclick="event.preventDefault();event.stopPropagation();copiarLinkCliente('${c.id}')">🔗 Link do produtor</button></summary>`;
     fazendas.forEach(({f,talhoes})=>{
-      html+=`<details class="lk-faz" ${open}><summary><span class="lk-ico">🏠</span><span class="lk-fnm">${lkEsc(f.nome)}</span><span class="lk-cnt">${(f.talhoes||[]).length} talhão(ões)</span><button class="lk-fbtn" onclick="event.preventDefault();event.stopPropagation();copiarLinkFazenda('${f.id}')">🔗 Link da fazenda</button></summary>`;
+      html+=`<details class="lk-faz" ${open}><summary><span class="lk-ico">🏠</span><span class="lk-fnm">${lkEsc(f.nome)}</span><span class="lk-cnt">${(f.talhoes||[]).length} talhão(ões)</span></summary>`;
       if(!talhoes.length) html+=`<div class="lk-vazio">Sem talhões aqui</div>`;
       talhoes.forEach(t=>{
         html+=`<div class="lk-tal" onclick="copiarLinkTalhaoId('${t.id}')" title="Clique para copiar o link"><span class="lk-ico">🌾</span><span class="lk-tnm">${lkEsc(t.nome)}</span><span class="lk-tsub">${lkEsc(c.nome)} · ${lkEsc(f.nome)}</span><span class="lk-copy">Copiar ⧉</span></div>`;
@@ -1284,17 +1277,16 @@ async function copiarLinkTalhaoId(talhaoId){
   await copiarTextoLink(`${location.origin}${location.pathname.replace('app.html','')}viewer.html?t=${token}`);
   toast('Link de compartilhamento copiado','✅');
 }
-async function tokenDaFazenda(fazendaId){
-  const { data } = await sb.from('links_view').select('token').eq('fazenda_id',fazendaId).eq('ativo',true).limit(1);
-  let token=data?.[0]?.token;
-  if(!token){ token=tokenGen(); const {error}=await sb.from('links_view').insert({ token, fazenda_id:fazendaId }); if(error){ console.error(error); return null; } }
-  return token;
+async function tokenDoCliente(clienteId){
+  const { data, error } = await sb.rpc('criar_link_cliente',{ p_cliente_id:clienteId });
+  if(error){ console.error(error); return null; }
+  return data;
 }
-async function copiarLinkFazenda(fazendaId){
-  const token=await tokenDaFazenda(fazendaId);
-  if(!token){ toast('Não foi possível gerar o link da fazenda','⚠️'); return; }
-  await copiarTextoLink(`${location.origin}${location.pathname.replace('app.html','')}fazenda.html?f=${token}`);
-  toast('Link de compartilhamento copiado','✅');
+async function copiarLinkCliente(clienteId){
+  const token=await tokenDoCliente(clienteId);
+  if(!token){ toast('Não foi possível gerar o link do produtor','⚠️'); return; }
+  await copiarTextoLink(`${location.origin}${location.pathname.replace('app.html','')}cliente.html?c=${token}`);
+  toast('Link do produtor copiado','✅');
 }
 
 // ═══════════════════════════════════════════════
