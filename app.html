@@ -9,10 +9,10 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@600;700&display=swap');
 :root{
-  --leaf:#5fa832;--leaf2:#4a8a26;--leaf-bg:#f0f7e8;
-  --earth:#3d3226;--earth2:#5c4d3c;
-  --sand:#f7f4ef;--sand2:#ede8e0;--sand3:#e3ddd5;
-  --ink:#1c1c1c;--muted:#7a7268;--light:#b0a898;
+  --leaf:#6cb32d;--leaf2:#559426;--leaf-bg:#eef6e3;
+  --earth:#474a43;--earth2:#5e635b;
+  --sand:#f5f6f3;--sand2:#e6e8e4;--sand3:#d6dad3;
+  --ink:#24271f;--muted:#646a5e;--light:#b3b8ad;
   --danger:#d94f3d;--warn:#e8913a;--info:#3a7fd9;
   --sh:0 2px 8px rgba(0,0,0,.08);--sh-md:0 8px 28px rgba(0,0,0,.12);
   --r:10px;--rl:16px;
@@ -217,6 +217,8 @@ tr:hover td{background:var(--sand);}
 .lk-cli{border:1.5px solid var(--sand2);border-radius:11px;background:#fff;margin-bottom:10px;overflow:hidden;}
 .lk-cli>summary{list-style:none;cursor:pointer;padding:13px 15px;display:flex;align-items:center;gap:10px;font-size:14.5px;}
 .lk-cli>summary::-webkit-details-marker{display:none;}
+.lk-cli>summary::before,.lk-faz>summary::before{content:'▾';color:var(--leaf2);font-size:12px;flex:none;transition:transform .15s;display:inline-block;}
+.lk-cli:not([open])>summary::before,.lk-faz:not([open])>summary::before{transform:rotate(-90deg);}
 .lk-faz{margin:0 10px 8px 30px;border:1px solid var(--sand2);border-radius:9px;overflow:hidden;background:var(--sand);}
 .lk-faz>summary{list-style:none;cursor:pointer;padding:10px 13px;display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:600;}
 .lk-faz>summary::-webkit-details-marker{display:none;}
@@ -1144,6 +1146,7 @@ async function renderEdicao(){
       h+=`<div class="ed-tal">
         <input id="et-nome-${t.id}" value="${attr(t.nome)}" style="flex:1;min-width:120px">
         <input id="et-ha-${t.id}" value="${t.hectares??''}" type="number" step="0.01" placeholder="ha" style="width:88px">
+        <button class="btn sec sm" onclick="emClose();abrirTalhao('${t.id}')" title="Editar no mapa">🗺 Mapa</button>
         <button class="btn sec sm" onclick="salvarTalhao('${t.id}')">Salvar</button>
         <button class="btn danger sm" onclick="pedirExcluirTalhao('${t.id}','${esc(t.nome)}')">Excluir</button>
       </div>`;

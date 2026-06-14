@@ -8,7 +8,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@600;700&display=swap');
-:root{--leaf:#5fa832;--leaf2:#4a8a26;--earth:#2d3748;--earth2:#1f2937;--sand:#f6f5f2;--sand2:#ede8e0;--ink:#1c1c1c;--muted:#7a7268;--danger:#d94f3d;--f:'Inter',sans-serif;--fd:'Space Grotesk',sans-serif;}
+:root{--leaf:#6cb32d;--leaf2:#559426;--earth:#474a43;--earth2:#34372f;--sand:#f5f6f3;--sand2:#e6e8e4;--ink:#24271f;--muted:#646a5e;--danger:#d94f3d;--f:'Inter',sans-serif;--fd:'Space Grotesk',sans-serif;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:var(--f);background:var(--sand);color:var(--ink);}
 .container{display:flex;min-height:100vh;}
@@ -548,6 +548,7 @@ function admRenderEdicao(){
     tals.forEach(t=>{
       h+='<div class="ed-tal"><input id="axt-nome-'+t.id+'" value="'+admAttr(t.nome)+'" style="flex:1;min-width:120px">'+
          '<input id="axt-ha-'+t.id+'" value="'+(t.hectares??'')+'" type="number" step="0.01" placeholder="ha" style="width:88px">'+
+         '<button class="ed-bs sm" onclick="admEditClose();verMapaAdmin(\''+t.id+'\',\''+admEsc(t.nome)+'\')" title="Editar no mapa">🗺 Mapa</button>'+
          '<button class="ed-bs sm" onclick="admSalvarTalhao(\''+t.id+'\')">Salvar</button>'+
          '<button class="ed-bd sm" onclick="admPedirExcluirTalhao(\''+t.id+'\',\''+admEsc(t.nome)+'\')">Excluir</button></div>';
     });

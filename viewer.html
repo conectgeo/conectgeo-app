@@ -17,15 +17,15 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 :root{
-  --bg:#eceae3;--surface:#fbfaf6;--panel:#f2f0e8;--border:#dcd8cc;--border2:#c4bfb0;
-  --ink:#3a3a3a;--accent:#4a4a4a;--accent2:#6fae3f;--accent3:#eef5e6;--leaf:#6fae3f;
-  --muted:#797566;--warn:#c47d00;--danger:#b04434;
+  --bg:#edefe9;--surface:#fbfcfa;--panel:#f1f3ee;--border:#dde0d8;--border2:#c7cabf;
+  --ink:#3a3a3a;--accent:#474a43;--accent2:#6cb32d;--accent3:#eef6e3;--leaf:#6cb32d;
+  --muted:#6a6e64;--warn:#c47d00;--danger:#b04434;
   --f:Arial,Helvetica,sans-serif;
 }
 *{margin:0;padding:0;box-sizing:border-box;font-family:var(--f);}
 body{background:var(--bg);color:var(--ink);height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:13px;}
 
-header{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:62px;background:#4a4a4a;flex-shrink:0;z-index:1000;position:relative;}
+header{display:flex;align-items:center;justify-content:space-between;padding:0 24px;height:62px;background:var(--accent);flex-shrink:0;z-index:1000;position:relative;}
 header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--leaf),transparent 55%);}
 .logo{display:flex;align-items:center;gap:12px;}
 .logo img{height:38px;width:auto;}
@@ -372,8 +372,8 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     </div>
     <div class="sec" id="sec-clt-ajustes">
       <div class="sec-label"><span class="txt"><span class="sec-num">⚙</span><span data-i18n="cltAjustes">Ajustes dos Pontos</span></span></div>
-      <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamPonto">Tamanho dos pontos</span> <span class="ctrl-val" id="cv-clt-pt">100%</span></div><input type="range" id="sl-clt-pt" min="0" max="100" value="100"></div>
-      <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamRotPonto">Tamanho do rótulo dos pontos</span> <span class="ctrl-val" id="cv-clt-rpt">100%</span></div><input type="range" id="sl-clt-rpt" min="0" max="100" value="100"></div>
+      <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamPonto">Tamanho dos pontos</span> <span class="ctrl-val" id="cv-clt-pt">50%</span></div><input type="range" id="sl-clt-pt" min="0" max="100" value="50"></div>
+      <div class="ctrl"><div class="ctrl-label"><span data-i18n="cltTamRotPonto">Tamanho do rótulo dos pontos</span> <span class="ctrl-val" id="cv-clt-rpt">50%</span></div><input type="range" id="sl-clt-rpt" min="0" max="100" value="50"></div>
       <div class="invert-row"><span class="label" data-i18n="cltMostrarRotPonto">Mostrar rótulo dos pontos</span><div class="toggle on" id="clt-rpt-toggle"></div></div>
     </div>
     <div class="sec">
@@ -397,7 +397,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   </div>
 
   <div class="sec" id="sec-upload-geo">
-    <div class="sec-label"><span class="txt"><span class="sec-num">1</span><span data-i18n="secZonas">Zonas de Manejo</span></span></div>
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secZonas">Zonas de Manejo</span></span></div>
     <div class="up-zone" id="uz-geo">
       <input type="file" id="f-geo" accept=".geojson,.json,.zip">
       <div class="up-icon">🗺</div>
@@ -407,7 +407,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   </div>
 
   <div class="sec" id="sec-upload-csv">
-    <div class="sec-label"><span class="txt"><span class="sec-num">2</span><span data-i18n="secPlanilha">Planilha de Análises</span></span></div>
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secPlanilha">Planilha de Análises</span></span></div>
     <div class="up-zone" id="uz-csv">
       <input type="file" id="f-csv" accept=".csv,.xlsx,.xls">
       <div class="up-icon">📊</div>
@@ -416,7 +416,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   </div>
 
   <div class="sec" id="sec-depth" style="display:none">
-    <div class="sec-label"><span class="txt"><span class="sec-num">3</span><span data-i18n="secProf">Profundidade</span></span></div>
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secProf">Profundidade</span></span></div>
     <div class="compare-row" id="compare-row">
       <span class="label"><span data-i18n="cmpTitle">Modo Comparação</span><span class="sub" data-i18n="cmpSub">Ver duas profundidades lado a lado</span></span>
       <div class="toggle" id="compare-toggle"></div>
@@ -440,18 +440,18 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   </div>
 
   <div class="sec" id="sec-join" style="display:none">
-    <div class="sec-label"><span class="txt"><span class="sec-num">4</span><span data-i18n="secJoin">Junção de Dados</span></span></div>
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secJoin">Junção de Dados</span></span></div>
     <div class="ctrl"><div class="ctrl-label">Campo ID — Zonas</div><select id="sel-gjf"></select></div>
     <div class="ctrl"><div class="ctrl-label">Campo ID — Planilha</div><select id="sel-csvf"></select></div>
   </div>
 
   <div class="sec highlighted" id="sec-viz" style="display:none">
-    <div class="sec-label"><span class="txt"><span class="sec-num">5</span><span data-i18n="secNut">Nutriente</span></span></div>
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secNut">Nutriente</span></span></div>
     <div class="ctrl"><select id="sel-col"></select></div>
   </div>
 
   <div class="sec" id="sec-pal" style="display:none">
-    <div class="sec-label"><span class="txt"><span class="sec-num">6</span><span data-i18n="secPal">Paleta de Cores</span></span></div>
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secPal">Paleta de Cores</span></span></div>
     <div class="pal-grid" id="pal-grid"></div>
     <div class="invert-row" id="invert-row">
       <span class="label" data-i18n="invert">Inverter cores</span>
@@ -461,7 +461,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   </div>
 
   <div class="sec" id="sec-app" style="display:none">
-    <div class="sec-label"><span class="txt"><span class="sec-num">7</span><span data-i18n="secApp">Aparência</span></span></div>
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secApp">Aparência</span></span></div>
     <div class="ctrl"><div class="ctrl-label"><span data-i18n="nClasses">Nº de classes</span> <span class="ctrl-val" id="cv-cls">5</span></div><input type="range" id="sl-cls" min="2" max="10" value="5"></div>
     <div class="ctrl"><div class="ctrl-label"><span data-i18n="opacity">Opacidade</span> <span class="ctrl-val" id="cv-opa">82%</span></div><input type="range" id="sl-opa" min="20" max="100" value="82"></div>
     <div class="ctrl"><div class="ctrl-label"><span data-i18n="lblSize">Tamanho do rótulo</span> <span class="ctrl-val" id="cv-lbl">100%</span></div><input type="range" id="sl-lbl" min="60" max="200" value="100"></div>
@@ -484,7 +484,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   </div>
 
   <div class="sec" id="sec-pdf" style="display:none">
-    <div class="sec-label"><span class="txt"><span class="sec-num">8</span><span data-i18n="secPdf">Relatório</span></span></div>
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secPdf">Relatório</span></span></div>
     <button class="pdf-btn" id="btn-pdf">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       <span data-i18n="genPdf">Gerar Relatório PDF</span>
@@ -492,7 +492,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   </div>
 
   <div class="sec" id="sec-link" style="display:none">
-    <div class="sec-label"><span class="txt"><span class="sec-num">9</span><span data-i18n="secShare">Compartilhar</span></span></div>
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secShare">Compartilhar</span></span></div>
     <div class="link-modes" id="link-modes">
       <div class="link-mode sel" data-mode="projeto">
         <div class="lm-radio"></div>
@@ -694,7 +694,7 @@ const S = {
   compare:{on:false,left:null,right:null,map2:null,baseLayers2:null},
   coleta:null, mapMode:'nutrientes', coletaLayers:{raster:null,pontos:null,zonas:null}, coletaLoaded:false,
   coletaGeo:{pontos:null,zonas:null},
-  cltCfg:{ptSize:100,ptLblSize:100,showPtLbl:true,zonaLblSize:100,showZonaLbl:false,zonaCampo:null},
+  cltCfg:{ptSize:50,ptLblSize:50,showPtLbl:true,zonaLblSize:100,showZonaLbl:false,zonaCampo:null,showPontos:true},
   coletaZonaLabels:[], consultorMode:false, tokenAtual:null,
 };
 
@@ -1827,7 +1827,7 @@ async function carregarColeta(){
   if(!S.coleta) return;
   if(S.coletaLoaded){
     if(S.coletaLayers.raster) S.coletaLayers.raster.addTo(S.map);
-    if(S.coletaLayers.pontos) S.coletaLayers.pontos.addTo(S.map);
+    if(S.coletaLayers.pontos && S.cltCfg.showPontos!==false) S.coletaLayers.pontos.addTo(S.map);
     if(S.coletaLayers.zonas) S.coletaLayers.zonas.addTo(S.map);
     ajustarVistaColeta();
     return;
@@ -1892,7 +1892,7 @@ async function carregarColeta(){
       S.coletaGeo.pontos=gj;
       S.coletaLayers.pontos=criarCamadaPontos(gj);
     }
-    if(S.coletaLayers.pontos) S.coletaLayers.pontos.addTo(S.map);
+    if(S.coletaLayers.pontos && S.cltCfg.showPontos!==false) S.coletaLayers.pontos.addTo(S.map);
     if(S.coletaLayers.zonas) S.coletaLayers.zonas.addTo(S.map);
     S.coletaLoaded=true;
     ajustarVistaColeta();
@@ -2000,6 +2000,7 @@ function wireColetaControls(){
   const tgl=(id,cb)=>{ const el=document.getElementById(id); if(el) el.addEventListener('click',()=>{ el.classList.toggle('on'); cb(el.classList.contains('on')); }); };
   tgl('clt-raster-toggle',on=>{ if(!S.coletaLayers.raster)return; on?S.coletaLayers.raster.addTo(S.map):S.map.removeLayer(S.coletaLayers.raster); });
   tgl('clt-pontos-toggle',on=>{
+    S.cltCfg.showPontos=on;
     if(S.coletaLayers.pontos){ on?S.coletaLayers.pontos.addTo(S.map):S.map.removeLayer(S.coletaLayers.pontos); }
     const sa=document.getElementById('sec-clt-ajustes'); if(sa) sa.style.display=on?'':'none';
   });
