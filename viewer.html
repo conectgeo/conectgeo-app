@@ -1128,9 +1128,29 @@ function joinData(){
 
 // ══ RENDER MAP ══
 function clearLabels(){S.labelLayers.forEach(l=>S.map.removeLayer(l));S.labelLayers=[];}
+function renderZonasVazias(){
+  // talhão com zonas mas sem planilha: desenha as zonas sem cor (vazias)
+  if(S.compare && S.compare.on) return;
+  if(!S.geoData) return;
+  if(S.layer) S.map.removeLayer(S.layer);
+  clearLabels();
+  S.layer=L.geoJSON(S.geoData,{
+    style:{ color:'#333', weight:1.2, fillColor:'#cfd3cb', fillOpacity:0.2 },
+    onEachFeature:(f,layer)=>{
+      const key=String(f.properties[S.joinGeo]??'').trim();
+      layer.bindTooltip(`<div class="tt-head">Zona ${key||'—'}</div><div class="tt-col">Sem análises ainda</div>`,{sticky:true,opacity:1,permanent:false});
+      layer.on('mouseover',function(){this.setStyle({weight:2.5,color:'#fff'});this.bringToFront();});
+      layer.on('mouseout',function(){S.layer.resetStyle(this);});
+    }
+  }).addTo(S.map);
+  if(!S.pdfMode) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
+  document.getElementById('empty-msg').style.display='none';
+  document.body.classList.add('has-data');
+}
 function renderMap(){
   if(S.compare && S.compare.on){ renderCompare(); return; }
-  if(!S.geoData||!S.colorCol) return;
+  if(!S.geoData) return;
+  if(!S.colorCol){ renderZonasVazias(); return; }
   if(S.layer) S.map.removeLayer(S.layer);
   clearLabels();
   const vals=[];
@@ -1790,6 +1810,7 @@ function setMapMode(mode){
     if(S.layer) S.map.removeLayer(S.layer);
     clearLabels();
     document.getElementById('mleg-left').style.display='none';
+    document.getElementById('empty-msg').style.display='none';
     document.body.classList.add('mode-coleta');
     carregarColeta().then(()=>{ renderZonaLabels(); });
   }else{
@@ -1798,7 +1819,7 @@ function setMapMode(mode){
     document.getElementById('mleg-left').style.display='';
     document.body.classList.remove('mode-coleta');
     if(S.layer) S.layer.addTo(S.map);
-    applyActiveDepth();
+    if(S.colorCol) applyActiveDepth();
   }
 }
 
@@ -2139,8 +2160,9 @@ async function loadFromToken(token, params){
       renderDepthGrid();
       if(S.activeDepth) applyActiveDepth(); else tryActivate();
     } else {
-      // talhão sem planilha de análises: abre só as zonas (sem travar)
-      toast('Este talhão ainda não tem planilha de análises.','wrn');
+      // talhão sem planilha de análises: mostra só as zonas (vazias), sem travar
+      renderMap();
+      toast('Este talhão ainda não tem planilha — mostrando só as zonas.','wrn');
     }
 
     // ── MAPA DE COLETA DE SOLO (Onda 2) ──

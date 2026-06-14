@@ -98,6 +98,36 @@ tr:hover td{background:var(--sand);}
   .header-date{display:none;}
 }
 @media(max-width:480px){ .stats{grid-template-columns:1fr;} }
+.adm-cmodal,.adm-emodal{position:fixed;inset:0;background:rgba(20,18,14,.55);display:none;align-items:center;justify-content:center;z-index:9999;padding:18px;}
+.adm-cmodal.open,.adm-emodal.open{display:flex;}
+.adm-cbox{background:#fff;border-radius:16px;max-width:430px;width:100%;padding:26px 24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3);border-top:5px solid var(--danger);}
+.adm-cic{font-size:42px;margin-bottom:4px;}
+.adm-ctitle{font-size:20px;font-weight:800;color:var(--danger);margin-bottom:8px;}
+.adm-cmsg{font-size:13.5px;color:var(--ink);line-height:1.55;margin-bottom:20px;}
+.adm-cbtns{display:flex;gap:10px;justify-content:center;}
+.adm-ebox{background:var(--sand);border-radius:16px;max-width:780px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;}
+.adm-ehead{display:flex;align-items:center;justify-content:space-between;padding:15px 20px;background:#fff;border-bottom:1px solid var(--sand2);}
+.adm-ehead h3{margin:0;font-size:16px;}
+.adm-eclose{background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);}
+.adm-ebody{padding:18px 20px;overflow-y:auto;}
+.ed-sec{background:#fff;border:1px solid var(--sand2);border-radius:12px;padding:16px;margin-bottom:14px;}
+.ed-h{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:12px;}
+.ed-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.ed-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+.ed-grid label,.ed-grid3 label{display:flex;flex-direction:column;font-size:11px;font-weight:600;color:var(--muted);gap:4px;}
+.ed-grid input,.ed-grid3 input,.ed-tal input{padding:8px 10px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;color:var(--ink);font-family:var(--f);}
+.ed-row-btns{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+.ed-faz{border:1px dashed var(--sand2);border-radius:10px;padding:13px;margin-bottom:12px;background:var(--sand);}
+.ed-tals{margin-top:10px;padding-left:8px;border-left:3px solid #e6f0db;}
+.ed-tal{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+.ed-vazio{font-size:12px;color:var(--muted);font-style:italic;padding:4px 0;}
+.ed-bp,.ed-bs,.ed-bd{border-radius:8px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer;border:1.5px solid transparent;font-family:var(--f);}
+.ed-bp{background:var(--leaf);color:#fff;border-color:var(--leaf);}
+.ed-bs{background:#fff;color:var(--ink);border-color:var(--sand2);}
+.ed-bd{background:var(--danger);color:#fff;border-color:var(--danger);}
+.ed-bp:hover{background:var(--leaf2);} .ed-bd:hover{filter:brightness(.93);}
+.sm{padding:6px 11px !important;font-size:12px !important;}
+@media(max-width:620px){.ed-grid,.ed-grid3{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -466,13 +496,93 @@ function verCliente(clienteId, consultorId){
 
 function editarCliente(clienteId){
   const cl=DATA.clientes.find(c=>c.id===clienteId); if(!cl) return;
-  document.getElementById('ec-id').value=cl.id;
-  document.getElementById('ec-nome').value=cl.nome||'';
-  document.getElementById('ec-email').value=cl.email||'';
-  document.getElementById('ec-municipio').value=cl.municipio||'';
-  document.getElementById('ec-pais').value=cl.pais||'Brasil';
-  document.getElementById('ec-erro').classList.remove('show');
-  openModal('modal-cliente');
+  ADM_EDIT_CLI=clienteId; ADM_EDIT_CONS=cl.consultor_id||null;
+  document.getElementById('adm-edit-modal').classList.add('open');
+  admRenderEdicao();
+}
+let ADM_EDIT_CLI=null, ADM_EDIT_CONS=null;
+function admAttr(s){ return String(s??'').replace(/"/g,'&quot;'); }
+function admEsc(s){ return String(s??'').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+function admHtml(s){ return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function admVal(id){ const e=document.getElementById(id); return e?e.value.trim():''; }
+function admEditClose(){ document.getElementById('adm-edit-modal').classList.remove('open'); }
+function admRenderEdicao(){
+  const c=DATA.clientes.find(x=>x.id===ADM_EDIT_CLI);
+  if(!c){ document.getElementById('adm-em-body').innerHTML='<div style="padding:24px">Cliente não encontrado.</div>'; return; }
+  document.getElementById('adm-em-title').textContent='Editar — '+(c.nome||'');
+  const fazendas=fazendasDoCliente(c.id).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  let h='';
+  h+='<div class="ed-sec"><div class="ed-h">Cadastro do cliente</div><div class="ed-grid">'+
+     '<label>Nome<input id="axe-nome" value="'+admAttr(c.nome)+'"></label>'+
+     '<label>E-mail<input id="axe-email" value="'+admAttr(c.email)+'"></label>'+
+     '<label>Município<input id="axe-mun" value="'+admAttr(c.municipio)+'"></label>'+
+     '<label>País<input id="axe-pais" value="'+admAttr(c.pais)+'"></label></div>'+
+     '<div class="ed-row-btns"><button class="ed-bp" onclick="admSalvarCliente()">Salvar cliente</button>'+
+     '<button class="ed-bd sm" onclick="admPedirExcluirCliente(\''+c.id+'\',\''+admEsc(c.nome)+'\')">Excluir cliente</button></div></div>';
+  h+='<div class="ed-sec"><div class="ed-h">Fazendas ('+fazendas.length+')</div>';
+  if(!fazendas.length) h+='<div class="ed-vazio">Sem fazendas.</div>';
+  fazendas.forEach(f=>{
+    const tals=talhoesDaFazenda(f.id).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+    h+='<div class="ed-faz"><div class="ed-grid3">'+
+       '<label>Fazenda<input id="axf-nome-'+f.id+'" value="'+admAttr(f.nome)+'"></label>'+
+       '<label>Município<input id="axf-mun-'+f.id+'" value="'+admAttr(f.municipio)+'"></label>'+
+       '<label>Estado<input id="axf-est-'+f.id+'" value="'+admAttr(f.estado)+'"></label></div>'+
+       '<div class="ed-row-btns"><button class="ed-bs sm" onclick="admSalvarFazenda(\''+f.id+'\')">Salvar fazenda</button>'+
+       '<button class="ed-bd sm" onclick="admPedirExcluirFazenda(\''+f.id+'\',\''+admEsc(f.nome)+'\')">Excluir fazenda</button></div><div class="ed-tals">';
+    if(!tals.length) h+='<div class="ed-vazio">Sem talhões.</div>';
+    tals.forEach(t=>{
+      h+='<div class="ed-tal"><input id="axt-nome-'+t.id+'" value="'+admAttr(t.nome)+'" style="flex:1;min-width:120px">'+
+         '<input id="axt-ha-'+t.id+'" value="'+(t.hectares??'')+'" type="number" step="0.01" placeholder="ha" style="width:88px">'+
+         '<button class="ed-bs sm" onclick="admSalvarTalhao(\''+t.id+'\')">Salvar</button>'+
+         '<button class="ed-bd sm" onclick="admPedirExcluirTalhao(\''+t.id+'\',\''+admEsc(t.nome)+'\')">Excluir</button></div>';
+    });
+    h+='</div></div>';
+  });
+  h+='</div>';
+  document.getElementById('adm-em-body').innerHTML=h;
+}
+async function admSalvarCliente(){
+  const { error } = await sb.from('clientes').update({ nome:admVal('axe-nome'), email:admVal('axe-email'), municipio:admVal('axe-mun'), pais:admVal('axe-pais') }).eq('id',ADM_EDIT_CLI);
+  if(error){ alert('Erro: '+error.message); return; }
+  showSuccess('Cliente salvo!'); await carregarTudo(); admRenderEdicao();
+}
+async function admSalvarFazenda(id){
+  const { error } = await sb.from('fazendas').update({ nome:admVal('axf-nome-'+id), municipio:admVal('axf-mun-'+id), estado:admVal('axf-est-'+id) }).eq('id',id);
+  if(error){ alert('Erro: '+error.message); return; }
+  showSuccess('Fazenda salva!'); await carregarTudo(); admRenderEdicao();
+}
+async function admSalvarTalhao(id){
+  const ha=parseFloat(admVal('axt-ha-'+id));
+  const { error } = await sb.from('talhoes').update({ nome:admVal('axt-nome-'+id), hectares:isNaN(ha)?null:ha }).eq('id',id);
+  if(error){ alert('Erro: '+error.message); return; }
+  showSuccess('Talhão salvo!'); await carregarTudo(); admRenderEdicao();
+}
+function admConfirm(titulo,msgHtml,onOk){
+  document.getElementById('adm-cm-title').textContent=titulo;
+  document.getElementById('adm-cm-msg').innerHTML=msgHtml;
+  document.getElementById('adm-confirm-modal').classList.add('open');
+  const ok=document.getElementById('adm-cm-ok');
+  const novo=ok.cloneNode(true); ok.parentNode.replaceChild(novo,ok);
+  novo.addEventListener('click', async()=>{ admConfirmClose(); try{ await onOk(); }catch(e){ alert('Erro: '+e.message); } });
+}
+function admConfirmClose(){ document.getElementById('adm-confirm-modal').classList.remove('open'); }
+function admPedirExcluirTalhao(id,nome){
+  admConfirm('Excluir talhão?', 'Você vai excluir o talhão <b>'+admHtml(nome)+'</b>.<br>Arquivos e link serão removidos.<br><br><b>Esta ação não pode ser desfeita.</b>', async()=>{
+    const { error } = await sb.from('talhoes').delete().eq('id',id); if(error) throw error;
+    showSuccess('Talhão excluído!'); await carregarTudo(); admRenderEdicao();
+  });
+}
+function admPedirExcluirFazenda(id,nome){
+  admConfirm('Excluir fazenda?', 'Você vai excluir a fazenda <b>'+admHtml(nome)+'</b>.<br><b>TODOS</b> os talhões, arquivos e links dela serão removidos.<br><br><b>Esta ação não pode ser desfeita.</b>', async()=>{
+    const { error } = await sb.from('fazendas').delete().eq('id',id); if(error) throw error;
+    showSuccess('Fazenda excluída!'); await carregarTudo(); admRenderEdicao();
+  });
+}
+function admPedirExcluirCliente(id,nome){
+  admConfirm('Excluir cliente?', 'Você vai excluir o cliente <b>'+admHtml(nome)+'</b>.<br><b>TODAS</b> as fazendas, talhões, arquivos e links dele serão removidos.<br><br><b>Esta ação não pode ser desfeita.</b>', async()=>{
+    const { error } = await sb.from('clientes').delete().eq('id',id); if(error) throw error;
+    showSuccess('Cliente excluído!'); admEditClose(); await carregarTudo(); if(ADM_EDIT_CONS) verConsultor(ADM_EDIT_CONS);
+  });
 }
 async function salvarCliente(e){
   e.preventDefault();
@@ -595,5 +705,15 @@ async function logout(){ await sb.auth.signOut(); location.href='index.html'; }
 
 init();
 </script>
+<div id="adm-confirm-modal" class="adm-cmodal"><div class="adm-cbox">
+  <div class="adm-cic">⚠️</div>
+  <div class="adm-ctitle" id="adm-cm-title">Excluir?</div>
+  <div class="adm-cmsg" id="adm-cm-msg"></div>
+  <div class="adm-cbtns"><button class="ed-bs" onclick="admConfirmClose()">Cancelar</button><button class="ed-bd" id="adm-cm-ok">Sim, excluir</button></div>
+</div></div>
+<div id="adm-edit-modal" class="adm-emodal"><div class="adm-ebox">
+  <div class="adm-ehead"><h3 id="adm-em-title">Editar cliente</h3><button class="adm-eclose" onclick="admEditClose()">✕</button></div>
+  <div class="adm-ebody" id="adm-em-body"></div>
+</div></div>
 </body>
 </html>

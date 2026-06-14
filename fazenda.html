@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ConectGeo — Fazenda</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{ --leaf:#5fa832; --leaf2:#3f7a1f; --leaf-bg:#eef6e6; --sand:#f3f1ea; --sand2:#e2ddd0; --ink:#2d3748; --muted:#9a9088; }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;color:var(--ink);background:var(--sand);}
+  #app{display:flex;flex-direction:column;height:100vh;}
+  .top{display:flex;align-items:center;gap:14px;padding:12px 18px;background:#fff;border-bottom:1px solid var(--sand2);flex-wrap:wrap;}
+  .brand{font-weight:700;font-size:16px;}
+  .brand span{color:var(--leaf);}
+  .who{min-width:0;}
+  .who .f{font-weight:700;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .who .c{font-size:12px;color:var(--muted);}
+  .picker{margin-left:auto;display:flex;align-items:center;gap:8px;}
+  .picker label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+  select{padding:9px 11px;border:1.5px solid var(--sand2);border-radius:9px;font-size:14px;background:#fff;min-width:180px;}
+  #frameWrap{flex:1;min-height:0;position:relative;}
+  iframe{width:100%;height:100%;border:0;}
+  .msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);text-align:center;padding:24px;}
+  .err{color:#c0392b;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="top">
+    <div class="brand">Conect<span>Geo</span></div>
+    <div class="who"><div class="f" id="faz-nome">Carregando…</div><div class="c" id="cli-nome"></div></div>
+    <div class="picker">
+      <label>Talhão</label>
+      <select id="sel-talhao" onchange="abrir()"></select>
+    </div>
+  </div>
+  <div id="frameWrap">
+    <div class="msg" id="msg">Carregando fazenda…</div>
+    <iframe id="frame" style="display:none"></iframe>
+  </div>
+</div>
+<script>
+  const SUPABASE_URL = 'https://xlhwhhettdnssvvppiuf.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_HK6W6kBCMF627z31zvGFZA_VjcaGlSe';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  const params = new URLSearchParams(location.search);
+  const fToken = params.get('f');
+  const lang = params.get('lang') || 'pt';
+  let TALHOES = [];
+
+  function setMsg(txt, isErr){
+    const m=document.getElementById('msg');
+    m.style.display='flex'; m.textContent=txt; m.className='msg'+(isErr?' err':'');
+    document.getElementById('frame').style.display='none';
+  }
+
+  async function init(){
+    if(!fToken){ setMsg('Link inválido (sem token de fazenda).', true); return; }
+    try{
+      const { data, error } = await sb.rpc('get_fazenda_link_data', { p_token: fToken });
+      if(error) throw error;
+      const d = (typeof data==='string') ? JSON.parse(data) : data;
+      if(!d || d.erro){ setMsg('Este link de fazenda não é válido ou foi revogado.', true); return; }
+      document.getElementById('faz-nome').textContent = d.fazenda || 'Fazenda';
+      document.getElementById('cli-nome').textContent = d.cliente || '';
+      document.title = 'ConectGeo — ' + (d.fazenda||'Fazenda');
+      TALHOES = (d.talhoes||[]).filter(t=>t.token);
+      if(!TALHOES.length){ setMsg('Esta fazenda ainda não tem talhões disponíveis.', true); return; }
+      const sel=document.getElementById('sel-talhao');
+      sel.innerHTML = TALHOES.map(t=>`<option value="${t.token}">${t.nome} · ${(Number(t.hectares)||0).toFixed(1)} ha</option>`).join('');
+      abrir();
+    }catch(err){
+      setMsg('Erro ao abrir a fazenda: ' + (err.message||err), true);
+    }
+  }
+
+  function abrir(){
+    const token=document.getElementById('sel-talhao').value;
+    if(!token) return;
+    const fr=document.getElementById('frame');
+    document.getElementById('msg').style.display='none';
+    fr.style.display='block';
+    fr.src='viewer.html?t='+token+'&lang='+lang+'&embed=1';
+  }
+
+  init();
+</script>
+</body>
+</html>

@@ -214,6 +214,50 @@ tr:hover td{background:var(--sand);}
 .mob-burger{display:none;align-items:center;justify-content:center;width:36px;height:36px;border-radius:8px;border:1px solid var(--sand2);background:#fff;cursor:pointer;font-size:17px;flex-shrink:0;}
 .mob-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:550;}
 .mob-backdrop.show{display:block;}
+.lk-cli{border:1.5px solid var(--sand2);border-radius:11px;background:#fff;margin-bottom:10px;overflow:hidden;}
+.lk-cli>summary{list-style:none;cursor:pointer;padding:13px 15px;display:flex;align-items:center;gap:10px;font-size:14.5px;}
+.lk-cli>summary::-webkit-details-marker{display:none;}
+.lk-faz{margin:0 10px 8px 30px;border:1px solid var(--sand2);border-radius:9px;overflow:hidden;background:var(--sand);}
+.lk-faz>summary{list-style:none;cursor:pointer;padding:10px 13px;display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:600;}
+.lk-faz>summary::-webkit-details-marker{display:none;}
+.lk-fnm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.lk-cnt{font-size:11px;color:var(--muted);font-weight:400;margin-left:auto;}
+.lk-faz .lk-cnt{margin-left:0;}
+.lk-fbtn{margin-left:10px;border:1px solid var(--leaf);background:var(--leaf-bg);color:var(--leaf2);border-radius:7px;padding:5px 9px;font-size:11.5px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.lk-fbtn:hover{background:var(--leaf);color:#fff;}
+.lk-tal{display:flex;align-items:center;gap:9px;padding:10px 13px;margin:0 8px 6px;background:#fff;border:1px solid var(--sand2);border-radius:8px;cursor:pointer;transition:.12s;}
+.lk-tal:hover{border-color:var(--leaf);background:var(--leaf-bg);}
+.lk-tnm{font-weight:600;font-size:13px;}
+.lk-tsub{font-size:11px;color:var(--muted);margin-left:4px;}
+.lk-copy{margin-left:auto;font-size:11.5px;color:var(--leaf2);font-weight:600;}
+.lk-vazio{padding:8px 13px;color:var(--muted);font-size:12px;font-style:italic;}
+.lk-ico{flex:none;}
+.cmodal,.emodal{position:fixed;inset:0;background:rgba(20,18,14,.55);display:none;align-items:center;justify-content:center;z-index:9999;padding:18px;}
+.cmodal.open,.emodal.open{display:flex;}
+.cbox{background:#fff;border-radius:16px;max-width:430px;width:100%;padding:26px 24px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.3);border-top:5px solid #d94f3d;}
+.cic{font-size:42px;margin-bottom:4px;}
+.ctitle{font-size:20px;font-weight:800;color:#b53a28;margin-bottom:8px;}
+.cmsg{font-size:13.5px;color:var(--ink);line-height:1.55;margin-bottom:20px;}
+.cbtns{display:flex;gap:10px;justify-content:center;}
+.btn.danger{background:#d94f3d;border:1.5px solid #d94f3d;color:#fff;font-weight:700;}
+.btn.danger:hover{background:#bf3f2f;}
+.btn.sm{padding:6px 11px;font-size:12px;}
+.ebox{background:var(--sand);border-radius:16px;max-width:780px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;}
+.ehead{display:flex;align-items:center;justify-content:space-between;padding:15px 20px;background:#fff;border-bottom:1px solid var(--sand2);}
+.ehead h3{margin:0;font-size:16px;}
+.ebody{padding:18px 20px;overflow-y:auto;}
+.ed-sec{background:#fff;border:1px solid var(--sand2);border-radius:12px;padding:16px;margin-bottom:14px;}
+.ed-h{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:12px;}
+.ed-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.ed-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+.ed-grid label,.ed-grid3 label{display:flex;flex-direction:column;font-size:11px;font-weight:600;color:var(--muted);gap:4px;}
+.ed-grid input,.ed-grid3 input,.ed-tal input{padding:8px 10px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;color:var(--ink);}
+.ed-row-btns{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+.ed-faz{border:1px dashed var(--sand2);border-radius:10px;padding:13px;margin-bottom:12px;background:var(--sand);}
+.ed-tals{margin-top:10px;padding-left:8px;border-left:3px solid var(--leaf-bg);}
+.ed-tal{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;}
+.ed-vazio{font-size:12px;color:var(--muted);font-style:italic;padding:4px 0;}
+@media(max-width:620px){.ed-grid,.ed-grid3{grid-template-columns:1fr;}}
 </style>
 </head>
 <body>
@@ -368,16 +412,12 @@ tr:hover td{background:var(--sand);}
     <!-- ══ VIEW: LINKS ══ -->
     <div id="view-links" class="hidden">
       <div class="topbar">
-        <div style="display:flex;align-items:center;gap:10px;min-width:0"><button class="mob-burger" onclick="toggleSidebar()">☰</button><div><div class="tb-title">Links compartilhados</div><div class="tb-sub">Links de visualização enviados aos produtores</div></div></div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0"><button class="mob-burger" onclick="toggleSidebar()">☰</button><div><div class="tb-title">Links</div><div class="tb-sub">Navegue por produtor, fazenda e talhão e clique para copiar o link</div></div></div>
         <button class="btn sec" onclick="showView('dash')">← Voltar</button>
       </div>
       <div class="content">
-        <div class="tw">
-          <table>
-            <thead><tr><th>Talhão</th><th>Produtor</th><th>Link</th><th>Criado</th><th>Views</th><th>Status</th><th></th></tr></thead>
-            <tbody id="links-tbody"><tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Carregando…</td></tr></tbody>
-          </table>
-        </div>
+        <div style="margin-bottom:14px"><input id="links-busca" type="text" placeholder="Buscar produtor, fazenda ou talhão…" oninput="filtrarLinks()" style="width:100%;padding:11px 13px;border:1.5px solid var(--sand2);border-radius:10px;font-size:14px;"></div>
+        <div id="links-tree"><div style="text-align:center;color:var(--muted);padding:24px">Carregando…</div></div>
       </div>
     </div>
 
@@ -400,8 +440,8 @@ tr:hover td{background:var(--sand);}
               <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selFazenda">Fazenda</label>
               <select id="mv-fazenda" onchange="mvSelFazenda()" style="width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;margin-bottom:10px;"></select>
               <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selTalhao">Talhão</label>
+              <select id="mv-talhao" onchange="mvSelTalhao()" style="width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;"></select>
             </div>
-            <div id="mapa-talhoes" style="padding:0 4px;"></div>
           </div>
         </div>
         <div class="mapa-frame-wrap">
@@ -601,7 +641,7 @@ async function openSO(){
     <div class="so-item">
       <div class="so-av" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')">${c.nome[0].toUpperCase()}</div>
       <div style="flex:1;min-width:0" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')"><div class="so-nm">${c.nome}</div><div class="so-mt">${(c.fazendas||[]).length} fazenda${(c.fazendas||[]).length!==1?'s':''}</div></div>
-      <button class="ab" onclick="event.stopPropagation();excluirCliente('${c.id}','${esc(c.nome)}')" title="Excluir cliente" style="color:#d94f3d">🗑</button>
+      <button class="ab" onclick="event.stopPropagation();abrirEdicaoCliente('${c.id}')" title="Editar cliente" style="color:var(--leaf2)">✏️ Editar</button>
       <div class="so-badge" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')">→</div>
     </div>`).join('')
     : `<div class="so-empty"><div class="ic">👥</div>Nenhum cliente ainda.<br><br><button class="btn pri" onclick="closeSO();showView('novo')">+ Criar Novo</button></div>`;
@@ -622,7 +662,6 @@ async function soSelCliente(el, id, nome){
     <div class="so-item">
       <div class="so-av" style="background:#f0ede8;color:#5c4d3c" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')">🏡</div>
       <div style="flex:1;min-width:0" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')"><div class="so-nm">${f.nome}</div><div class="so-mt">${f.municipio||''} ${(f.talhoes||[]).length} talhõe${(f.talhoes||[]).length!==1?'s':'s'}</div></div>
-      <button class="ab" onclick="event.stopPropagation();excluirFazenda('${f.id}','${esc(f.nome)}','${id}','${esc(nome)}')" title="Excluir fazenda" style="color:#d94f3d">🗑</button>
       <div class="so-badge" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')">${(f.talhoes||[]).length} →</div>
     </div>`).join('')
     : `<div class="so-empty"><div class="ic">🏡</div>Sem fazendas</div>`;
@@ -650,7 +689,6 @@ async function soSelFazenda(el, id, nome){
       <div class="tal-acts">
         <button class="ab" onclick="abrirTalhao('${t.id}')" title="Ver no mapa">👁</button>
         <button class="ab" onclick="gerarOuCopiarLink('${t.id}')" title="Copiar link">🔗</button>
-        <button class="ab" onclick="excluirTalhao('${t.id}','${esc(t.nome)}','${id}','${esc(nome)}')" title="Excluir talhão" style="color:#d94f3d">🗑</button>
       </div>
     </div>`;}).join('')
     : `<div class="so-empty"><div class="ic">🗺</div>Sem talhões<br><br><button class="btn pri" onclick="closeSO();showView('novo')">+ Criar talhão</button></div>`;
@@ -977,21 +1015,22 @@ async function mvSelFazenda(){
 async function mvPopularTalhoes(autoAbrir){
   const { data } = await sb.from('talhoes').select('id,nome,hectares').eq('fazenda_id',MAPA_CTX.fazendaId).order('nome');
   const list=data||[];
-  const box=document.getElementById('mapa-talhoes');
-  box.innerHTML='';
-  list.forEach(t=>{
-    const div=document.createElement('div');
-    div.className='mapa-tal'+(t.id===MAPA_CTX.talhaoAtivo?' active':'');
-    div.innerHTML='<div class="mt-nm">'+t.nome+'</div><div class="mt-sub">'+(Number(t.hectares)||0).toFixed(1)+' ha</div>';
-    div.onclick=()=>{ carregarTalhaoNoMapa(t.id,t.nome); MAPA_CTX.talhaoAtivo=t.id; mvMarcarAtivo(t.id); if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed'); };
-    box.appendChild(div);
-  });
-  if(autoAbrir && list.length){ MAPA_CTX.talhaoAtivo=list[0].id; mvMarcarAtivo(list[0].id); carregarTalhaoNoMapa(list[0].id,list[0].nome); }
+  const sel=document.getElementById('mv-talhao');
+  if(autoAbrir && list.length){ MAPA_CTX.talhaoAtivo=list[0].id; }
+  if(!list.some(t=>t.id===MAPA_CTX.talhaoAtivo) && list.length){ MAPA_CTX.talhaoAtivo=list[0].id; }
+  sel.innerHTML=list.map(t=>`<option value="${t.id}" ${t.id===MAPA_CTX.talhaoAtivo?'selected':''}>${t.nome} · ${(Number(t.hectares)||0).toFixed(1)} ha</option>`).join('');
+  if(autoAbrir && list.length){ const t=list.find(x=>x.id===MAPA_CTX.talhaoAtivo)||list[0]; carregarTalhaoNoMapa(t.id,t.nome); }
+}
+async function mvSelTalhao(){
+  const sel=document.getElementById('mv-talhao');
+  const id=sel.value; if(!id) return;
+  const nome=(sel.options[sel.selectedIndex].textContent||'').split(' · ')[0];
+  MAPA_CTX.talhaoAtivo=id;
+  carregarTalhaoNoMapa(id,nome);
+  if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed');
 }
 function mvMarcarAtivo(id){
-  document.querySelectorAll('#mapa-talhoes .mapa-tal').forEach(d=>d.classList.remove('active'));
-  const items=document.querySelectorAll('#mapa-talhoes .mapa-tal');
-  // re-render marca via classe; simplificado: recoloca a classe pelo texto não é confiável, então deixamos o clique controlar
+  const sel=document.getElementById('mv-talhao'); if(sel) sel.value=id;
 }
 
 async function carregarTalhaoNoMapa(talhaoId, nome){
@@ -1001,10 +1040,8 @@ async function carregarTalhaoNoMapa(talhaoId, nome){
   if(!token) return;
   const lang=getLang();
   document.getElementById('mapa-frame').src='viewer.html?t='+token+'&lang='+lang+'&embed=1&consultor=1';
-  // marca ativo na lista
-  document.querySelectorAll('#mapa-talhoes .mapa-tal').forEach(d=>{
-    d.classList.toggle('active', d.querySelector('.mt-nm') && d.querySelector('.mt-nm').textContent===nome);
-  });
+  // marca o talhão ativo no select
+  const sel=document.getElementById('mv-talhao'); if(sel) sel.value=talhaoId;
 }
 
 function fecharMapa(){
@@ -1030,83 +1067,172 @@ async function gerarOuCopiarLink(talhaoId){
 // ═══════════════════════════════════════════════
 // EXCLUSÕES (ponto 8) — talhão, fazenda, cliente
 // ═══════════════════════════════════════════════
-async function excluirTalhao(id,nome,fazendaId,fazendaNome){
-  if(!confirm('Excluir o talhão "'+nome+'"?\n\nOs arquivos e o link de visualização serão removidos. Esta ação não pode ser desfeita.')) return;
-  try{
-    // remove arquivos do storage
-    try{ await sb.storage.from('arquivos').remove([USER.id+'/'+id+'/zonas.geojson', USER.id+'/'+id+'/analises.csv', USER.id+'/'+id+'/analises.xlsx']); }catch(e){}
-    const { error } = await sb.from('talhoes').delete().eq('id',id);
-    if(error) throw error;
-    toast('Talhão excluído','✅');
-    // recarrega a coluna de talhões
-    const fakeEl=document.querySelector('#so-fazendas .so-item.sel')||document.createElement('div');
-    await soSelFazenda(fakeEl, fazendaId, fazendaNome);
-    carregarDashboard();
-  }catch(err){ toast('Erro ao excluir: '+err.message,'⚠️'); }
+// ── Confirmação chamativa (substitui o confirm() nativo) ──
+function confirmarExclusao(titulo, msgHtml, onOk){
+  document.getElementById('cm-title').textContent=titulo;
+  document.getElementById('cm-msg').innerHTML=msgHtml;
+  document.getElementById('confirm-modal').classList.add('open');
+  const ok=document.getElementById('cm-ok');
+  const novo=ok.cloneNode(true); ok.parentNode.replaceChild(novo,ok);
+  novo.addEventListener('click', async()=>{ cmClose(); try{ await onOk(); }catch(e){ toast('Erro: '+e.message,'⚠️'); } });
 }
+function cmClose(){ document.getElementById('confirm-modal').classList.remove('open'); }
 
-async function excluirFazenda(id,nome,clienteId,clienteNome){
-  if(!confirm('Excluir a fazenda "'+nome+'"?\n\nTODOS os talhões, arquivos e links dela serão removidos. Esta ação não pode ser desfeita.')) return;
-  try{
-    const { error } = await sb.from('fazendas').delete().eq('id',id);
-    if(error) throw error;
-    toast('Fazenda excluída','✅');
-    const fakeEl=document.querySelector('#so-clientes .so-item.sel')||document.createElement('div');
-    await soSelCliente(fakeEl, clienteId, clienteNome);
-    carregarDashboard();
-  }catch(err){ toast('Erro ao excluir: '+err.message,'⚠️'); }
+// ── Modal de edição do cliente (cadastro + fazendas + talhões) ──
+let EDIT_CLI=null;
+function attr(s){ return String(s??'').replace(/"/g,'&quot;'); }
+function val(id){ const e=document.getElementById(id); return e?e.value.trim():''; }
+async function abrirEdicaoCliente(clienteId){
+  EDIT_CLI=clienteId;
+  document.getElementById('edit-modal').classList.add('open');
+  document.getElementById('em-body').innerHTML='<div style="padding:30px;text-align:center;color:var(--muted)">Carregando…</div>';
+  await renderEdicao();
 }
-
-async function excluirCliente(id,nome){
-  if(!confirm('Excluir o cliente "'+nome+'"?\n\nTODAS as fazendas, talhões, arquivos e links dele serão removidos. Esta ação não pode ser desfeita.')) return;
-  try{
-    const { error } = await sb.from('clientes').delete().eq('id',id);
-    if(error) throw error;
-    toast('Cliente excluído','✅');
-    openSO(); // recarrega lista de clientes
-    document.getElementById('so-fazendas').innerHTML='<div class="so-empty"><div class="ic">🏡</div>Selecione um cliente</div>';
-    document.getElementById('so-talhoes').innerHTML='<div class="so-empty"><div class="ic">🗺</div>Selecione uma fazenda</div>';
-    carregarDashboard();
-  }catch(err){ toast('Erro ao excluir: '+err.message,'⚠️'); }
+function emClose(){ document.getElementById('edit-modal').classList.remove('open'); EDIT_CLI=null; }
+async function renderEdicao(){
+  const { data:c } = await sb.from('clientes').select('id,nome,email,municipio,pais,fazendas(id,nome,municipio,estado,talhoes(id,nome,hectares))').eq('id',EDIT_CLI).single();
+  if(!c){ document.getElementById('em-body').innerHTML='<div style="padding:24px">Cliente não encontrado.</div>'; return; }
+  document.getElementById('em-title').textContent='Editar — '+c.nome;
+  const fazendas=(c.fazendas||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  let h='';
+  h+=`<div class="ed-sec"><div class="ed-h">Cadastro do cliente</div>
+    <div class="ed-grid">
+      <label>Nome<input id="ec-nome" value="${attr(c.nome)}"></label>
+      <label>E-mail<input id="ec-email" value="${attr(c.email)}"></label>
+      <label>Município<input id="ec-mun" value="${attr(c.municipio)}"></label>
+      <label>País<input id="ec-pais" value="${attr(c.pais)}"></label>
+    </div>
+    <div class="ed-row-btns"><button class="btn pri" onclick="salvarCliente()">Salvar cliente</button>
+      <button class="btn danger sm" onclick="pedirExcluirCliente('${c.id}','${esc(c.nome)}')">Excluir cliente</button></div>
+  </div>`;
+  h+=`<div class="ed-sec"><div class="ed-h">Fazendas (${fazendas.length})</div>`;
+  if(!fazendas.length) h+='<div class="ed-vazio">Sem fazendas.</div>';
+  fazendas.forEach(f=>{
+    const tals=(f.talhoes||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+    h+=`<div class="ed-faz">
+      <div class="ed-grid3">
+        <label>Fazenda<input id="ef-nome-${f.id}" value="${attr(f.nome)}"></label>
+        <label>Município<input id="ef-mun-${f.id}" value="${attr(f.municipio)}"></label>
+        <label>Estado<input id="ef-est-${f.id}" value="${attr(f.estado)}"></label>
+      </div>
+      <div class="ed-row-btns"><button class="btn sec sm" onclick="salvarFazenda('${f.id}')">Salvar fazenda</button>
+        <button class="btn danger sm" onclick="pedirExcluirFazenda('${f.id}','${esc(f.nome)}')">Excluir fazenda</button></div>
+      <div class="ed-tals">`;
+    if(!tals.length) h+='<div class="ed-vazio">Sem talhões.</div>';
+    tals.forEach(t=>{
+      h+=`<div class="ed-tal">
+        <input id="et-nome-${t.id}" value="${attr(t.nome)}" style="flex:1;min-width:120px">
+        <input id="et-ha-${t.id}" value="${t.hectares??''}" type="number" step="0.01" placeholder="ha" style="width:88px">
+        <button class="btn sec sm" onclick="salvarTalhao('${t.id}')">Salvar</button>
+        <button class="btn danger sm" onclick="pedirExcluirTalhao('${t.id}','${esc(t.nome)}')">Excluir</button>
+      </div>`;
+    });
+    h+=`</div></div>`;
+  });
+  h+=`</div>`;
+  document.getElementById('em-body').innerHTML=h;
+}
+async function salvarCliente(){
+  const { error } = await sb.from('clientes').update({ nome:val('ec-nome'), email:val('ec-email'), municipio:val('ec-mun'), pais:val('ec-pais') }).eq('id',EDIT_CLI);
+  if(error){ toast('Erro: '+error.message,'⚠️'); return; }
+  toast('Cliente salvo','✅'); carregarDashboard();
+}
+async function salvarFazenda(id){
+  const { error } = await sb.from('fazendas').update({ nome:val('ef-nome-'+id), municipio:val('ef-mun-'+id), estado:val('ef-est-'+id) }).eq('id',id);
+  if(error){ toast('Erro: '+error.message,'⚠️'); return; }
+  toast('Fazenda salva','✅'); carregarDashboard();
+}
+async function salvarTalhao(id){
+  const ha=parseFloat(val('et-ha-'+id));
+  const { error } = await sb.from('talhoes').update({ nome:val('et-nome-'+id), hectares:isNaN(ha)?null:ha }).eq('id',id);
+  if(error){ toast('Erro: '+error.message,'⚠️'); return; }
+  toast('Talhão salvo','✅'); carregarDashboard();
+}
+function pedirExcluirTalhao(id,nome){
+  confirmarExclusao('Excluir talhão?', `Você vai excluir o talhão <b>${lkEsc(nome)}</b>.<br>Os arquivos e o link de visualização serão removidos.<br><br><b>Esta ação não pode ser desfeita.</b>`, async()=>{
+    const { error } = await sb.from('talhoes').delete().eq('id',id); if(error) throw error;
+    toast('Talhão excluído','✅'); await renderEdicao(); carregarDashboard();
+  });
+}
+function pedirExcluirFazenda(id,nome){
+  confirmarExclusao('Excluir fazenda?', `Você vai excluir a fazenda <b>${lkEsc(nome)}</b>.<br><b>TODOS</b> os talhões, arquivos e links dela serão removidos.<br><br><b>Esta ação não pode ser desfeita.</b>`, async()=>{
+    const { error } = await sb.from('fazendas').delete().eq('id',id); if(error) throw error;
+    toast('Fazenda excluída','✅'); await renderEdicao(); carregarDashboard();
+  });
+}
+function pedirExcluirCliente(id,nome){
+  confirmarExclusao('Excluir cliente?', `Você vai excluir o cliente <b>${lkEsc(nome)}</b>.<br><b>TODAS</b> as fazendas, talhões, arquivos e links dele serão removidos.<br><br><b>Esta ação não pode ser desfeita.</b>`, async()=>{
+    const { error } = await sb.from('clientes').delete().eq('id',id); if(error) throw error;
+    toast('Cliente excluído','✅'); emClose(); openSO(); carregarDashboard();
+  });
 }
 
 
 // ═══════════════════════════════════════════════
 // LINKS VIEW
 // ═══════════════════════════════════════════════
+let LINKS_DATA=[];
+function lkEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 async function carregarLinks(){
-  const { data } = await sb.from('links_view')
-    .select('id,token,ativo,visualizacoes,criado_em,talhao:talhoes(nome,fazenda:fazendas(nome,cliente:clientes(nome)))')
-    .order('criado_em',{ascending:false});
-  const tb=document.getElementById('links-tbody');
-  const list=data||[];
-  if(!list.length){ tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px">Nenhum link gerado ainda</td></tr>'; return; }
-  tb.innerHTML=list.map(l=>`
-    <tr>
-      <td><div style="font-weight:600">${l.talhao?.nome||'—'}</div><div style="font-size:10px;color:var(--muted)">${l.talhao?.fazenda?.nome||''}</div></td>
-      <td>${l.talhao?.fazenda?.cliente?.nome||'—'}</td>
-      <td><span class="mono">/viewer.html?t=${l.token}</span></td>
-      <td style="color:var(--muted)">${new Date(l.criado_em).toLocaleDateString('pt-BR')}</td>
-      <td><strong>${l.visualizacoes||0}</strong></td>
-      <td>${l.ativo?'<span class="tag g">Ativo</span>':'<span class="tag gr">Revogado</span>'}</td>
-      <td style="white-space:nowrap">
-        <button class="ab" onclick="window.open('viewer.html?t=${l.token}','_blank')">Abrir</button>
-        <button class="ab" onclick="copiarLinkToken('${l.token}')">Copiar</button>
-        ${l.ativo?`<button class="ab d" onclick="revogar('${l.id}')">Revogar</button>`:`<button class="ab" onclick="reativar('${l.id}')">Reativar</button>`}
-      </td>
-    </tr>`).join('');
+  const tree=document.getElementById('links-tree');
+  tree.innerHTML='<div style="text-align:center;color:var(--muted);padding:24px">Carregando…</div>';
+  const { data } = await sb.from('clientes').select('id,nome,fazendas(id,nome,talhoes(id,nome,hectares))').order('nome');
+  LINKS_DATA=(data||[]).map(c=>({
+    ...c,
+    fazendas:(c.fazendas||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||'')).map(f=>({
+      ...f, talhoes:(f.talhoes||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''))
+    }))
+  }));
+  renderLinksTree('');
 }
-async function copiarLinkToken(token){
-  const url=`${location.origin}${location.pathname.replace('app.html','')}viewer.html?t=${token}`;
-  try{ await navigator.clipboard.writeText(url); toast('Link copiado!','✅'); }catch(e){ prompt('Copie:',url); }
+function filtrarLinks(){ renderLinksTree(document.getElementById('links-busca').value); }
+function renderLinksTree(q){
+  const tree=document.getElementById('links-tree');
+  q=(q||'').trim().toLowerCase();
+  const hit=s=>(s||'').toLowerCase().includes(q);
+  let html='', algum=false;
+  LINKS_DATA.forEach(c=>{
+    const cHit=hit(c.nome);
+    const fazendas=[];
+    (c.fazendas||[]).forEach(f=>{
+      const fHit=hit(f.nome);
+      const talhoes = (q && !cHit && !fHit) ? (f.talhoes||[]).filter(t=>hit(t.nome)) : (f.talhoes||[]);
+      if(!q || cHit || fHit || talhoes.length) fazendas.push({f, talhoes});
+    });
+    if(q && !cHit && !fazendas.length) return;
+    algum=true;
+    const open = q ? 'open' : '';
+    html+=`<details class="lk-cli" ${open}><summary><span class="lk-ico">👤</span><b>${lkEsc(c.nome)}</b><span class="lk-cnt">${(c.fazendas||[]).length} fazenda(s)</span></summary>`;
+    fazendas.forEach(({f,talhoes})=>{
+      html+=`<details class="lk-faz" ${open}><summary><span class="lk-ico">🏠</span><span class="lk-fnm">${lkEsc(f.nome)}</span><span class="lk-cnt">${(f.talhoes||[]).length} talhão(ões)</span><button class="lk-fbtn" onclick="event.preventDefault();event.stopPropagation();copiarLinkFazenda('${f.id}')">🔗 Link da fazenda</button></summary>`;
+      if(!talhoes.length) html+=`<div class="lk-vazio">Sem talhões aqui</div>`;
+      talhoes.forEach(t=>{
+        html+=`<div class="lk-tal" onclick="copiarLinkTalhaoId('${t.id}')" title="Clique para copiar o link"><span class="lk-ico">🌾</span><span class="lk-tnm">${lkEsc(t.nome)}</span><span class="lk-tsub">${lkEsc(c.nome)} · ${lkEsc(f.nome)}</span><span class="lk-copy">Copiar ⧉</span></div>`;
+      });
+      html+=`</details>`;
+    });
+    html+=`</details>`;
+  });
+  tree.innerHTML = algum ? html : '<div style="text-align:center;color:var(--muted);padding:24px">Nada encontrado</div>';
 }
-async function revogar(id){
-  await sb.from('links_view').update({ativo:false}).eq('id',id);
-  toast('Link revogado','✅'); carregarLinks();
+async function copiarTextoLink(url){ try{ await navigator.clipboard.writeText(url); }catch(e){ prompt('Copie:',url); } }
+async function copiarLinkTalhaoId(talhaoId){
+  const token=await tokenDoTalhao(talhaoId);
+  if(!token){ toast('Não foi possível gerar o link','⚠️'); return; }
+  await copiarTextoLink(`${location.origin}${location.pathname.replace('app.html','')}viewer.html?t=${token}`);
+  toast('Link de compartilhamento copiado','✅');
 }
-async function reativar(id){
-  await sb.from('links_view').update({ativo:true}).eq('id',id);
-  toast('Link reativado','✅'); carregarLinks();
+async function tokenDaFazenda(fazendaId){
+  const { data } = await sb.from('links_view').select('token').eq('fazenda_id',fazendaId).eq('ativo',true).limit(1);
+  let token=data?.[0]?.token;
+  if(!token){ token=tokenGen(); const {error}=await sb.from('links_view').insert({ token, fazenda_id:fazendaId }); if(error){ console.error(error); return null; } }
+  return token;
+}
+async function copiarLinkFazenda(fazendaId){
+  const token=await tokenDaFazenda(fazendaId);
+  if(!token){ toast('Não foi possível gerar o link da fazenda','⚠️'); return; }
+  await copiarTextoLink(`${location.origin}${location.pathname.replace('app.html','')}fazenda.html?f=${token}`);
+  toast('Link de compartilhamento copiado','✅');
 }
 
 // ═══════════════════════════════════════════════
@@ -1174,5 +1300,17 @@ function toast(msg,ic='✅'){
   setTimeout(()=>t.remove(),4000);
 }
 </script>
+<!-- Confirmação chamativa de exclusão -->
+<div id="confirm-modal" class="cmodal"><div class="cbox">
+  <div class="cic">⚠️</div>
+  <div class="ctitle" id="cm-title">Excluir?</div>
+  <div class="cmsg" id="cm-msg"></div>
+  <div class="cbtns"><button class="btn sec" onclick="cmClose()">Cancelar</button><button class="btn danger" id="cm-ok">Sim, excluir</button></div>
+</div></div>
+<!-- Edição de cliente / fazendas / talhões -->
+<div id="edit-modal" class="emodal"><div class="ebox">
+  <div class="ehead"><h3 id="em-title">Editar cliente</h3><button class="so-close" onclick="emClose()">✕</button></div>
+  <div class="ebody" id="em-body"></div>
+</div></div>
 </body>
 </html>
