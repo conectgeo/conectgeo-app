@@ -2014,6 +2014,8 @@ function renderZonaLabels(){
   // limpa rótulos anteriores
   S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l)); S.coletaZonaLabels=[];
   if(!S.cltCfg.showZonaLbl || !S.coletaGeo.zonas) return;
+  // se a camada de zonas estiver oculta, não mostra rótulos (eles acompanham as zonas)
+  if(S.coletaLayers.zonas && !S.map.hasLayer(S.coletaLayers.zonas)) return;
   const campo=S.cltCfg.zonaCampo, fs=Math.round(11*(S.cltCfg.zonaLblSize/100));
   (S.coletaGeo.zonas.features||[]).forEach((f,idx)=>{
     if(!f.geometry) return;
@@ -2064,7 +2066,7 @@ function wireColetaControls(){
     if(S.coletaLayers.pontos){ on?S.coletaLayers.pontos.addTo(S.map):S.map.removeLayer(S.coletaLayers.pontos); }
     const sa=document.getElementById('sec-clt-ajustes'); if(sa) sa.style.display=on?'':'none';
   });
-  tgl('clt-zonas-toggle',on=>{ if(!S.coletaLayers.zonas)return; on?S.coletaLayers.zonas.addTo(S.map):S.map.removeLayer(S.coletaLayers.zonas); });
+  tgl('clt-zonas-toggle',on=>{ if(S.coletaLayers.zonas){ on?S.coletaLayers.zonas.addTo(S.map):S.map.removeLayer(S.coletaLayers.zonas); } renderZonaLabels(); });
   tgl('clt-rpt-toggle',on=>{ S.cltCfg.showPtLbl=on; refreshPontos(); });
   tgl('clt-rzona-toggle',on=>{
     S.cltCfg.showZonaLbl=on;
