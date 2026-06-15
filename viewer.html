@@ -715,7 +715,7 @@ const S = {
   activeDepth:null,
   joinGeo:null, joinCsv:null, colorCol:null,
   pal:'rdylgn', invert:false, classes:5, opacity:0.82, showLabels:true, labelScale:1, pdfMode:false, lang:'pt', uploadMode:false,
-  logoChoice:null, customLogo:null,
+  logoChoice:null, customLogo:null, consultorLogo:null,
   userTouchedPal:false,
   map:null, layer:null, layer2:null, labelLayers:[], labelLayers2:[], joined:{}, stats:{},
   compare:{on:false,left:null,right:null,map2:null,baseLayers2:null},
@@ -1544,8 +1544,11 @@ document.getElementById('mbtn-go').addEventListener('click',()=>{
   pendingNutrients=sel;
   // if user chose "custom" but didn't upload, warn
   if(S.logoChoice==='custom' && !S.customLogo){toast('Envie a imagem da sua logo','wrn');return;}
-  // if no choice made -> ask confirm dialog
-  if(!S.logoChoice){ confirmBox.classList.add('show'); return; }
+  // if no choice made -> usa a logo do consultor (se houver); senão pergunta
+  if(!S.logoChoice){
+    if(S.consultorLogo){ S.logoChoice='custom'; S.customLogo=S.consultorLogo; proceedPDF(); return; }
+    confirmBox.classList.add('show'); return;
+  }
   proceedPDF();
 });
 // confirm: yes -> use conectgeo logo; no -> go back to modal to choose
@@ -1824,6 +1827,35 @@ async function fetchBufColeta(url){
 
 // estilo base das zonas no Mapa de Coleta: linha preta grossa, sem preenchimento
 function estiloZonaColeta(){ return { color:'#1a1a1a', weight:1.2, opacity:0.9, fillColor:'#1a1a1a', fillOpacity:0 }; }
+
+// busca a logo do consultor dono do link e a usa no cabeçalho e como padrão do PDF
+async function carregarBrandingConsultor(token){
+  try{
+    if(!sb || !token) return;
+    const { data } = await sb.rpc('get_consultor_branding',{ p_token: token });
+    const b = (typeof data==='string') ? JSON.parse(data) : data;
+    if(!b || b.erro || !b.logo_url) return;
+    // cabeçalho do link
+    const img=document.getElementById('logo-img');
+    if(img){ img.onerror=()=>{ img.src=LOGO_DATA; }; img.src=b.logo_url; }
+    // logo padrão do PDF (converte para dataURL para embutir sem problema de CORS)
+    try{
+      const resp=await fetch(b.logo_url);
+      const blob=await resp.blob();
+      const reader=new FileReader();
+      reader.onload=()=>{
+        S.consultorLogo=reader.result;
+        if(!S.logoChoice){
+          S.logoChoice='custom'; S.customLogo=reader.result;
+          document.querySelectorAll('.logo-opt').forEach(o=>o.classList.toggle('sel', o.dataset.logo==='custom'));
+          const row=document.getElementById('custom-logo-row'); if(row) row.style.display='';
+          const prev=document.getElementById('custom-logo-preview'); if(prev){ prev.src=reader.result; prev.style.display=''; }
+        }
+      };
+      reader.readAsDataURL(blob);
+    }catch(e){}
+  }catch(e){}
+}
 function toggleSidebar(){
   document.body.classList.toggle('sb-collapsed');
   setTimeout(()=>{ try{
@@ -2225,6 +2257,9 @@ async function loadFromToken(token, params){
     const { data, error } = await sb.rpc('get_link_data', { p_token: token });
     if(error) throw new Error(error.message);
     if(!data || data.erro) throw new Error('Link inválido ou desativado.');
+
+    // logo do consultor dono do link (cabeçalho + padrão do PDF)
+    carregarBrandingConsultor(token);
 
     // pré-preenche os campos do PDF com os dados do banco
     const fzd=document.getElementById('pdf-fazenda');

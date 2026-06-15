@@ -28,7 +28,7 @@
 <body>
 <div id="app">
   <div class="top">
-    <div class="brand">Conect<span>Geo</span></div>
+    <div class="brand" id="cg-brand">Conect<span>Geo</span></div>
     <div class="who"><div class="f" id="faz-nome">Carregando…</div><div class="c" id="cli-nome"></div></div>
     <div class="picker">
       <label>Talhão</label>
@@ -55,9 +55,20 @@
     document.getElementById('frame').style.display='none';
   }
 
+  async function aplicarLogoConsultor(token){
+    try{
+      const { data } = await sb.rpc('get_consultor_branding',{ p_token: token });
+      const b = (typeof data==='string') ? JSON.parse(data) : data;
+      if(b && !b.erro && b.logo_url){
+        const el=document.getElementById('cg-brand');
+        if(el) el.innerHTML='<img src="'+b.logo_url+'" alt="logo" style="height:34px;max-width:190px;object-fit:contain;display:block" onerror="this.parentNode.innerHTML=\'Conect<span style=&quot;color:var(--leaf)&quot;>Geo</span>\'">';
+      }
+    }catch(e){}
+  }
   async function init(){
     if(!fToken){ setMsg('Link inválido (sem token de fazenda).', true); return; }
     try{
+      aplicarLogoConsultor(fToken);
       const { data, error } = await sb.rpc('get_fazenda_link_data', { p_token: fToken });
       if(error) throw error;
       const d = (typeof data==='string') ? JSON.parse(data) : data;

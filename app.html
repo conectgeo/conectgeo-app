@@ -302,6 +302,9 @@ tr:hover td{background:var(--sand);}
       <div class="ni" data-view="links" onclick="showView('links')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007 0l3-3a5 5 0 00-7-7l-1.5 1.5"/><path d="M14 11a5 5 0 00-7 0l-3 3a5 5 0 007 7L12.5 19.5"/></svg><span data-i18n="linksCompart">Links Compartilhados</span>
       </div>
+      <div class="ni" data-view="perfil" onclick="showView('perfil')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a5 5 0 015 5v1a5 5 0 01-10 0V7a5 5 0 015-5z" fill="none"/><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 016-6h4a6 6 0 016 6v1"/></svg><span data-i18n="cadConsultor">Cadastro do Consultor</span>
+      </div>
       <div class="ni" onclick="sair()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg><span data-i18n="sair">Sair</span>
       </div>
@@ -362,7 +365,7 @@ tr:hover td{background:var(--sand);}
               <div class="create-inline hidden" id="ci-cliente">
                 <input class="ci-inp" id="ci-cliente-nome" placeholder="Nome do produtor *">
                 <input class="ci-inp" id="ci-cliente-email" placeholder="E-mail (opcional)">
-                <input class="ci-inp" id="ci-cliente-mun" placeholder="Município onde reside *">
+                <input class="ci-inp" id="ci-cliente-mun" placeholder="Município onde reside *" list="dl-cidades" oninput="sugCidade(this)" autocomplete="off">
                 <input class="ci-inp" id="ci-cliente-pais" placeholder="País *" value="Brasil">
                 <div style="font-size:10.5px;color:#9a9088;margin-top:-2px;">Município e país são usados na previsão do tempo do cliente.</div>
               </div>
@@ -374,7 +377,8 @@ tr:hover td{background:var(--sand);}
               </select>
               <div class="create-inline hidden" id="ci-fazenda">
                 <input class="ci-inp" id="ci-fazenda-nome" placeholder="Nome da fazenda">
-                <input class="ci-inp" id="ci-fazenda-mun" placeholder="Município / Estado (opcional)">
+                <input class="ci-inp" id="ci-fazenda-mun" placeholder="Município / Estado (opcional)" list="dl-cidades" oninput="sugCidade(this)" autocomplete="off">
+                <datalist id="dl-cidades"></datalist>
               </div>
             </div>
           </div>
@@ -444,6 +448,38 @@ tr:hover td{background:var(--sand);}
       <div class="content">
         <div style="margin-bottom:14px"><input id="links-busca" type="text" placeholder="Buscar produtor, fazenda ou talhão…" oninput="filtrarLinks()" style="width:100%;padding:11px 13px;border:1.5px solid var(--sand2);border-radius:10px;font-size:14px;"></div>
         <div id="links-tree"><div style="text-align:center;color:var(--muted);padding:24px">Carregando…</div></div>
+      </div>
+    </div>
+
+    <!-- ══ VIEW: CADASTRO DO CONSULTOR ══ -->
+    <div id="view-perfil" class="hidden">
+      <div class="topbar">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0"><button class="mob-burger" onclick="toggleSidebar()">☰</button><div><div class="tb-title">Cadastro do Consultor</div><div class="tb-sub">Seus dados e logotipo (aparece nos links e relatórios)</div></div></div>
+        <button class="btn sec" onclick="showView('dash')">← Voltar</button>
+      </div>
+      <div style="max-width:720px;margin:0 auto;padding:4px 2px 30px;">
+        <div class="card" style="padding:22px;">
+          <div class="ff" style="margin-bottom:14px"><label>Nome completo</label><input class="ci-inp" id="pf-nome" placeholder="Seu nome completo"></div>
+          <div class="ff" style="margin-bottom:14px"><label>Endereço</label><input class="ci-inp" id="pf-endereco" placeholder="Rua, nº, bairro, cidade - UF"></div>
+          <div class="ff" style="margin-bottom:18px"><label>E-mail (do login)</label><input class="ci-inp" id="pf-email" disabled style="background:var(--sand2);color:var(--muted)"></div>
+
+          <label style="font-weight:700;font-size:13px;display:block;margin-bottom:8px">Logotipo</label>
+          <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:6px">
+            <div id="pf-logo-prev" style="width:140px;height:80px;border:1.5px dashed var(--sand2);border-radius:10px;display:flex;align-items:center;justify-content:center;background:#fff;overflow:hidden;color:var(--muted);font-size:12px;text-align:center;padding:6px">Sem logo</div>
+            <div style="flex:1;min-width:180px">
+              <div class="upa" id="upa-logo" style="padding:14px">
+                <button type="button" class="upa-x" onclick="removerLogo(event)" title="Remover logo">✕</button>
+                <input type="file" id="f-logo" accept="image/png,image/jpeg,image/webp,image/svg+xml" onchange="onLogoFile(this)">
+                <div class="upa-ic" id="upa-logo-ic">🖼</div>
+                <div class="upa-txt" id="upa-logo-txt">Enviar logo (PNG, JPG, SVG)</div>
+                <div class="upa-sub" id="upa-logo-sub">imagem até 2 MB</div>
+              </div>
+              <div style="font-size:11px;color:var(--muted);margin-top:6px">Essa logo aparece no cabeçalho dos links compartilhados e nos PDFs. Sem logo, usamos a da ConectGeo.</div>
+            </div>
+          </div>
+          <div id="pf-status" style="font-size:12px;color:var(--leaf2);margin:8px 0"></div>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px"><button class="btn pri" onclick="salvarPerfil()">Salvar cadastro</button></div>
+        </div>
       </div>
     </div>
 
@@ -521,7 +557,7 @@ const I18N={
     clientes:'Clientes', talhoes:'Talhões', hectares:'Hectares', linksAtivos:'Links ativos',
     produtoresAtivos:'produtores ativos', areaTotal:'área total mapeada', visualizacoes:'visualizações', fazendas:'Fazendas', propriedades:'propriedades', areasMapeadas:'áreas mapeadas',
     talhoesRecentes:'Talhões recentes', verTodos:'Ver todos →', criarPrimeiro:'Criar primeiro talhão', abrirMapaWidget:'Abrir o mapa', abrirMapaWidgetSub:'Ver seus talhões no mapa de resultados',
-    meusClientes:'Meus Clientes', linksCompart:'Links Compartilhados', sair:'Sair', dashboard:'Dashboard',
+    meusClientes:'Meus Clientes', linksCompart:'Links Compartilhados', cadConsultor:'Cadastro do Consultor', sair:'Sair', dashboard:'Dashboard',
     abrir:'👁 Abrir', mapaTalhoes:'Talhões desta fazenda', criarTalhao:'Criar novo talhão',
     trocarCidade:'Trocar cidade…', buscar:'Buscar', editar:'Editar', excluir:'Excluir',
     verMapaResultados:'Ver mapa de resultados', abrirMapa:'Abrir mapa',
@@ -532,7 +568,7 @@ const I18N={
     clientes:'Clientes', talhoes:'Lotes', hectares:'Hectáreas', linksAtivos:'Enlaces activos',
     produtoresAtivos:'productores activos', areaTotal:'área total mapeada', visualizacoes:'visualizaciones', fazendas:'Fincas', propriedades:'propiedades', areasMapeadas:'áreas mapeadas',
     talhoesRecentes:'Lotes recientes', verTodos:'Ver todos →', criarPrimeiro:'Crear primer lote', abrirMapaWidget:'Abrir el mapa', abrirMapaWidgetSub:'Ver sus lotes en el mapa de resultados',
-    meusClientes:'Mis Clientes', linksCompart:'Enlaces Compartidos', sair:'Salir', dashboard:'Panel',
+    meusClientes:'Mis Clientes', linksCompart:'Enlaces Compartidos', cadConsultor:'Registro del Consultor', sair:'Salir', dashboard:'Panel',
     abrir:'👁 Abrir', mapaTalhoes:'Lotes de esta finca', criarTalhao:'Crear nuevo lote',
     trocarCidade:'Cambiar ciudad…', buscar:'Buscar', editar:'Editar', excluir:'Eliminar',
     verMapaResultados:'Ver mapa de resultados', abrirMapa:'Abrir mapa',
@@ -593,16 +629,87 @@ function toggleSidebar(){
 async function sair(){ await sb.auth.signOut(); location.href='index.html'; }
 
 // ═══════════════════════════════════════════════
+// CADASTRO DO CONSULTOR
+// ═══════════════════════════════════════════════
+let PF_LOGO_FILE=null, PF_LOGO_URL='';
+async function abrirPerfil(){
+  document.getElementById('pf-email').value = USER?.email || '';
+  document.getElementById('pf-status').textContent='';
+  PF_LOGO_FILE=null;
+  try{
+    const { data } = await sb.from('consultores').select('nome_completo,endereco,logo_url,nome').eq('id',USER.id).single();
+    if(data){
+      document.getElementById('pf-nome').value = data.nome_completo || data.nome || '';
+      document.getElementById('pf-endereco').value = data.endereco || '';
+      PF_LOGO_URL = data.logo_url || '';
+      pintarLogoPrev(PF_LOGO_URL);
+      const upa=document.getElementById('upa-logo'); upa.classList.toggle('done', !!PF_LOGO_URL);
+    }
+  }catch(e){ console.warn('perfil:',e); }
+}
+function pintarLogoPrev(url){
+  const prev=document.getElementById('pf-logo-prev');
+  if(url){ prev.innerHTML='<img src="'+url+'" style="max-width:100%;max-height:100%;object-fit:contain">'; }
+  else { prev.textContent='Sem logo'; }
+}
+function onLogoFile(inp){
+  const f=inp.files[0]; if(!f) return;
+  if(f.size>2*1024*1024){ toast('A logo passa de 2 MB. Reduza o arquivo.','⚠️'); inp.value=''; return; }
+  PF_LOGO_FILE=f;
+  document.getElementById('upa-logo').classList.add('done');
+  document.getElementById('upa-logo-ic').textContent='✅';
+  document.getElementById('upa-logo-txt').textContent=f.name;
+  document.getElementById('upa-logo-sub').textContent=(f.size/1024).toFixed(0)+' KB';
+  const rd=new FileReader(); rd.onload=e=>pintarLogoPrev(e.target.result); rd.readAsDataURL(f);
+}
+function removerLogo(ev){
+  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+  PF_LOGO_FILE=null; PF_LOGO_URL='';
+  document.getElementById('f-logo').value='';
+  document.getElementById('upa-logo').classList.remove('done');
+  document.getElementById('upa-logo-ic').textContent='🖼';
+  document.getElementById('upa-logo-txt').textContent='Enviar logo (PNG, JPG, SVG)';
+  document.getElementById('upa-logo-sub').textContent='imagem até 2 MB';
+  pintarLogoPrev('');
+}
+async function salvarPerfil(){
+  const st=document.getElementById('pf-status');
+  st.style.color='var(--leaf2)'; st.textContent='Salvando…';
+  try{
+    let logoUrl=PF_LOGO_URL;
+    if(PF_LOGO_FILE){
+      const ext=(PF_LOGO_FILE.name.split('.').pop()||'png').toLowerCase();
+      const path='logos/'+USER.id+'/logo.'+ext;
+      const up=await sb.storage.from('arquivos').upload(path, PF_LOGO_FILE, {upsert:true});
+      if(up&&up.error) throw new Error('Upload da logo bloqueado pelo Storage: '+up.error.message);
+      logoUrl=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
+    }
+    const { error } = await sb.from('consultores').update({
+      nome_completo: val('pf-nome') || null,
+      endereco: val('pf-endereco') || null,
+      logo_url: logoUrl || null
+    }).eq('id', USER.id);
+    if(error) throw error;
+    PF_LOGO_URL=logoUrl; PF_LOGO_FILE=null;
+    // atualiza nome exibido na lateral
+    if(val('pf-nome')){ document.getElementById('u-nome').textContent=val('pf-nome'); document.getElementById('u-av').textContent=val('pf-nome')[0].toUpperCase(); }
+    st.textContent='✅ Cadastro salvo!';
+    toast('Cadastro do consultor salvo','✅');
+  }catch(err){ st.style.color='var(--danger)'; st.textContent='Erro: '+(err.message||err); }
+}
+
+// ═══════════════════════════════════════════════
 // NAVEGAÇÃO
 // ═══════════════════════════════════════════════
 function showView(name){
-  ['dash','novo','links','mapa'].forEach(v=>document.getElementById('view-'+v).classList.toggle('hidden', v!==name));
+  ['dash','novo','links','mapa','perfil'].forEach(v=>document.getElementById('view-'+v).classList.toggle('hidden', v!==name));
   document.querySelectorAll('.ni[data-view]').forEach(n=>n.classList.toggle('on', n.dataset.view===name));
   // fecha menu mobile
   const sbEl=document.querySelector('.sb'); if(sbEl&&sbEl.classList.contains('mobile-open')){ sbEl.classList.remove('mobile-open'); document.getElementById('mob-backdrop').classList.remove('show'); }
   if(name==='novo'){ prepararFormNovo(); }
   if(name==='links'){ carregarLinks(); }
   if(name==='dash'){ carregarDashboard(); }
+  if(name==='perfil'){ abrirPerfil(); }
 }
 
 // ═══════════════════════════════════════════════
@@ -1342,8 +1449,9 @@ async function buscarClima(lat,lon,nome){
           <div class="wc-fc">${fc}</div>
         </div>
         <div class="wc-inp-row">
-          <input class="wc-inp" id="wc-cidade" placeholder="Trocar cidade… (ex: Londrina)" onkeydown="if(event.key==='Enter')trocarCidade()">
-          <button class="wc-btn" onclick="trocarCidade()">📍 Buscar</button>
+          <input class="wc-inp" id="wc-cidade" placeholder="Trocar cidade… (ex: Londrina)" list="dl-cidades" oninput="sugCidade(this)" autocomplete="off" onkeydown="if(event.key==='Enter')trocarCidade()">
+          <button class="wc-btn" onclick="trocarCidade()">🔎 Buscar</button>
+          <button class="wc-btn" onclick="usarMinhaLocalizacao()" title="Usar minha localização atual">📍 Minha localização</button>
         </div>
       </div>`;
   }catch(e){ document.getElementById('weather').innerHTML=''; }
@@ -1361,10 +1469,53 @@ function carregarClima(){
   if(salvo){ const c=JSON.parse(salvo); buscarClima(c.lat,c.lon,c.nome); return; }
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(
-      p=>buscarClima(p.coords.latitude,p.coords.longitude,'Sua localização'),
+      async p=>{ const nome=(await reverseGeo(p.coords.latitude,p.coords.longitude))||'Sua localização'; localStorage.setItem('cg_clima',JSON.stringify({lat:p.coords.latitude,lon:p.coords.longitude,nome})); buscarClima(p.coords.latitude,p.coords.longitude,nome); },
       ()=>buscarClima(-23.3,-51.17,'Londrina, PR'),
-      {timeout:4000});
+      {timeout:6000});
   } else buscarClima(-23.3,-51.17,'Londrina, PR');
+}
+
+// reverse geocode (coordenadas → nome da cidade) — sem chave de API
+async function reverseGeo(lat,lon){
+  try{
+    const r=await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=pt`);
+    const d=await r.json();
+    const cidade=d.city||d.locality||d.principalSubdivision||'';
+    const uf=d.principalSubdivision||'';
+    return cidade ? (cidade+((uf&&uf!==cidade)?', '+uf:'')) : '';
+  }catch(e){ return ''; }
+}
+
+// pede a localização do usuário e fixa no clima
+function usarMinhaLocalizacao(){
+  if(!navigator.geolocation){ toast('Geolocalização não disponível neste navegador','⚠️'); return; }
+  toast('Pedindo sua localização…','📍');
+  navigator.geolocation.getCurrentPosition(async p=>{
+    const lat=p.coords.latitude, lon=p.coords.longitude;
+    const nome=(await reverseGeo(lat,lon))||'Sua localização';
+    localStorage.setItem('cg_clima',JSON.stringify({lat,lon,nome}));
+    buscarClima(lat,lon,nome);
+    toast('Localização definida: '+nome,'✅');
+  }, ()=>{ toast('Não foi possível obter a localização (permissão negada?)','⚠️'); }, {enableHighAccuracy:true,timeout:8000});
+}
+
+// autocomplete de cidades (Brasil e Paraguai) ao digitar
+let _sugTimer=null;
+function sugCidade(inp){
+  const q=inp.value.trim();
+  clearTimeout(_sugTimer);
+  if(q.length<2) return;
+  _sugTimer=setTimeout(async()=>{
+    try{
+      const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=10&language=pt&format=json`);
+      const g=await r.json();
+      const dl=document.getElementById('dl-cidades'); if(!dl) return;
+      const opts=(g.results||[])
+        .filter(x=> x.country_code==='BR' || x.country_code==='PY')
+        .map(x=>{ const uf=x.admin1?` - ${x.admin1}`:''; const pais=x.country_code==='PY'?' (Paraguai)':''; return `<option value="${(x.name+uf).replace(/"/g,'')}${pais}"></option>`; });
+      dl.innerHTML=opts.join('');
+    }catch(e){}
+  },280);
 }
 
 // ═══════════════════════════════════════════════
