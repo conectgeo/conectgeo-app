@@ -1963,11 +1963,22 @@ function ajustarVistaColeta(){
 function criarCamadaPontos(gj){
   const ptScale=S.cltCfg.ptSize/100, lblScale=S.cltCfg.ptLblSize/100, showLbl=S.cltCfg.showPtLbl;
   const dot=Math.round(10*ptScale), lblFs=Math.round(10*lblScale);
+  let i=0;
   return L.geoJSON(gj,{
     filter:(feat)=> feat && feat.geometry && (feat.geometry.type==='Point' || feat.geometry.type==='MultiPoint'),
     pointToLayer:(feat,latlng)=>{
+      i++;
       const props=feat.properties||{};
-      const rotulo=props.id||props.ID||props.ponto||props.PONTO||props.nome||props.NOME||props.numero||props.NUMERO||props.Name||props.name||'';
+      let rotulo=props.id??props.ID??props.ponto??props.PONTO??props.nome??props.NOME??props.numero??props.NUMERO??props.Name??props.name??'';
+      // campo com outro nome: usa o primeiro valor inteiro encontrado
+      if(rotulo===''||rotulo==null){
+        for(const k of Object.keys(props)){
+          const v=props[k];
+          if(v!=null && /^\d{1,5}$/.test(String(v).trim())){ rotulo=String(v).trim(); break; }
+        }
+      }
+      // último recurso: número sequencial, para sempre haver rótulo
+      if(rotulo===''||rotulo==null) rotulo=i;
       const html='<div class="pt-coleta-dot" style="width:'+dot+'px;height:'+dot+'px;"></div>'+
         ((showLbl&&rotulo!=='')?'<div class="pt-coleta-lbl" style="font-size:'+lblFs+'px;">'+rotulo+'</div>':'');
       return L.marker(latlng,{ icon:L.divIcon({ className:'pt-coleta', html, iconSize:null }) });
@@ -2002,13 +2013,13 @@ function renderZonaLabels(){
   S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l)); S.coletaZonaLabels=[];
   if(!S.cltCfg.showZonaLbl || !S.coletaGeo.zonas) return;
   const campo=S.cltCfg.zonaCampo, fs=Math.round(11*(S.cltCfg.zonaLblSize/100));
-  (S.coletaGeo.zonas.features||[]).forEach(f=>{
+  (S.coletaGeo.zonas.features||[]).forEach((f,idx)=>{
     if(!f.geometry) return;
     let c; try{ c=interiorPoint(f.geometry); }catch(e){ c=centroidePoly(f.geometry); }
     if(!c) return;
     let val=(f.properties&&f.properties[campo]!=null)?f.properties[campo]:'';
     if(typeof val==='number') val=Math.round(val*100)/100;
-    if(val==='') return;
+    if(val===''||val==null) val=idx+1;
     const m=L.marker(c,{icon:L.divIcon({className:'zona-rot-wrap',html:'<div class="zona-rot" style="font-size:'+fs+'px;">'+val+'</div>',iconSize:null}),interactive:false});
     m.addTo(S.map); S.coletaZonaLabels.push(m);
   });
