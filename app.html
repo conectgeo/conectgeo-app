@@ -1042,15 +1042,16 @@ async function mvPopularClientes(){
 async function mvSelCliente(){
   MAPA_CTX.clienteId=document.getElementById('mv-cliente').value;
   MAPA_CTX.fazendaId=null;
-  await mvPopularFazendas();
+  MAPA_CTX.talhaoAtivo=null;
+  await mvPopularFazendas(true);
 }
-async function mvPopularFazendas(){
+async function mvPopularFazendas(autoAbrir){
   const { data } = await sb.from('fazendas').select('id,nome').eq('cliente_id',MAPA_CTX.clienteId).order('nome');
   const sel=document.getElementById('mv-fazenda');
   const list=data||[];
-  if(!MAPA_CTX.fazendaId && list.length) MAPA_CTX.fazendaId=list[0].id;
+  if(!list.some(f=>f.id===MAPA_CTX.fazendaId)) MAPA_CTX.fazendaId = list.length ? list[0].id : null;
   sel.innerHTML=list.map(f=>`<option value="${f.id}" ${f.id===MAPA_CTX.fazendaId?'selected':''}>${f.nome}</option>`).join('');
-  await mvPopularTalhoes();
+  await mvPopularTalhoes(autoAbrir);
 }
 async function mvSelFazenda(){
   MAPA_CTX.fazendaId=document.getElementById('mv-fazenda').value;

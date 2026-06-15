@@ -950,7 +950,14 @@ document.getElementById('btn-clear-data').addEventListener('click',()=>{
 
 // ══ GEOJSON UPLOAD ══
 function applyGeoData(geojson, fileName){
-  S.geoData=geojson;
+  // O Mapa de Nutrientes usa SOMENTE polígonos (zonas). Se o ZIP veio com pontos
+  // misturados, eles são ignorados aqui (não viram pins azuis nem bagunçam os rótulos).
+  const feats = (geojson && Array.isArray(geojson.features)) ? geojson.features : [];
+  const polys = feats.filter(f=> f && f.geometry && (f.geometry.type==='Polygon' || f.geometry.type==='MultiPolygon'));
+  const pts   = feats.filter(f=> f && f.geometry && (f.geometry.type==='Point' || f.geometry.type==='MultiPoint'));
+  S.geoData = { type:'FeatureCollection', features: (polys.length ? polys : feats) };
+  // pontos que vieram juntos no mesmo arquivo vão para o Mapa de Coleta (não para o de Nutrientes)
+  S.geoDataPoints = pts.length ? { type:'FeatureCollection', features: pts } : null;
   S.geoFields=Object.keys(S.geoData.features?.[0]?.properties??{});
   setStatus('geo',`${S.geoData.features.length} zonas`);
   document.getElementById('uz-geo').classList.add('loaded');
@@ -1909,6 +1916,7 @@ async function carregarColeta(){
     if(gjZonas){
       S.coletaGeo.zonas=gjZonas;
       S.coletaLayers.zonas=L.geoJSON(gjZonas,{
+        filter:(f)=> f && f.geometry && (f.geometry.type==='Polygon' || f.geometry.type==='MultiPolygon'),
         style:estiloZonaColeta,
         onEachFeature:(f,layer)=>{
           layer.bindTooltip(infoZonaColeta(f.properties),{sticky:true,opacity:1});
@@ -1925,6 +1933,10 @@ async function carregarColeta(){
       if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])};
       S.coletaGeo.pontos=gj;
       S.coletaLayers.pontos=criarCamadaPontos(gj);
+    } else if(S.geoDataPoints && S.geoDataPoints.features && S.geoDataPoints.features.length){
+      // sem shapefile de pontos próprio → usa os pontos que vieram junto no arquivo de zonas
+      S.coletaGeo.pontos=S.geoDataPoints;
+      S.coletaLayers.pontos=criarCamadaPontos(S.geoDataPoints);
     }
     if(S.coletaLayers.pontos && S.cltCfg.showPontos!==false) S.coletaLayers.pontos.addTo(S.map);
     if(S.coletaLayers.zonas) S.coletaLayers.zonas.addTo(S.map);
