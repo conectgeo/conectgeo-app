@@ -390,9 +390,9 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     </div>
     <div class="sec">
       <div class="sec-label"><span class="txt"><span class="sec-num">🏷</span><span data-i18n="cltRotZonas">Rótulos das Zonas</span></span></div>
-      <div class="invert-row"><span class="label" data-i18n="cltMostrarRotZona">Mostrar rótulo nas zonas</span><div class="toggle" id="clt-rzona-toggle"></div></div>
-      <div class="ctrl" id="clt-campo-row" style="display:none;"><div class="ctrl-label" data-i18n="cltCampoZona">Campo a mostrar</div><select id="sel-clt-campo"></select></div>
-      <div class="ctrl" id="clt-tamrz-row" style="display:none;"><div class="ctrl-label"><span data-i18n="cltTamRotZona">Tamanho do rótulo das zonas</span> <span class="ctrl-val" id="cv-clt-rz">100%</span></div><input type="range" id="sl-clt-rz" min="0" max="100" value="100"></div>
+      <div class="invert-row"><span class="label" data-i18n="cltMostrarRotZona">Mostrar rótulo nas zonas</span><div class="toggle on" id="clt-rzona-toggle"></div></div>
+      <div class="ctrl" id="clt-campo-row"><div class="ctrl-label" data-i18n="cltCampoZona">Campo a mostrar</div><select id="sel-clt-campo"></select></div>
+      <div class="ctrl" id="clt-tamrz-row"><div class="ctrl-label"><span data-i18n="cltTamRotZona">Tamanho do rótulo das zonas</span> <span class="ctrl-val" id="cv-clt-rz">100%</span></div><input type="range" id="sl-clt-rz" min="0" max="100" value="100"></div>
     </div>
     <div class="sec">
       <div class="sec-label"><span class="txt"><span class="sec-num">⬇</span><span data-i18n="cltDownload">Baixar Shapefiles</span></span></div>
@@ -721,7 +721,7 @@ const S = {
   compare:{on:false,left:null,right:null,map2:null,baseLayers2:null},
   coleta:null, mapMode:'nutrientes', coletaLayers:{raster:null,pontos:null,zonas:null}, coletaLoaded:false,
   coletaGeo:{pontos:null,zonas:null},
-  cltCfg:{ptSize:50,ptLblSize:50,showPtLbl:true,zonaLblSize:100,showZonaLbl:false,zonaCampo:null,showPontos:true},
+  cltCfg:{ptSize:50,ptLblSize:50,showPtLbl:true,zonaLblSize:100,showZonaLbl:true,zonaCampo:null,showPontos:true},
   coletaZonaLabels:[], consultorMode:false, tokenAtual:null,
 };
 
@@ -1988,13 +1988,15 @@ function criarCamadaPontos(gj){
 
 // detecta campos das zonas (ex: ZG, Area) e popula o seletor
 function popularCamposZona(gj){
-  const props=(gj.features&&gj.features[0]&&gj.features[0].properties)||{};
+  const feats=(gj.features||[]);
+  const polyFeat=feats.find(f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'))||feats[0]||{};
+  const props=polyFeat.properties||{};
   const campos=Object.keys(props);
   const sel=document.getElementById('sel-clt-campo');
   if(!sel) return;
   sel.innerHTML=campos.map(c=>'<option value="'+c+'">'+c+'</option>').join('');
-  // tenta pré-selecionar ZG
-  const zg=campos.find(c=>/^zg$/i.test(c)||/zona/i.test(c));
+  // tenta pré-selecionar o número da zona (ZG / zona)
+  const zg=campos.find(c=>/^zg$/i.test(c)||/zona/i.test(c)||/^z$/i.test(c));
   if(zg) sel.value=zg; else if(campos.length) sel.value=campos[0];
   S.cltCfg.zonaCampo=sel.value;
 }
