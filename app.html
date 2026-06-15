@@ -158,6 +158,9 @@ tr:hover td{background:var(--sand);}
 .ff input:focus,.ff select:focus{border-color:var(--leaf);box-shadow:0 0 0 3px rgba(95,168,50,.09);}
 .fdiv{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin:4px 0 12px;padding-bottom:9px;border-bottom:1px solid var(--sand2);}
 .upa{border:2px dashed var(--sand2);border-radius:var(--rl);padding:20px;text-align:center;cursor:pointer;transition:.14s;background:var(--sand);position:relative;}
+.upa-x{position:absolute;top:7px;right:7px;z-index:6;width:24px;height:24px;border:none;border-radius:50%;background:var(--danger);color:#fff;font-size:12px;line-height:1;cursor:pointer;display:none;align-items:center;justify-content:center;box-shadow:0 1px 5px rgba(0,0,0,.25);}
+.upa-x:hover{filter:brightness(1.1);}
+.upa.done .upa-x{display:flex;}
 .upa:hover{border-color:var(--leaf);background:var(--leaf-bg);}
 .upa.done{border-color:var(--leaf);background:var(--leaf-bg);}
 .upa input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
@@ -383,6 +386,7 @@ tr:hover td{background:var(--sand);}
           <div class="ff">
             <label>Shapefiles de manejo (.zip) — zonas e/ou pontos</label>
             <div class="upa" id="upa-shp">
+              <button type="button" class="upa-x" onclick="removerUpa('shp',event)" title="Remover arquivo">✕</button>
               <input type="file" id="f-shp" accept=".geojson,.json,.zip" multiple onchange="onShpFiles(this)">
               <div class="upa-ic" id="upa-shp-ic">🗺</div>
               <div class="upa-txt" id="upa-shp-txt">Arraste ou clique (pode escolher os dois .zip juntos)</div>
@@ -395,6 +399,7 @@ tr:hover td{background:var(--sand);}
             <div class="ff">
               <label>Planilha de análises <span style="font-weight:400;color:#9a9088;font-size:11px">(opcional)</span></label>
               <div class="upa" id="upa-csv">
+                <button type="button" class="upa-x" onclick="removerUpa('csv',event)" title="Remover arquivo">✕</button>
                 <input type="file" id="f-csv" accept=".csv,.xlsx,.xls" onchange="onCsvFile(this)">
                 <div class="upa-ic" id="upa-csv-ic">📊</div>
                 <div class="upa-txt" id="upa-csv-txt">Escolher Excel/CSV</div>
@@ -404,6 +409,7 @@ tr:hover td{background:var(--sand);}
             <div class="ff">
               <label>Raster colorido <span style="font-weight:400;color:#9a9088;font-size:11px">(opcional)</span></label>
               <div class="upa" id="upa-cr">
+                <button type="button" class="upa-x" onclick="removerUpa('cr',event)" title="Remover arquivo">✕</button>
                 <input type="file" id="f-cr" accept=".tif,.tiff" onchange="onColetaFile(this,'cr')">
                 <div class="upa-ic" id="upa-cr-ic">🖼</div>
                 <div class="upa-txt" id="upa-cr-txt">Escolher .tif</div>
@@ -771,6 +777,23 @@ function doneUpa(k,nome,sub){
   document.getElementById('upa-'+k+'-ic').textContent='✅';
   document.getElementById('upa-'+k+'-txt').textContent=nome;
   document.getElementById('upa-'+k+'-sub').textContent=sub;
+}
+function removerUpa(k, ev){
+  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+  if(k==='shp'){
+    document.getElementById('f-shp').value='';
+    geoFile=null; geoJson=null; pontosJson=null; coletaFiles.cz=null; coletaFiles.cp=null;
+    const ss=document.getElementById('shp-status'); if(ss) ss.innerHTML='';
+    resetUpa('shp','🗺','Arraste ou clique (pode escolher os dois .zip juntos)','.zip (shapefile) ou .geojson');
+  } else if(k==='csv'){
+    document.getElementById('f-csv').value='';
+    csvFile=null;
+    resetUpa('csv','📊','Escolher Excel/CSV','.csv, .xlsx ou .xls');
+  } else if(k==='cr'){
+    document.getElementById('f-cr').value='';
+    coletaFiles.cr=null;
+    resetUpa('cr','🖼','Escolher .tif','.tif/.tiff até 5 MB — RGB colorido');
+  }
 }
 
 // Upload unificado: detecta automaticamente zona (polígono) vs ponto
@@ -1178,7 +1201,7 @@ async function renderEdicao(){
         <input id="et-nome-${t.id}" value="${attr(t.nome)}" style="flex:1;min-width:120px">
         <input id="et-ha-${t.id}" value="${t.hectares??''}" type="number" step="0.01" placeholder="ha" style="width:88px">
         <button class="btn sec sm" onclick="emClose();abrirTalhao('${t.id}')" title="Editar no mapa">🗺 Mapa</button>
-        <button class="btn sec sm" onclick="salvarTalhao('${t.id}')">Salvar</button>
+        <button class="btn sec sm" onclick="salvarTalhaoEdit('${t.id}')">Salvar</button>
         <button class="btn danger sm" onclick="pedirExcluirTalhao('${t.id}','${esc(t.nome)}')">Excluir</button>
       </div>${arqHtml}`;
     });
@@ -1197,7 +1220,7 @@ async function salvarFazenda(id){
   if(error){ toast('Erro: '+error.message,'⚠️'); return; }
   toast('Fazenda salva','✅'); carregarDashboard();
 }
-async function salvarTalhao(id){
+async function salvarTalhaoEdit(id){
   const ha=parseFloat(val('et-ha-'+id));
   const { error } = await sb.from('talhoes').update({ nome:val('et-nome-'+id), hectares:isNaN(ha)?null:ha }).eq('id',id);
   if(error){ toast('Erro: '+error.message,'⚠️'); return; }
