@@ -422,9 +422,11 @@ function renderConfig(){
     DATA.consultores.forEach(c=>{
       const tr=document.createElement('tr');
       const delBtn=c.is_admin?'':'<button class="action-btn danger" onclick="deletarConsultor(\''+c.id+'\',\''+(c.nome||'').replace(/'/g,'')+'\')">Excluir</button>';
+      const bloq=(c.ativo===false);
+      const bloqBtn=c.is_admin?'':'<button class="action-btn" style="background:'+(bloq?'#e8852b':'#5fa832')+';color:#fff;border-color:transparent" onclick="toggleBloqueio(\''+c.id+'\','+(bloq?'true':'false')+')">'+(bloq?'🔒 Bloqueado':'🔓 Desbloqueado')+'</button>';
       tr.innerHTML='<td><strong>'+(c.nome||'—')+'</strong></td><td>'+c.email+'</td><td>'+(c.empresa||'—')+'</td>'+
         '<td><span class="badge '+(c.is_admin?'admin':'consultor')+'">'+(c.is_admin?'Admin':'Consultor')+'</span></td>'+
-        '<td><button class="action-btn" onclick="abrirEdicao(\''+c.id+'\')">Editar acesso</button> '+delBtn+'</td>';
+        '<td><button class="action-btn" onclick="abrirEdicao(\''+c.id+'\')">Editar acesso</button> '+bloqBtn+' '+delBtn+'</td>';
       tc.appendChild(tr);
     });
   }
@@ -753,6 +755,21 @@ async function deletarConsultor(id,nome){
     showSuccess('Consultor excluído.');
     setTimeout(carregarTudo,500);
   }catch(err){ showError('Erro ao excluir: '+err.message); }
+}
+
+// bloquear/desbloquear acesso do consultor
+async function toggleBloqueio(id, estaBloqueado){
+  const novoAtivo = estaBloqueado; // se está bloqueado, vamos ativar (true); se não, bloquear (false)
+  const acao = novoAtivo ? 'desbloquear' : 'bloquear';
+  if(!confirm('Deseja '+acao+' o acesso deste consultor?')) return;
+  try{
+    const { error } = await sb.rpc('admin_set_ativo',{ p_consultor:id, p_ativo:novoAtivo });
+    if(error) throw error;
+    // atualiza estado local e re-renderiza
+    const c=DATA.consultores.find(x=>x.id===id); if(c) c.ativo=novoAtivo;
+    renderConfig();
+    showSuccess(novoAtivo ? 'Consultor desbloqueado.' : 'Consultor bloqueado — não poderá acessar a plataforma.');
+  }catch(err){ showError('Erro ao '+acao+': '+(err.message||err)); }
 }
 
 function openModal(id){ document.getElementById(id).classList.add('show'); }

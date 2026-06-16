@@ -501,8 +501,13 @@ tr:hover td{background:var(--sand);}
               <select id="mv-cliente" onchange="mvSelCliente()" style="width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;margin-bottom:10px;"></select>
               <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selFazenda">Fazenda</label>
               <select id="mv-fazenda" onchange="mvSelFazenda()" style="width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;margin-bottom:10px;"></select>
-              <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selTalhao">Talhão</label>
-              <select id="mv-talhao" onchange="mvSelTalhao()" style="width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;"></select>
+              <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <span data-i18n="selTalhao">Talhão</span>
+                <a id="mv-tal-all" onclick="mvToggleTodos()" style="cursor:pointer;color:var(--leaf2);font-size:10px;text-transform:none;letter-spacing:0">Selecionar todos</a>
+              </label>
+              <div id="mv-talhao-list" style="border:1.5px solid var(--sand2);border-radius:8px;max-height:240px;overflow:auto;background:#fff;"></div>
+              <button class="btn pri" id="mv-abrir-sel" onclick="mvAbrirSelecionados()" style="width:100%;margin-top:9px;padding:9px;font-size:13px;">Ver no mapa</button>
+              <div style="font-size:10.5px;color:var(--muted);margin-top:6px;line-height:1.35">Marque 1 talhão para ver detalhado, ou vários para ver juntos no mesmo mapa.</div>
             </div>
           </div>
         </div>
@@ -523,6 +528,9 @@ tr:hover td{background:var(--sand);}
       <div class="so-head">
         <div><div class="so-title">Clientes</div><div class="so-sub" id="so-cli-sub">—</div></div>
         <button class="so-close" onclick="closeSO()">✕</button>
+      </div>
+      <div style="padding:10px 14px 8px;border-bottom:1px solid var(--sand2)">
+        <input id="so-busca" type="text" placeholder="🔎 Buscar produtor, fazenda ou talhão…" oninput="buscarSO(this.value)" autocomplete="off" style="width:100%;padding:9px 11px;border:1.5px solid var(--sand2);border-radius:9px;font-size:13px;background:var(--sand)">
       </div>
       <div class="so-body" id="so-clientes"></div>
     </div>
@@ -608,6 +616,16 @@ function toggleSidebar(){
     id: USER.id, email: USER.email,
     nome: USER.user_metadata?.nome || USER.email.split('@')[0]
   }, { onConflict:'id' });
+
+  // bloqueio: se o admin desativou o acesso, impede a entrada
+  try{
+    const { data:cRow } = await sb.from('consultores').select('ativo').eq('id', USER.id).single();
+    if(cRow && cRow.ativo===false){
+      await sb.auth.signOut();
+      alert('Seu acesso está bloqueado. Procure o administrador da plataforma.');
+      location.href='index.html'; return;
+    }
+  }catch(e){}
 
   const nome = USER.user_metadata?.nome || USER.email.split('@')[0];
   document.getElementById('u-nome').textContent = nome;
@@ -764,12 +782,17 @@ async function carregarDashboard(){
 // ═══════════════════════════════════════════════
 // SLIDE-OVER (Clientes → Fazendas → Talhões)
 // ═══════════════════════════════════════════════
+let SO_CLIENTES=[];
 async function openSO(){
   document.getElementById('so').classList.add('open');
+  const b=document.getElementById('so-busca'); if(b) b.value='';
   const { data } = await sb.from('clientes')
-    .select('id,nome,fazendas(id)')
+    .select('id,nome,fazendas(id,nome,talhoes(id,nome))')
     .order('nome');
-  const list=data||[];
+  SO_CLIENTES=data||[];
+  renderSOClientes(SO_CLIENTES);
+}
+function renderSOClientes(list){
   document.getElementById('so-cli-sub').textContent = `${list.length} produtor${list.length!==1?'es':''}`;
   document.getElementById('so-clientes').innerHTML = list.length ? list.map(c=>`
     <div class="so-item">
@@ -778,7 +801,19 @@ async function openSO(){
       <button class="ab" onclick="event.stopPropagation();abrirEdicaoCliente('${c.id}')" title="Editar cliente" style="color:var(--leaf2)">✏️ Editar</button>
       <div class="so-badge" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')">→</div>
     </div>`).join('')
-    : `<div class="so-empty"><div class="ic">👥</div>Nenhum cliente ainda.<br><br><button class="btn pri" onclick="closeSO();showView('novo')">+ Criar Novo</button></div>`;
+    : `<div class="so-empty"><div class="ic">👥</div>Nenhum resultado.<br><br><button class="btn pri" onclick="closeSO();showView('novo')">+ Criar Novo</button></div>`;
+}
+function buscarSO(q){
+  q=(q||'').trim().toLowerCase();
+  if(!q){ renderSOClientes(SO_CLIENTES); return; }
+  const list=SO_CLIENTES.filter(c=>{
+    if((c.nome||'').toLowerCase().includes(q)) return true;
+    return (c.fazendas||[]).some(f=>
+      (f.nome||'').toLowerCase().includes(q) ||
+      (f.talhoes||[]).some(t=>(t.nome||'').toLowerCase().includes(q))
+    );
+  });
+  renderSOClientes(list);
 }
 function closeSO(){ document.getElementById('so').classList.remove('open'); }
 
@@ -814,15 +849,14 @@ async function soSelFazenda(el, id, nome){
   document.getElementById('so-talhoes').innerHTML = list.length ? list.map(t=>{
     const link=(t.links_view||[]).find(l=>l.ativo);
     return `
-    <div class="tal-row">
+    <div class="tal-row" onclick="abrirTalhao('${t.id}')" style="cursor:pointer" title="Ver no mapa">
       <div class="tal-ic">🗺</div>
-      <div style="min-width:0">
+      <div style="min-width:0;flex:1">
         <div class="tal-nm">${t.nome}</div>
         <div class="tal-mt">${t.zonas||'?'} zonas${t.hectares?' · '+Math.round(t.hectares)+' ha':''}${link?' · 🔗 link ativo':''}</div>
       </div>
       <div class="tal-acts">
-        <button class="ab" onclick="abrirTalhao('${t.id}')" title="Ver no mapa">👁</button>
-        <button class="ab" onclick="gerarOuCopiarLink('${t.id}')" title="Copiar link">🔗</button>
+        <button class="ab" onclick="event.stopPropagation();gerarOuCopiarLink('${t.id}')" title="Copiar link">🔗</button>
       </div>
     </div>`;}).join('')
     : `<div class="so-empty"><div class="ic">🗺</div>Sem talhões<br><br><button class="btn pri" onclick="closeSO();showView('novo')">+ Criar talhão</button></div>`;
@@ -1004,6 +1038,11 @@ async function salvarTalhao(){
     btn.disabled=true; btn.textContent='Salvando…';
 
     // 1. cliente
+    // reaproveita cliente com o mesmo nome (não duplica o produtor)
+    if(!clienteId && novoClienteNome){
+      const { data: jaCli } = await sb.from('clientes').select('id').eq('consultor_id',USER.id).ilike('nome', novoClienteNome).limit(1);
+      if(jaCli && jaCli.length){ clienteId=jaCli[0].id; }
+    }
     if(!clienteId){
       const { data, error } = await sb.from('clientes').insert({
         consultor_id: USER.id,
@@ -1016,6 +1055,14 @@ async function salvarTalhao(){
       clienteId=data.id;
     }
     // 2. fazenda
+    // bloqueia cliente+fazenda duplicados: o mesmo produtor não pode ter duas fazendas iguais
+    if(!fazendaId && novaFazendaNome && clienteId){
+      const { data: jaFaz } = await sb.from('fazendas').select('id').eq('cliente_id', clienteId).ilike('nome', novaFazendaNome).limit(1);
+      if(jaFaz && jaFaz.length){
+        toast('Esse produtor já tem a fazenda "'+novaFazendaNome+'". Selecione-a na lista para adicionar o talhão.','⚠️');
+        return;
+      }
+    }
     if(!fazendaId){
       const mun=document.getElementById('ci-fazenda-mun').value.trim();
       const { data, error } = await sb.from('fazendas').insert({
@@ -1164,25 +1211,50 @@ async function mvSelFazenda(){
   MAPA_CTX.fazendaId=document.getElementById('mv-fazenda').value;
   await mvPopularTalhoes(true);
 }
+let MV_TALHOES=[];
 async function mvPopularTalhoes(autoAbrir){
   const { data } = await sb.from('talhoes').select('id,nome,hectares').eq('fazenda_id',MAPA_CTX.fazendaId).order('nome');
-  const list=data||[];
-  const sel=document.getElementById('mv-talhao');
-  if(autoAbrir && list.length){ MAPA_CTX.talhaoAtivo=list[0].id; }
-  if(!list.some(t=>t.id===MAPA_CTX.talhaoAtivo) && list.length){ MAPA_CTX.talhaoAtivo=list[0].id; }
-  sel.innerHTML=list.map(t=>`<option value="${t.id}" ${t.id===MAPA_CTX.talhaoAtivo?'selected':''}>${t.nome} · ${(Number(t.hectares)||0).toFixed(1)} ha</option>`).join('');
-  if(autoAbrir && list.length){ const t=list.find(x=>x.id===MAPA_CTX.talhaoAtivo)||list[0]; carregarTalhaoNoMapa(t.id,t.nome); }
+  MV_TALHOES=data||[];
+  const box=document.getElementById('mv-talhao-list');
+  if(!MV_TALHOES.length){ box.innerHTML='<div style="padding:12px;color:var(--muted);font-size:12px">Sem talhões nesta fazenda.</div>'; return; }
+  box.innerHTML=MV_TALHOES.map((t,i)=>`
+    <label style="display:flex;align-items:center;gap:8px;padding:9px 10px;border-bottom:1px solid var(--sand);font-size:13px;cursor:pointer">
+      <input type="checkbox" value="${t.id}" data-nome="${esc(t.nome)}" onchange="mvCheckChange()" style="width:16px;height:16px;accent-color:var(--leaf2)">
+      <span style="flex:1;min-width:0">${t.nome} <span style="color:var(--muted)">· ${(Number(t.hectares)||0).toFixed(1)} ha</span></span>
+    </label>`).join('');
+  if(autoAbrir && MV_TALHOES.length){
+    const first=box.querySelector('input[type=checkbox]'); if(first) first.checked=true;
+    mvCheckChange();
+    carregarTalhaoNoMapa(MV_TALHOES[0].id, MV_TALHOES[0].nome);
+  } else { mvCheckChange(); }
 }
-async function mvSelTalhao(){
-  const sel=document.getElementById('mv-talhao');
-  const id=sel.value; if(!id) return;
-  const nome=(sel.options[sel.selectedIndex].textContent||'').split(' · ')[0];
-  MAPA_CTX.talhaoAtivo=id;
-  carregarTalhaoNoMapa(id,nome);
-  if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed');
+function mvChecks(){ return Array.from(document.querySelectorAll('#mv-talhao-list input[type=checkbox]')); }
+function mvCheckChange(){
+  const all=mvChecks(); const marc=all.filter(c=>c.checked);
+  const link=document.getElementById('mv-tal-all');
+  if(link) link.textContent = (marc.length===all.length && all.length) ? 'Desmarcar todos' : 'Selecionar todos';
+  const btn=document.getElementById('mv-abrir-sel');
+  if(btn) btn.textContent = marc.length>1 ? ('Ver '+marc.length+' juntos no mapa') : 'Ver no mapa';
 }
-function mvMarcarAtivo(id){
-  const sel=document.getElementById('mv-talhao'); if(sel) sel.value=id;
+function mvToggleTodos(){
+  const all=mvChecks(); const marcarTodos = all.some(c=>!c.checked);
+  all.forEach(c=>c.checked=marcarTodos); mvCheckChange();
+}
+async function mvAbrirSelecionados(){
+  const marc=mvChecks().filter(c=>c.checked);
+  if(!marc.length){ toast('Selecione ao menos um talhão','⚠️'); return; }
+  if(marc.length===1){ carregarTalhaoNoMapa(marc[0].value, marc[0].dataset.nome); if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed'); return; }
+  // vários: gera/recupera token de cada e abre o modo multi
+  const btn=document.getElementById('mv-abrir-sel'); const txt=btn.textContent; btn.disabled=true; btn.textContent='Abrindo…';
+  try{
+    const tokens=[];
+    for(const c of marc){ const tk=await tokenDoTalhao(c.value); if(tk) tokens.push(tk); }
+    if(!tokens.length){ toast('Não foi possível abrir os talhões','⚠️'); return; }
+    document.getElementById('mapa-sub').textContent=marc.length+' talhões';
+    const lang=getLang();
+    document.getElementById('mapa-frame').src='viewer.html?multi='+tokens.join(',')+'&lang='+lang+'&embed=1&consultor=1';
+    if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed');
+  } finally { btn.disabled=false; btn.textContent=txt; mvCheckChange(); }
 }
 
 async function carregarTalhaoNoMapa(talhaoId, nome){
@@ -1192,8 +1264,6 @@ async function carregarTalhaoNoMapa(talhaoId, nome){
   if(!token) return;
   const lang=getLang();
   document.getElementById('mapa-frame').src='viewer.html?t='+token+'&lang='+lang+'&embed=1&consultor=1';
-  // marca o talhão ativo no select
-  const sel=document.getElementById('mv-talhao'); if(sel) sel.value=talhaoId;
 }
 
 function fecharMapa(){
