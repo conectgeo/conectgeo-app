@@ -105,6 +105,8 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 .leg-list{display:flex;flex-direction:column;gap:3px;max-height:150px;overflow-y:auto;}
 .hist-bar{transition:filter .12s ease, transform .12s ease; cursor:pointer;}
 .hist-bar:hover{filter:brightness(1.12) saturate(1.1); transform:scaleY(1.04); transform-origin:bottom;}
+.hist-cnt{position:absolute;top:-2px;font-size:10px;font-weight:700;color:#474a43;background:#fff;border:1px solid var(--sand2);border-radius:5px;padding:1px 5px;white-space:nowrap;opacity:0;transform:translateY(3px);transition:opacity .12s, transform .12s;pointer-events:none;z-index:3;box-shadow:0 1px 4px rgba(0,0,0,.12);}
+.hist-col:hover .hist-cnt{opacity:1;transform:translateY(0);}
 .leg-list::-webkit-scrollbar{width:4px;}.leg-list::-webkit-scrollbar-thumb{background:var(--border2);}
 .leg-item{display:flex;align-items:center;gap:9px;font-size:11px;padding:3px 5px;border-radius:6px;}
 .leg-sw{width:15px;height:15px;border-radius:4px;flex-shrink:0;border:1px solid rgba(0,0,0,.1);}
@@ -656,7 +658,7 @@ document.getElementById('logo-img').src = LOGO_DATA;
 
 // ══ PALETTES ══
 const PALS = {
-  rdylgn:  {name:'RdYlGn',       c:['#d73027','#fc8d59','#fee08b','#d9ef8b','#1a9850']},
+  rdylgn:  {name:'RdYlGn',       c:['#f01b1e','#f6990d','#f8ff13','#15d922','#19953e']},
   ylorbr:  {name:'Yl-Or-Br',     c:['#ffffe5','#fed98e','#fe9929','#d95f0e','#993404']},
   viridis: {name:'Viridis',      c:['#440154','#3b528b','#21908c','#5dc863','#fde725']},
   blues:   {name:'Azuis',        c:['#eff3ff','#9ecae1','#4292c6','#2171b5','#084594']},
@@ -688,26 +690,23 @@ function autoPalette(colName){
   if(/mat[eé]riaorg|m\.?o\.?%?$|^mo%?$|^mo$/.test(n) || n.includes('materiaorg') || n.includes('matriaorg'))
     return {pal:'rdylgn', invert:false};
 
-  // ── Acidez / saturação por alumínio -> RdYlGn INVERTIDO ──
-  // Alumínio (Al): aceita "Al", "Al³", "Al²", "Al+", "Al%", "Al cmolc/dm³",
-  //                "Al mg/dm³", "Alumínio", etc. Exclui "algo", "alcalino", "areia", "argila".
-  const isAl =
-       /^al([³²\+%]|\d|$)/.test(ns)            // al seguido de valência/carga/%/dígito ou fim
-    || /^al(cmol|mg|meq|mmol)/.test(ns)        // al seguido de unidade (sem superscrito)
-    || /alum[ií]nio/.test(ns);                 // "alumínio" por extenso
-  // Saturação por alumínio (m, m%, m³): "m" como token isolado ou com unidade,
-  // sem confundir com mo, mg, mn, magnésio, manganês, materia.
+  // ── Acidez / Alumínio / Sódio -> paleta INVERTIDA (alto = ruim = vermelho) ──
+  const na = n.normalize('NFD').replace(/[\u0300-\u036f]/g,''); // sem acentos, sem espaços, sem superscritos
+  const naS = ns.normalize('NFD').replace(/[\u0300-\u036f]/g,''); // idem mas mantém ³²+%
+  // Al ou Na com carga/valência (Al+, Al3, Al³, Al3+, Al+3, Na+, Na3, Na³, Na3+...)
+  const cargaAlNa = /(al|na)\s*(\+|³|²|3\+?|\+3?|³\+?|\+³?|2)/.test(naS) || /(al|na)\s*(\+|3|2)/.test(na);
+  // Al ou Na seguido de unidade (mg/dm³, cmolc, meq...)
+  const unidAlNa  = /(al|na)\s*(mg|cmol|meq|mmol|mol)/.test(na);
+  // Alumínio / Sódio por extenso, e termos de acidez (H+Al, Hidrogênio, saturações, teores)
+  const termosAcidez = /(alumin|sodio|hidrogenio|h\+al|teoral|teorh|indsaturh|saturh|saturacaoal|saturacaona|saturdeal|saturdena)/.test(na);
+  const isAl = cargaAlNa || unidAlNa || termosAcidez || /^al([\+%]|$)/.test(naS) || /^na([\+%]|$)/.test(naS);
+  // Saturação por alumínio (m, m%, m³)
   const isSatM =
        ns==='m' || ns==='m%' || /^m[³²]/.test(ns)
-    || /^m(\s|$|%)/.test(raw)                  // "m " ou "m%" no nome original
-    || /^m(cmol|meq|mmol)/.test(ns);           // "m cmolc" etc.
-  // Demais ácidos: H+Al, H%, Hidrogênio, Na, Na%, Sódio
-  const isOther =
-       /h\+al|^h%|hidrog[eê]nio|hidrogenio|s[oó]dio|na%|^na$/.test(n)
-    || n.includes('hidrogenio') || n.includes('sodio')
-    || n==='na' || n.startsWith('h+al') || n.startsWith('ind.h') || n.startsWith('indh');
+    || /^m(\s|$|%)/.test(raw)
+    || /^m(cmol|meq|mmol)/.test(na);
 
-  if(isAl || isSatM || isOther)
+  if(isAl || isSatM)
     return {pal:'rdylgn', invert:true};
   return null;
 }
@@ -805,13 +804,13 @@ function renderHistograma(vals, mn, mx, corDe){
   const NB=5, w=(mx-mn)/NB, bins=new Array(NB).fill(0);
   vals.forEach(v=>{ let i=Math.floor((v-mn)/w); if(i>=NB)i=NB-1; if(i<0)i=0; bins[i]++; });
   const maxC=Math.max(...bins,1);
-  let bars='<div style="font-size:11px;font-weight:700;color:#646a5e;margin-bottom:6px">Distribuição (5 classes)</div>';
-  bars+='<div style="display:flex;align-items:flex-end;gap:5px;height:96px;padding:2px 2px 0;">';
+  let bars='<div style="display:flex;align-items:flex-end;gap:5px;height:96px;padding:14px 2px 0;">';
   for(let i=0;i<NB;i++){
-    const h=Math.max(2,Math.round((bins[i]/maxC)*80));
+    const h=Math.max(2,Math.round((bins[i]/maxC)*78));
     const col=corDe?corDe(mn+w*(i+0.5)):'#6cb32d';
     const faixa=(mn+w*i).toFixed(2)+' a '+(mn+w*(i+1)).toFixed(2);
-    bars+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">'
+    bars+='<div class="hist-col" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;position:relative">'
+        + '<div class="hist-cnt">'+bins[i]+' zona'+(bins[i]===1?'':'s')+'</div>'
         + '<div class="hist-bar" title="'+bins[i]+' zona(s) · '+faixa+'" style="width:100%;height:'+h+'px;background:'+col+';border-radius:5px 5px 0 0;"></div>'
         + '</div>';
   }

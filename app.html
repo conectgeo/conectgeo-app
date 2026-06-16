@@ -498,7 +498,7 @@ tr:hover td{background:var(--sand);}
           <div class="mapa-side-body">
             <div style="padding:0 4px 10px;">
               <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selProdutor">Produtor</label>
-              <div style="border:1.5px solid var(--sand2);border-radius:8px;background:#fff;overflow:hidden;margin-bottom:10px">
+              <div id="mv-cli-ctrl" style="border:1.5px solid var(--sand2);border-radius:8px;background:#fff;overflow:hidden;margin-bottom:10px">
                 <div onclick="mvToggleDD('cli')" style="display:flex;align-items:center;justify-content:space-between;padding:9px 11px;cursor:pointer;font-size:13px">
                   <span id="mv-cli-summary" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Selecione</span>
                   <span id="mv-cli-chev" style="transition:transform .15s;color:var(--muted);flex-shrink:0;margin-left:8px">▾</span>
@@ -509,7 +509,7 @@ tr:hover td{background:var(--sand);}
                 </div>
               </div>
               <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selFazenda">Fazenda</label>
-              <div style="border:1.5px solid var(--sand2);border-radius:8px;background:#fff;overflow:hidden;margin-bottom:10px">
+              <div id="mv-faz-ctrl" style="border:1.5px solid var(--sand2);border-radius:8px;background:#fff;overflow:hidden;margin-bottom:10px">
                 <div onclick="mvToggleDD('faz')" style="display:flex;align-items:center;justify-content:space-between;padding:9px 11px;cursor:pointer;font-size:13px">
                   <span id="mv-faz-summary" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Selecione</span>
                   <span id="mv-faz-chev" style="transition:transform .15s;color:var(--muted);flex-shrink:0;margin-left:8px">▾</span>
@@ -523,7 +523,7 @@ tr:hover td{background:var(--sand);}
                 <span data-i18n="selTalhao">Talhão</span>
                 <a id="mv-tal-all" onclick="event.stopPropagation();mvToggleTodos()" style="cursor:pointer;color:var(--leaf2);font-size:10px;text-transform:none;letter-spacing:0">Selecionar todos</a>
               </label>
-              <div style="border:1.5px solid var(--sand2);border-radius:8px;background:#fff;overflow:hidden">
+              <div id="mv-tal-ctrl" style="border:1.5px solid var(--sand2);border-radius:8px;background:#fff;overflow:hidden">
                 <div onclick="mvToggleLista()" style="display:flex;align-items:center;justify-content:space-between;padding:9px 11px;cursor:pointer;font-size:13px">
                   <span id="mv-tal-summary" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Selecione talhões</span>
                   <span id="mv-tal-chev" style="transition:transform .15s;color:var(--muted);flex-shrink:0;margin-left:8px">▾</span>
@@ -1224,10 +1224,14 @@ async function abrirTalhao(talhaoId){
 let MV_CLIENTES=[], MV_FAZENDAS=[];
 function mvToggleDD(which){
   const dd=document.getElementById('mv-'+which+'-dropdown'); if(!dd) return;
-  const abrir=(dd.style.display==='none'||!dd.style.display);
-  dd.style.display=abrir?'':'none';
+  const abrir=(dd.style.display==='none'||dd.style.display==='');
+  dd.style.display=abrir?'block':'none';
   const chev=document.getElementById('mv-'+which+'-chev'); if(chev) chev.style.transform=abrir?'rotate(180deg)':'';
   if(abrir){ const b=document.getElementById('mv-'+which+'-busca'); if(b){ b.value=''; mvFiltrarDD(which,''); setTimeout(()=>b.focus(),30); } }
+}
+function mvCloseDD(which){
+  const dd=document.getElementById('mv-'+which+'-dropdown'); if(dd) dd.style.display='none';
+  const chev=document.getElementById('mv-'+which+'-chev'); if(chev) chev.style.transform='';
 }
 function mvRenderDD(which){
   const items = which==='cli'?MV_CLIENTES:MV_FAZENDAS;
@@ -1262,7 +1266,7 @@ async function mvPopularClientes(){
 async function mvSelClienteId(id, nome){
   MAPA_CTX.clienteId=id; MAPA_CTX.fazendaId=null; MAPA_CTX.talhaoAtivo=null;
   const sum=document.getElementById('mv-cli-summary'); if(sum) sum.textContent=nome||'';
-  mvToggleDD('cli');
+  mvCloseDD('cli');
   await mvPopularFazendas(true);
 }
 async function mvPopularFazendas(autoAbrir){
@@ -1275,7 +1279,7 @@ async function mvPopularFazendas(autoAbrir){
 async function mvSelFazendaId(id, nome){
   MAPA_CTX.fazendaId=id; MAPA_CTX.talhaoAtivo=null;
   const sum=document.getElementById('mv-faz-summary'); if(sum) sum.textContent=nome||'';
-  mvToggleDD('faz');
+  mvCloseDD('faz');
   await mvPopularTalhoes(true);
 }
 let MV_TALHOES=[];
@@ -1302,11 +1306,24 @@ async function mvPopularTalhoes(autoAbrir){
 function mvChecks(){ return Array.from(document.querySelectorAll('#mv-talhao-list input[type=checkbox]')); }
 function mvToggleLista(){
   const d=document.getElementById('mv-tal-dropdown'); if(!d) return;
-  const abrir=(d.style.display==='none'||!d.style.display);
-  d.style.display=abrir?'':'none';
+  const abrir=(d.style.display==='none'||d.style.display==='');
+  d.style.display=abrir?'block':'none';
   const chev=document.getElementById('mv-tal-chev'); if(chev) chev.style.transform=abrir?'rotate(180deg)':'';
   if(abrir){ const b=document.getElementById('mv-tal-busca'); if(b) setTimeout(()=>b.focus(),30); }
 }
+function mvCloseLista(){
+  const d=document.getElementById('mv-tal-dropdown'); if(d) d.style.display='none';
+  const chev=document.getElementById('mv-tal-chev'); if(chev) chev.style.transform='';
+}
+// clicar fora fecha os dropdowns (produtor, fazenda, talhão)
+document.addEventListener('click',function(e){
+  [['cli','mv-cli-ctrl'],['faz','mv-faz-ctrl'],['tal','mv-tal-ctrl']].forEach(([which,ctrlId])=>{
+    const ctrl=document.getElementById(ctrlId); if(!ctrl) return;
+    if(!ctrl.contains(e.target)){
+      if(which==='tal') mvCloseLista(); else mvCloseDD(which);
+    }
+  });
+}, true);
 function mvFiltrarTalhoes(q){
   q=(q||'').trim().toLowerCase();
   mvChecks().forEach(c=>{ const row=c.closest('label'); const nome=(c.dataset.nome||'').toLowerCase(); if(row) row.style.display=(!q||nome.includes(q))?'':'none'; });
@@ -1331,6 +1348,7 @@ function mvToggleTodos(){
 async function mvAbrirSelecionados(){
   const marc=mvChecks().filter(c=>c.checked);
   if(!marc.length){ toast('Selecione ao menos um talhão','⚠️'); return; }
+  mvCloseLista();
   if(marc.length===1){ carregarTalhaoNoMapa(marc[0].value, marc[0].dataset.nome); if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed'); return; }
   const btn=document.getElementById('mv-abrir-sel'); const txt=btn.textContent; btn.disabled=true; btn.textContent='Abrindo…';
   try{
