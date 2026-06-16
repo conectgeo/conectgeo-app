@@ -242,7 +242,7 @@ body.embed header{display:none!important;}
 body.embed .lang-toggle{display:none!important;}
 body.embed .workspace{height:100vh!important;}
 /* modo multi-talhão (visão geral de vários talhões) */
-body.multimode .sidebar, body.multimode .sb-toggle, body.multimode .mode-switch{display:none!important;}
+body.multimode .sidebar, body.multimode .sb-toggle, body.multimode .mode-switch, body.multimode #empty-msg{display:none!important;}
 body.multimode .map-wrap{width:100%!important;left:0!important;}
 .multi-legend{position:absolute;top:12px;left:12px;z-index:650;background:rgba(255,255,255,.96);border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.16);padding:10px 12px;max-width:250px;font-size:12px;max-height:62vh;overflow:auto;}
 .multi-legend h4{margin:0 0 7px;font-size:12px;color:#474a43;letter-spacing:.02em;}
@@ -2283,7 +2283,7 @@ async function carregarMulti(tokens){
       const r=await fetch(data.geojson_url); if(!r.ok) continue;
       const gj=await r.json();
       const color=palette[idx%palette.length];
-      const layer=L.geoJSON(gj,{ style:{ color:color, weight:1.5, opacity:.95, fillColor:color, fillOpacity:.28 } }).addTo(S.map);
+      const layer=L.geoJSON(gj,{ style:{ color:color, weight:2, opacity:1, fillColor:color, fillOpacity:.42 } }).addTo(S.map);
       try{
         const b=layer.getBounds();
         L.marker(b.getCenter(),{interactive:false, icon:L.divIcon({className:'multi-lbl', html:'<div style="background:'+color+';color:#fff;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">'+(data.talhao||'Talhão')+'</div>', iconSize:[0,0]})}).addTo(S.map);
@@ -2297,9 +2297,10 @@ async function carregarMulti(tokens){
     }catch(e){}
   }
   document.getElementById('loader-screen').classList.remove('show');
-  if(allBounds){ try{ S.map.fitBounds(allBounds,{padding:[40,40]}); }catch(e){} }
+  document.getElementById('empty-msg').style.display='none';
   if(tokens[0]) carregarBrandingConsultor(tokens[0]);
-  setTimeout(()=>{ try{ S.map.invalidateSize(true); }catch(e){} }, 120);
+  // enquadra só depois do mapa ter o tamanho certo (evita ficar pequeno/descentralizado)
+  setTimeout(()=>{ try{ S.map.invalidateSize(true); if(allBounds) S.map.fitBounds(allBounds,{padding:[50,50]}); }catch(e){} }, 180);
   return true;
 }
 
