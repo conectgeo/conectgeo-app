@@ -519,9 +519,8 @@ tr:hover td{background:var(--sand);}
                   <div id="mv-fazenda-list" style="max-height:220px;overflow:auto"></div>
                 </div>
               </div>
-              <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;">
                 <span data-i18n="selTalhao">Talhão</span>
-                <a id="mv-tal-all" onclick="event.stopPropagation();mvToggleTodos()" style="cursor:pointer;color:var(--leaf2);font-size:10px;text-transform:none;letter-spacing:0">Selecionar todos</a>
               </label>
               <div id="mv-tal-ctrl" style="border:1.5px solid var(--sand2);border-radius:8px;background:#fff;overflow:hidden">
                 <div onclick="mvToggleLista()" style="display:flex;align-items:center;justify-content:space-between;padding:9px 11px;cursor:pointer;font-size:13px">
@@ -530,7 +529,10 @@ tr:hover td{background:var(--sand);}
                 </div>
                 <div id="mv-tal-dropdown" style="display:none;border-top:1px solid var(--sand)">
                   <input id="mv-tal-busca" type="text" placeholder="🔎 Buscar talhão…" oninput="mvFiltrarTalhoes(this.value)" autocomplete="off" style="width:100%;border:0;border-bottom:1px solid var(--sand);padding:9px 11px;font-size:13px;outline:none;box-sizing:border-box">
-                  <div id="mv-talhao-list" style="max-height:230px;overflow:auto"></div>
+                  <div style="display:flex;justify-content:flex-end;padding:6px 11px;border-bottom:1px solid var(--sand);background:#fafbf8">
+                    <a id="mv-tal-all" onclick="event.stopPropagation();mvToggleTodos()" style="cursor:pointer;color:var(--leaf2);font-size:11px;font-weight:600">Selecionar todos</a>
+                  </div>
+                  <div id="mv-talhao-list" style="max-height:220px;overflow:auto"></div>
                 </div>
               </div>
               <button class="btn pri" id="mv-abrir-sel" onclick="mvAbrirSelecionados()" style="width:100%;margin-top:9px;padding:9px;font-size:13px;">Ver no mapa</button>

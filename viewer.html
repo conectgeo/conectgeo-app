@@ -39,11 +39,11 @@ header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:3px;ba
 .sdot.ok{background:var(--leaf);box-shadow:0 0 9px rgba(111,174,63,.6);}
 
 .workspace{display:flex;flex:1;overflow:hidden;position:relative;}
-.sb-toggle{position:absolute;top:50%;transform:translateY(-50%);left:302px;z-index:1100;width:24px;height:54px;background:rgba(108,179,45,.20);border:1px solid rgba(108,179,45,.5);border-left:none;border-radius:0 10px 10px 0;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:2px 1px 9px rgba(0,0,0,.08);font-size:15px;color:var(--leaf2);transition:left .22s ease,background .15s;backdrop-filter:blur(2px);}
+.sb-toggle{position:absolute;top:50%;transform:translateY(-50%);left:302px;z-index:1100;width:24px;height:54px;background:rgba(108,179,45,.20);border:2px solid rgba(255,255,255,.95);border-left:none;border-radius:0 10px 10px 0;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:2px 1px 9px rgba(0,0,0,.12);font-size:15px;color:var(--leaf2);transition:left .22s ease,background .15s;backdrop-filter:blur(2px);}
 .sb-toggle:hover{color:var(--leaf2);background:rgba(108,179,45,.36);}
 .sb-toggle::before{content:'◂';}
 body.sb-collapsed .sidebar{display:none;}
-body.sb-collapsed .sb-toggle{left:0;border-left:1px solid rgba(108,179,45,.5);}
+body.sb-collapsed .sb-toggle{left:0;border-left:2px solid rgba(255,255,255,.95);}
 body.sb-collapsed .sb-toggle::before{content:'▸';}
 .sidebar{width:302px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto;}
 .sidebar::-webkit-scrollbar{width:5px;}.sidebar::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
@@ -814,9 +814,7 @@ function renderHistograma(vals, mn, mx, corDe){
         + '<div class="hist-bar" title="'+bins[i]+' zona(s) · '+faixa+'" style="width:100%;height:'+h+'px;background:'+col+';border-radius:5px 5px 0 0;"></div>'
         + '</div>';
   }
-  bars+='</div><div style="display:flex;gap:5px;padding:3px 2px 0;border-top:1px solid var(--sand2);margin-top:2px;">';
-  for(let i=0;i<NB;i++){ bars+='<div style="flex:1;text-align:center;font-size:9px;color:#9a968c">'+(mn+w*i).toFixed(1)+'</div>'; }
-  bars+='<div style="font-size:9px;color:#9a968c">'+mx.toFixed(1)+'</div></div>';
+  bars+='</div>';
   el.innerHTML=bars;
 }
 
@@ -2356,11 +2354,15 @@ function _extraNutLayer(ex, colorCol, depthLabel){
     const vals=[]; ex.geo.features.forEach(f=>{ const k=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[k]; const v=row?parseFloat(row[colorCol]):NaN; if(!isNaN(v)) vals.push(v); });
     if(!vals.length) return null;
     const sorted=[...vals].sort((a,b)=>a-b);
-    return L.geoJSON(ex.geo,{
+    const lay=L.geoJSON(ex.geo,{
       style:f=>{ const k=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[k]; const v=row?parseFloat(row[colorCol]):NaN; return {fillColor:isNaN(v)?'#bbb':rankColor(v,sorted),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
       onEachFeature:(f,l)=>{ const k=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[k]; const v=row?parseFloat(row[colorCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
-        l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+colorCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1}); }
+        l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+colorCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1});
+        l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
+        l.on('mouseout',function(){ if(lay) lay.resetStyle(this); });
+      }
     });
+    return lay;
   }catch(e){ return null; }
 }
 async function _buildColeta(data, geoPoly, geoPoints){
@@ -2375,7 +2377,12 @@ async function _buildColeta(data, geoPoly, geoPoints){
     // zonas = polígonos do zip; senão os polígonos do geojson de nutrientes
     let gjZonas = gjAll ? {type:'FeatureCollection',features:(gjAll.features||[]).filter(isPoly)} : null;
     if(!gjZonas || !gjZonas.features.length) gjZonas=geoPoly;
-    if(gjZonas){ out.zonasGeo=gjZonas; out.zonas=L.geoJSON(gjZonas,{filter:isPoly, style:estiloZonaColeta}); }
+    if(gjZonas){ out.zonasGeo=gjZonas; out.zonas=L.geoJSON(gjZonas,{filter:isPoly, style:estiloZonaColeta,
+      onEachFeature:(f,layer)=>{
+        layer.bindTooltip(infoZonaColeta(f.properties),{sticky:true,opacity:1});
+        layer.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
+        layer.on('mouseout',function(){ this.setStyle(estiloZonaColeta()); });
+      } }); }
     // pontos: arquivo separado → pontos no zip de zonas → pontos embutidos no geojson
     let gjPts=null;
     if(data.coleta_pontos_url){ try{ const buf=await fetchBufColeta(data.coleta_pontos_url); let g=await shp(buf); if(Array.isArray(g)) g={type:'FeatureCollection',features:g.flatMap(l=>l.features||[])}; if((g.features||[]).some(isPt)) gjPts=g; }catch(e){} }
@@ -2390,14 +2397,14 @@ async function buildExtras(allTokens){
   const legend=document.createElement('div'); legend.className='multi-legend';
   legend.innerHTML='<h4>🗺 Talhões no mapa</h4>';
   document.querySelector('.map-wrap').appendChild(legend);
-  const addLeg=(nome,detalhado)=>{ const it=document.createElement('div'); it.className='ml-it';
-    it.innerHTML='<span class="ml-sw" style="background:'+(detalhado?'linear-gradient(90deg,#e3000f,#ffd400,#2e7d32)':'#6cb32d')+'"></span><span>'+nome+(detalhado?' <span style="color:#888">(principal)</span>':'')+'</span>'; legend.appendChild(it); };
+  const addLeg=(nome)=>{ const it=document.createElement('div'); it.className='ml-it';
+    it.innerHTML='<span class="ml-sw" style="background:#6cb32d"></span><span>'+nome+'</span>'; legend.appendChild(it); };
   for(let i=0;i<allTokens.length;i++){
     try{
       const { data } = await sb.rpc('get_link_data',{ p_token: allTokens[i] });
       if(!data || data.erro) continue;
       const nome=data.talhao||'Talhão';
-      if(i===0){ addLeg(nome,true); continue; } // primário já renderizado pelo viewer
+      if(i===0){ addLeg(nome); continue; } // primário já renderizado pelo viewer
       if(!data.geojson_url) continue;
       let geoRaw=null; try{ const r=await fetch(data.geojson_url); geoRaw=await r.json(); }catch(e){ continue; }
       // separa polígonos (zonas/nutrientes) e pontos (vão para a coleta) — como o principal faz
@@ -2425,7 +2432,7 @@ async function buildExtras(allTokens){
       const coleta = temColeta ? await _buildColeta(data, geo, geoPoints) : {raster:null,zonas:null,pontos:null};
       let bounds=null; try{ bounds=L.geoJSON(geo).getBounds(); }catch(e){}
       S.extras.push({ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _zonaLabels:[] });
-      addLeg(nome,false);
+      addLeg(nome);
     }catch(e){}
   }
   multiApplyMode(S.mapMode||'nutrientes');
