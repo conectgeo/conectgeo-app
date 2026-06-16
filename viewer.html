@@ -785,6 +785,16 @@ function rgbToHex(r,g,b){return '#'+[r,g,b].map(x=>Math.round(x).toString(16).pa
 function palColors(){const c=PALS[S.pal].c;return S.invert?[...c].reverse():c;}
 function lerpColor(colors,t){const n=colors.length-1;const i=Math.min(Math.floor(t*n),n-1);const f=t*n-i;const [r1,g1,b1]=hexToRgb(colors[i]);const [r2,g2,b2]=hexToRgb(colors[Math.min(i+1,n)]);return rgbToHex(r1+(r2-r1)*f,g1+(g2-g1)*f,b1+(b2-b1)*f);}
 function getColor(v,mn,mx){const t=mx===mn?0:Math.max(0,Math.min(1,(v-mn)/(mx-mn)));return lerpColor(palColors(),t);}
+// cor por quantis: usa a posição relativa do valor (espalha as cores mesmo com outliers)
+function rankColor(v, sorted){
+  const n=sorted.length;
+  if(n<=1) return lerpColor(palColors(),0.5);
+  let lo=0, hi=n;
+  while(lo<hi){ const mid=(lo+hi)>>1; if(sorted[mid]<v) lo=mid+1; else hi=mid; }
+  let hi2=lo; while(hi2<n && sorted[hi2]===v) hi2++;
+  const pos=(lo+hi2-1)/2;
+  return lerpColor(palColors(), Math.max(0,Math.min(1, pos/(n-1))));
+}
 
 // ══ MAP ══
 function initMap(){
@@ -1206,16 +1216,18 @@ function renderMap(){
   document.getElementById('sec-stat').style.display='';
 
   const cols=palColors();
+  const useRank=!!(S.extras && S.extras.length);
+  const corDe=(v)=> isNaN(v)?'#bbb':(useRank?rankColor(v,sorted):getColor(v,mn,mx));
   document.getElementById('leg-bar').style.background=`linear-gradient(to right,${cols.join(',')})`;
-  const ticks=[];for(let i=0;i<=S.classes;i++)ticks.push((mn+(mx-mn)*(i/S.classes)).toFixed(2));
+  const ticks=[];for(let i=0;i<=S.classes;i++){ if(useRank){ const idx=Math.min(sorted.length-1,Math.round(i/S.classes*(sorted.length-1))); ticks.push(sorted[idx].toFixed(2)); } else { ticks.push((mn+(mx-mn)*(i/S.classes)).toFixed(2)); } }
   document.getElementById('leg-ticks').innerHTML=ticks.map(t=>`<span>${t}</span>`).join('');
 
   const ll=document.getElementById('leg-list');ll.innerHTML='';const legendItems=[];
   S.layer=L.geoJSON(S.geoData,{
-    style:f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[S.colorCol]):NaN;return{fillColor:isNaN(v)?'#bbb':getColor(v,mn,mx),color:'#333',weight:1.2,fillOpacity:S.opacity};},
+    style:f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[S.colorCol]):NaN;return{fillColor:corDe(v),color:'#333',weight:1.2,fillOpacity:S.opacity};},
     onEachFeature:(f,layer)=>{
       const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[S.colorCol]):NaN;
-      legendItems.push({key,v,color:isNaN(v)?'#bbb':getColor(v,mn,mx)});
+      legendItems.push({key,v,color:corDe(v)});
       const valStr=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
       layer.bindTooltip(`<div class="tt-head">Zona ${key||'—'}</div><div class="tt-col">${S.colorCol}</div><div class="tt-val">${valStr}</div>`,{sticky:true,opacity:1,permanent:false});
       layer.on('mouseover',function(e){this.setStyle({weight:2.5,color:'#fff'});this.bringToFront();this.openTooltip(e.latlng);});
@@ -2319,9 +2331,9 @@ function _extraNutLayer(ex, colorCol, depthLabel){
     const joined={}; useRows.forEach(r=>{ joined[String(r[ex.sheetZone]??'').trim()]=r; });
     const vals=[]; ex.geo.features.forEach(f=>{ const k=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[k]; const v=row?parseFloat(row[colorCol]):NaN; if(!isNaN(v)) vals.push(v); });
     if(!vals.length) return null;
-    const mn=Math.min(...vals), mx=Math.max(...vals);
+    const sorted=[...vals].sort((a,b)=>a-b);
     return L.geoJSON(ex.geo,{
-      style:f=>{ const k=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[k]; const v=row?parseFloat(row[colorCol]):NaN; return {fillColor:isNaN(v)?'#bbb':getColor(v,mn,mx),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+      style:f=>{ const k=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[k]; const v=row?parseFloat(row[colorCol]):NaN; return {fillColor:isNaN(v)?'#bbb':rankColor(v,sorted),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
       onEachFeature:(f,l)=>{ const k=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[k]; const v=row?parseFloat(row[colorCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
         l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+colorCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1}); }
     });
