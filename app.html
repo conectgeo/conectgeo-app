@@ -188,6 +188,10 @@ tr:hover td{background:var(--sand);}
 .mapa-tal .mt-sub{font-size:11px;color:var(--muted);margin-top:2px;}
 .mapa-frame-wrap{flex:1;position:relative;background:#e8eae6;}
 .mapa-frame{width:100%;height:100%;border:0;display:block;}
+.mapa-frames{position:absolute;inset:0;display:grid;gap:6px;background:#d6dad3;}
+.mapa-cell{position:relative;background:#e8eae6;overflow:hidden;min-height:0;min-width:0;}
+.mapa-cell .mc-lbl{position:absolute;top:8px;left:50px;z-index:5;background:rgba(71,74,67,.92);color:#fff;font-size:11px;font-weight:700;padding:3px 9px;border-radius:7px;pointer-events:none;box-shadow:0 1px 4px rgba(0,0,0,.25);}
+.mapa-cell iframe{width:100%;height:100%;border:0;display:block;}
 @media(max-width:760px){
   .mapa-wrap{flex-direction:column;height:calc(100vh - 54px);}
   .mapa-side{width:100%;height:auto;max-height:38vh;border-right:0;border-bottom:1px solid var(--sand2);}
@@ -521,7 +525,7 @@ tr:hover td{background:var(--sand);}
           </div>
         </div>
         <div class="mapa-frame-wrap">
-          <iframe id="mapa-frame" class="mapa-frame" title="Mapa do talhão"></iframe>
+          <div id="mapa-frames" class="mapa-frames"></div>
         </div>
       </div>
     </div>
@@ -600,11 +604,10 @@ function aplicarIdioma(){
   document.documentElement.lang = l==='es'?'es':'pt-BR';
   document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent=t(el.dataset.i18n); });
   const bt=document.getElementById('lang-btn'); if(bt) bt.textContent = l==='es'?'🌐 ES':'🌐 PT';
-  // se o mapa estiver aberto, recarrega o idioma do iframe
-  const fr=document.getElementById('mapa-frame');
-  if(fr && fr.src && fr.src.indexOf('viewer.html')>=0){
-    fr.src=fr.src.replace(/lang=(pt|es)/,'lang='+l);
-  }
+  // se o mapa estiver aberto, recarrega o idioma dos iframes
+  document.querySelectorAll('#mapa-frames iframe').forEach(fr=>{
+    if(fr.src && fr.src.indexOf('viewer.html')>=0) fr.src=fr.src.replace(/lang=(pt|es)/,'lang='+l);
+  });
 }
 function toggleLang(){ setLang(getLang()==='es'?'pt':'es'); }
 function toggleSidebar(){
@@ -1281,17 +1284,32 @@ async function mvAbrirSelecionados(){
   const marc=mvChecks().filter(c=>c.checked);
   if(!marc.length){ toast('Selecione ao menos um talhão','⚠️'); return; }
   if(marc.length===1){ carregarTalhaoNoMapa(marc[0].value, marc[0].dataset.nome); if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed'); return; }
-  // vários: gera/recupera token de cada e abre o modo multi
   const btn=document.getElementById('mv-abrir-sel'); const txt=btn.textContent; btn.disabled=true; btn.textContent='Abrindo…';
   try{
-    const tokens=[];
-    for(const c of marc){ const tk=await tokenDoTalhao(c.value); if(tk) tokens.push(tk); }
-    if(!tokens.length){ toast('Não foi possível abrir os talhões','⚠️'); return; }
-    document.getElementById('mapa-sub').textContent=marc.length+' talhões';
-    const lang=getLang();
-    document.getElementById('mapa-frame').src='viewer.html?multi='+tokens.join(',')+'&lang='+lang+'&embed=1&consultor=1';
+    const items=[];
+    for(const c of marc){ const tk=await tokenDoTalhao(c.value); if(tk) items.push({token:tk, nome:c.dataset.nome}); }
+    if(!items.length){ toast('Não foi possível abrir os talhões','⚠️'); return; }
+    document.getElementById('mapa-sub').textContent=items.length+' talhões';
+    mvRenderFrames(items);
     if(window.innerWidth<=760) document.getElementById('mapa-side').classList.add('collapsed');
   } finally { btn.disabled=false; btn.textContent=txt; mvCheckChange(); }
+}
+
+// monta a grade de mapas (cada talhão = um viewer completo lado a lado)
+function mvRenderFrames(items){
+  const c=document.getElementById('mapa-frames'); if(!c) return;
+  const n=items.length;
+  const cols = n<=1?1 : (n<=4?2:3);
+  c.style.gridTemplateColumns='repeat('+cols+',1fr)';
+  const rows=Math.ceil(n/cols);
+  if(rows<=2){ c.style.gridTemplateRows='repeat('+rows+',1fr)'; c.style.gridAutoRows=''; c.style.overflowY='hidden'; }
+  else { c.style.gridTemplateRows=''; c.style.gridAutoRows='minmax(300px,1fr)'; c.style.overflowY='auto'; }
+  const lang=getLang();
+  c.innerHTML=items.map(it=>`
+    <div class="mapa-cell">
+      ${n>1?'<div class="mc-lbl">'+esc(it.nome||'')+'</div>':''}
+      <iframe src="viewer.html?t=${it.token}&lang=${lang}&embed=1&consultor=1" title="${esc(it.nome||'Mapa')}"></iframe>
+    </div>`).join('');
 }
 
 async function carregarTalhaoNoMapa(talhaoId, nome){
@@ -1299,12 +1317,11 @@ async function carregarTalhaoNoMapa(talhaoId, nome){
   MAPA_CTX.talhaoAtivo=talhaoId;
   const token=await tokenDoTalhao(talhaoId);
   if(!token) return;
-  const lang=getLang();
-  document.getElementById('mapa-frame').src='viewer.html?t='+token+'&lang='+lang+'&embed=1&consultor=1';
+  mvRenderFrames([{token, nome:nome||''}]);
 }
 
 function fecharMapa(){
-  document.getElementById('mapa-frame').src='about:blank';
+  document.getElementById('mapa-frames').innerHTML='';
   showView('dash');
 }
 function toggleMapaList(){ document.getElementById('mapa-side').classList.toggle('collapsed'); }
