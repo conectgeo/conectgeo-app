@@ -1185,6 +1185,7 @@ function renderZonasVazias(){
   if(!S.pdfMode) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
   document.getElementById('empty-msg').style.display='none';
   document.body.classList.add('has-data');
+  if(S.extras && S.extras.length) multiRenderExtrasNutrient();
 }
 function renderMap(){
   if(S.compare && S.compare.on){ renderCompare(); return; }
@@ -1230,6 +1231,7 @@ function renderMap(){
   document.getElementById('sec-leg').style.display='';
   document.getElementById('sec-pdf').style.display='';
   if(!document.body.classList.contains('viewmode')) document.getElementById('sec-link').style.display='';
+  if(S.extras && S.extras.length) multiRenderExtrasNutrient();
 }
 // ray-casting: is point [lng,lat] inside a ring [[lng,lat],...]
 function pointInRing(pt, ring){
@@ -1911,6 +1913,8 @@ function setMapMode(mode){
     if(S.layer) S.layer.addTo(S.map);
     if(S.colorCol) applyActiveDepth();
   }
+  // multi-talhão: aplica o mesmo modo aos demais talhões e reenquadra
+  if(S.extras && S.extras.length){ multiApplyMode(mode); setTimeout(()=>{ try{ multiFitAll(); }catch(e){} }, 120); }
 }
 
 async function carregarColeta(){
@@ -2080,11 +2084,23 @@ function renderZonaLabels(){
 
 // reaplica pontos (quando muda tamanho)
 function refreshPontos(){
-  if(!S.coletaGeo.pontos) return;
+  if(!S.coletaGeo.pontos){ multiRebuildExtrasPontos(); return; }
   const visivel = S.coletaLayers.pontos && S.map.hasLayer(S.coletaLayers.pontos);
   if(S.coletaLayers.pontos) S.map.removeLayer(S.coletaLayers.pontos);
   S.coletaLayers.pontos=criarCamadaPontos(S.coletaGeo.pontos);
   if(visivel) S.coletaLayers.pontos.addTo(S.map);
+  multiRebuildExtrasPontos();
+}
+function multiRebuildExtrasPontos(){
+  if(!S.extras||!S.extras.length||S.mapMode!=='coleta') return;
+  const pt=document.getElementById('clt-pontos-toggle');
+  const show = S.cltCfg.showPontos!==false && (!pt||pt.classList.contains('on'));
+  S.extras.forEach(ex=>{
+    if(!ex.coleta || !ex.coleta.pontosGeo) return;
+    if(ex.coleta.pontos){ try{S.map.removeLayer(ex.coleta.pontos);}catch(e){} }
+    ex.coleta.pontos=criarCamadaPontos(ex.coleta.pontosGeo);
+    if(show) ex.coleta.pontos.addTo(S.map);
+  });
 }
 
 // recarrega as camadas de coleta sem recarregar a página (mantém o usuário no Mapa de Coleta)
@@ -2109,13 +2125,14 @@ async function recarregarColetaInPlace(){
 // liga os controles do painel de coleta (chamado uma vez no boot)
 function wireColetaControls(){
   const tgl=(id,cb)=>{ const el=document.getElementById(id); if(el) el.addEventListener('click',()=>{ el.classList.toggle('on'); cb(el.classList.contains('on')); }); };
-  tgl('clt-raster-toggle',on=>{ if(!S.coletaLayers.raster)return; on?S.coletaLayers.raster.addTo(S.map):S.map.removeLayer(S.coletaLayers.raster); });
+  tgl('clt-raster-toggle',on=>{ if(S.coletaLayers.raster){ on?S.coletaLayers.raster.addTo(S.map):S.map.removeLayer(S.coletaLayers.raster); } multiExtrasColeta('raster',on); });
   tgl('clt-pontos-toggle',on=>{
     S.cltCfg.showPontos=on;
     if(S.coletaLayers.pontos){ on?S.coletaLayers.pontos.addTo(S.map):S.map.removeLayer(S.coletaLayers.pontos); }
     const sa=document.getElementById('sec-clt-ajustes'); if(sa) sa.style.display=on?'':'none';
+    multiExtrasColeta('pontos',on);
   });
-  tgl('clt-zonas-toggle',on=>{ if(S.coletaLayers.zonas){ on?S.coletaLayers.zonas.addTo(S.map):S.map.removeLayer(S.coletaLayers.zonas); } renderZonaLabels(); });
+  tgl('clt-zonas-toggle',on=>{ if(S.coletaLayers.zonas){ on?S.coletaLayers.zonas.addTo(S.map):S.map.removeLayer(S.coletaLayers.zonas); } renderZonaLabels(); multiExtrasColeta('zonas',on); });
   tgl('clt-rpt-toggle',on=>{ S.cltCfg.showPtLbl=on; refreshPontos(); });
   tgl('clt-rzona-toggle',on=>{
     S.cltCfg.showZonaLbl=on;
@@ -2263,44 +2280,150 @@ async function baixarShpColeta(){
   }catch(err){ alert('Erro ao baixar: '+err.message); }
 }
 
-// modo multi-talhão: o 1º talhão usa o viewer completo; os demais são sobrepostos
-async function overlayExtras(allTokens){
-  const palette=['#1565c0','#e65100','#6a1b9a','#c62828','#00838f','#9e9d24','#4527a0','#ad1457','#37474f','#00695c','#5d4037','#2e7d32'];
+// ═══════════════════════════════════════════════════════════════
+// MULTI-TALHÃO num mapa só: o 1º usa o viewer completo (lateral/funções);
+// os demais são renderizados em camadas próprias acompanhando o modo.
+// ═══════════════════════════════════════════════════════════════
+function _rasterColorFn(noData,nBands){
+  return (vals)=>{ if(vals==null) return null; let r,g,b,a=255;
+    if(nBands>=3){ r=vals[0]; g=vals[1]; b=vals[2]; if(nBands>=4 && vals[3]!=null) a=vals[3]; } else { r=g=b=vals[0]; }
+    if(r==null||g==null||b==null) return null; if(noData!=null && vals[0]===noData) return null;
+    if(r===0&&g===0&&b===0) return null; if(a===0) return null; return 'rgba('+r+','+g+','+b+','+(a/255)+')'; };
+}
+async function _buildRaster(url){
+  try{
+    const buf=await fetchBufColeta(url);
+    const _parse=(typeof parseGeoraster!=='undefined')?parseGeoraster:(typeof parseGeoRaster!=='undefined'?parseGeoRaster:(window.parseGeoraster||window.parseGeoRaster));
+    const _Layer=(typeof GeoRasterLayer!=='undefined')?GeoRasterLayer:window.GeoRasterLayer;
+    if(!_parse||!_Layer) return null;
+    const gr=await _parse(buf);
+    const nBands=gr.numberOfRasters||(gr.values?gr.values.length:1);
+    return new _Layer({georaster:gr,opacity:1,resolution:256,pixelValuesToColorFn:_rasterColorFn(gr.noDataValue,nBands)});
+  }catch(e){ return null; }
+}
+function _zoneField(props){ const fs=Object.keys(props||{}); return fs.find(x=>/^zg$/i.test(x)||/zona/i.test(x))||fs[0]; }
+function _emptyZonesLayer(geo){
+  return L.geoJSON(geo,{ style:{color:'#333',weight:1.1,fillColor:'#cfd3cb',fillOpacity:0.2},
+    onEachFeature:(f,l)=>{ const zf=_zoneField(f.properties); const k=String((f.properties||{})[zf]??'').trim();
+      l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">Sem este mapa</div>',{sticky:true,opacity:1}); } });
+}
+function _extraNutLayer(ex, colorCol, depthLabel){
+  try{
+    if(!ex.geo||!ex.rows||!ex.rows.length||!colorCol) return null;
+    if(ex.fields.indexOf(colorCol)<0) return null;            // não tem esse nutriente → cinza
+    let useRows=ex.rows;
+    if(ex.depthCol && depthLabel){
+      const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel));
+      if(fr.length) useRows=fr; else return null;             // não tem essa profundidade → cinza
+    }
+    const joined={}; useRows.forEach(r=>{ joined[String(r[ex.sheetZone]??'').trim()]=r; });
+    const vals=[]; ex.geo.features.forEach(f=>{ const k=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[k]; const v=row?parseFloat(row[colorCol]):NaN; if(!isNaN(v)) vals.push(v); });
+    if(!vals.length) return null;
+    const mn=Math.min(...vals), mx=Math.max(...vals);
+    return L.geoJSON(ex.geo,{
+      style:f=>{ const k=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[k]; const v=row?parseFloat(row[colorCol]):NaN; return {fillColor:isNaN(v)?'#bbb':getColor(v,mn,mx),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+      onEachFeature:(f,l)=>{ const k=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[k]; const v=row?parseFloat(row[colorCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
+        l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+colorCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1}); }
+    });
+  }catch(e){ return null; }
+}
+async function _buildColeta(data, geo){
+  const out={raster:null, zonas:null, pontos:null};
+  try{
+    if(data.coleta_raster_url) out.raster=await _buildRaster(data.coleta_raster_url);
+    let gjZonas=null;
+    if(data.coleta_zonas_url){ try{ const buf=await fetchBufColeta(data.coleta_zonas_url); gjZonas=await shp(buf); if(Array.isArray(gjZonas)) gjZonas={type:'FeatureCollection',features:gjZonas.flatMap(l=>l.features||[])}; }catch(e){} }
+    if(!gjZonas) gjZonas=geo;
+    if(gjZonas) out.zonas=L.geoJSON(gjZonas,{filter:f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'), style:estiloZonaColeta});
+    if(data.coleta_pontos_url){ try{ const buf=await fetchBufColeta(data.coleta_pontos_url); let gj=await shp(buf); if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])}; out.pontosGeo=gj; out.pontos=criarCamadaPontos(gj); }catch(e){} }
+  }catch(e){}
+  return out;
+}
+async function buildExtras(allTokens){
+  S.extras=[];
   const legend=document.createElement('div'); legend.className='multi-legend';
   legend.innerHTML='<h4>🗺 Talhões no mapa</h4>';
   document.querySelector('.map-wrap').appendChild(legend);
-  let allBounds=null;
-  const addBounds=(b)=>{ if(!b) return; try{ allBounds = allBounds ? allBounds.extend(b) : L.latLngBounds(b.getSouthWest(), b.getNorthEast()); }catch(e){} };
-  const addLegend=(nome, color, detalhado)=>{
-    const it=document.createElement('div'); it.className='ml-it';
-    const sw = detalhado ? '<span class="ml-sw" style="background:linear-gradient(90deg,#e3000f,#ffd400,#2e7d32)"></span>' : '<span class="ml-sw" style="background:'+color+'"></span>';
-    it.innerHTML=sw+'<span>'+nome+(detalhado?' <span style="color:#888">(detalhado)</span>':'')+'</span>';
-    legend.appendChild(it);
-  };
+  const addLeg=(nome,detalhado)=>{ const it=document.createElement('div'); it.className='ml-it';
+    it.innerHTML='<span class="ml-sw" style="background:'+(detalhado?'linear-gradient(90deg,#e3000f,#ffd400,#2e7d32)':'#6cb32d')+'"></span><span>'+nome+(detalhado?' <span style="color:#888">(principal)</span>':'')+'</span>'; legend.appendChild(it); };
   for(let i=0;i<allTokens.length;i++){
     try{
       const { data } = await sb.rpc('get_link_data',{ p_token: allTokens[i] });
       if(!data || data.erro) continue;
-      const nome=(data.talhao||'Talhão');
-      if(i===0){
-        // talhão primário já está renderizado pelo viewer (com nutrientes/coleta)
-        let b=null; try{ b=S.layer?S.layer.getBounds():null; }catch(e){}
-        if(!b && data.geojson_url){ try{ const r=await fetch(data.geojson_url); const gj=await r.json(); b=L.geoJSON(gj).getBounds(); }catch(e){} }
-        addBounds(b); addLegend(nome, null, true);
-      } else {
-        if(!data.geojson_url){ continue; }
-        const color=palette[(i-1)%palette.length];
-        const r=await fetch(data.geojson_url); if(!r.ok) continue;
-        const gj=await r.json();
-        const layer=L.geoJSON(gj,{ style:{ color:color, weight:2, opacity:1, fillColor:color, fillOpacity:.4 } }).addTo(S.map);
-        let b=null; try{ b=layer.getBounds(); }catch(e){}
-        if(b){ try{ L.marker(b.getCenter(),{interactive:false, icon:L.divIcon({className:'multi-lbl', html:'<div style="background:'+color+';color:#fff;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">'+nome+'</div>', iconSize:[0,0]})}).addTo(S.map); }catch(e){} }
-        addBounds(b); addLegend(nome, color, false);
+      const nome=data.talhao||'Talhão';
+      if(i===0){ addLeg(nome,true); continue; } // primário já renderizado pelo viewer
+      if(!data.geojson_url) continue;
+      let geo=null; try{ const r=await fetch(data.geojson_url); geo=await r.json(); }catch(e){ continue; }
+      // planilha de nutrientes (guardada para seguir o nutriente/profundidade do painel)
+      let rows=[], fields=[], sheetZone=null, depthCol=null;
+      if(data.planilha_url){
+        try{
+          const resp=await fetch(data.planilha_url); const buf=await resp.arrayBuffer();
+          const ext=(data.planilha_url.split('?')[0].split('.').pop()||'').toLowerCase();
+          const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
+          rows=parsed.rows||[]; fields=parsed.fields||[];
+          sheetZone=fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||fields[0];
+          depthCol=detectDepthColumn(fields);
+        }catch(e){}
       }
+      // coleta (prébuilt)
+      const temColeta = !!(data.tem_coleta_solo || data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url);
+      const coleta = temColeta ? await _buildColeta(data, geo) : {raster:null,zonas:null,pontos:null};
+      let bounds=null; try{ bounds=L.geoJSON(geo).getBounds(); }catch(e){}
+      let labelMarker=null;
+      if(bounds){ try{ labelMarker=L.marker(bounds.getCenter(),{interactive:false, icon:L.divIcon({className:'multi-lbl', html:'<div style="background:#474a43;color:#fff;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">'+nome+'</div>', iconSize:[0,0]})}); }catch(e){} }
+      S.extras.push({ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, labelMarker, _nut:null, _empty:null });
+      addLeg(nome,false);
     }catch(e){}
   }
-  // enquadra todos só depois do mapa ter tamanho certo
-  setTimeout(()=>{ try{ S.map.invalidateSize(true); if(allBounds) S.map.fitBounds(allBounds,{padding:[50,50]}); }catch(e){} }, 350);
+  multiApplyMode(S.mapMode||'nutrientes');
+  setTimeout(()=>{ try{ S.map.invalidateSize(true); multiFitAll(); }catch(e){} }, 350);
+}
+function _extraClearAll(ex){
+  [ex._nut, ex._empty, ex.coleta.raster, ex.coleta.zonas, ex.coleta.pontos, ex.labelMarker].forEach(l=>{ if(l){ try{ S.map.removeLayer(l); }catch(e){} } });
+  ex._nut=null; ex._empty=null;
+}
+// nutrientes: cada extra segue o nutriente/profundidade do painel (cinza se não tiver)
+function multiRenderExtrasNutrient(){
+  if(!S.extras||!S.extras.length) return;
+  if(S.mapMode==='coleta') return;
+  S.extras.forEach(ex=>{
+    if(ex._nut){ try{S.map.removeLayer(ex._nut);}catch(e){} ex._nut=null; }
+    if(ex._empty){ try{S.map.removeLayer(ex._empty);}catch(e){} ex._empty=null; }
+    const lay=_extraNutLayer(ex, S.colorCol, S.activeDepth);
+    if(lay){ ex._nut=lay; lay.addTo(S.map); }
+    else { ex._empty=_emptyZonesLayer(ex.geo); ex._empty.addTo(S.map); }
+    if(ex.labelMarker){ try{ ex.labelMarker.addTo(S.map);}catch(e){} }
+  });
+}
+function multiApplyMode(mode){
+  if(!S.extras || !S.extras.length) return;
+  S.extras.forEach(ex=>_extraClearAll(ex));
+  if(mode==='coleta'){
+    S.extras.forEach(ex=>{
+      if(ex.hasColeta){
+        const rt=document.getElementById('clt-raster-toggle'); const pt=document.getElementById('clt-pontos-toggle'); const zt=document.getElementById('clt-zonas-toggle');
+        if(ex.coleta.raster && (!rt||rt.classList.contains('on'))) ex.coleta.raster.addTo(S.map);
+        if(ex.coleta.zonas && (!zt||zt.classList.contains('on'))) ex.coleta.zonas.addTo(S.map);
+        if(ex.coleta.pontos && S.cltCfg.showPontos!==false && (!pt||pt.classList.contains('on'))) ex.coleta.pontos.addTo(S.map);
+      } else { ex._empty=_emptyZonesLayer(ex.geo); ex._empty.addTo(S.map); }
+      if(ex.labelMarker) ex.labelMarker.addTo(S.map);
+    });
+  } else {
+    multiRenderExtrasNutrient();
+  }
+}
+// coleta: liga/desliga a camada nos extras junto com o principal
+function multiExtrasColeta(kind,on){
+  if(!S.extras||!S.extras.length||S.mapMode!=='coleta') return;
+  S.extras.forEach(ex=>{ if(!ex.hasColeta) return; const lay=ex.coleta[kind]; if(lay){ on?lay.addTo(S.map):S.map.removeLayer(lay); } });
+}
+function multiFitAll(){
+  let b=null;
+  try{ if(S.layer) b=S.layer.getBounds(); }catch(e){}
+  try{ if(!b && S.coletaLayers && S.coletaLayers.zonas) b=S.coletaLayers.zonas.getBounds(); }catch(e){}
+  (S.extras||[]).forEach(ex=>{ if(ex.bounds){ b = b ? b.extend(ex.bounds) : L.latLngBounds(ex.bounds.getSouthWest(), ex.bounds.getNorthEast()); } });
+  if(b){ try{ S.map.fitBounds(b,{padding:[50,50]}); }catch(e){} }
 }
 
 async function loadFromToken(token, params){
@@ -2411,7 +2534,7 @@ async function loadFromURL(){
     if(toks.length>1){
       S.multiTokens=toks;
       const ok=await loadFromToken(toks[0], params); // 1º talhão: viewer completo (todas as funções)
-      overlayExtras(toks);                            // sobrepõe os demais talhões
+      buildExtras(toks);                              // renderiza os demais no mesmo mapa
       return ok;
     }
   }
