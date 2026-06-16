@@ -2328,14 +2328,23 @@ function _extraNutLayer(ex, colorCol, depthLabel){
   }catch(e){ return null; }
 }
 async function _buildColeta(data, geo){
-  const out={raster:null, zonas:null, pontos:null};
+  const out={raster:null, zonas:null, pontos:null, zonasGeo:null, pontosGeo:null};
   try{
     if(data.coleta_raster_url) out.raster=await _buildRaster(data.coleta_raster_url);
-    let gjZonas=null;
-    if(data.coleta_zonas_url){ try{ const buf=await fetchBufColeta(data.coleta_zonas_url); gjZonas=await shp(buf); if(Array.isArray(gjZonas)) gjZonas={type:'FeatureCollection',features:gjZonas.flatMap(l=>l.features||[])}; }catch(e){} }
-    if(!gjZonas) gjZonas=geo;
-    if(gjZonas){ out.zonasGeo=gjZonas; out.zonas=L.geoJSON(gjZonas,{filter:f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'), style:estiloZonaColeta}); }
-    if(data.coleta_pontos_url){ try{ const buf=await fetchBufColeta(data.coleta_pontos_url); let gj=await shp(buf); if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])}; out.pontosGeo=gj; out.pontos=criarCamadaPontos(gj); }catch(e){} }
+    // lê o zip de zonas (pode conter polígonos E pontos)
+    let gjAll=null;
+    if(data.coleta_zonas_url){ try{ const buf=await fetchBufColeta(data.coleta_zonas_url); gjAll=await shp(buf); if(Array.isArray(gjAll)) gjAll={type:'FeatureCollection',features:gjAll.flatMap(l=>l.features||[])}; }catch(e){} }
+    const isPoly=f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon');
+    const isPt=f=>f&&f.geometry&&(f.geometry.type==='Point'||f.geometry.type==='MultiPoint');
+    // zonas = polígonos do zip; senão o geojson de nutrientes
+    let gjZonas = gjAll ? {type:'FeatureCollection',features:(gjAll.features||[]).filter(isPoly)} : null;
+    if(!gjZonas || !gjZonas.features.length) gjZonas=geo;
+    if(gjZonas){ out.zonasGeo=gjZonas; out.zonas=L.geoJSON(gjZonas,{filter:isPoly, style:estiloZonaColeta}); }
+    // pontos = arquivo separado; senão pontos embutidos no zip de zonas
+    let gjPts=null;
+    if(data.coleta_pontos_url){ try{ const buf=await fetchBufColeta(data.coleta_pontos_url); let g=await shp(buf); if(Array.isArray(g)) g={type:'FeatureCollection',features:g.flatMap(l=>l.features||[])}; if((g.features||[]).some(isPt)) gjPts=g; }catch(e){} }
+    if(!gjPts && gjAll){ const pts=(gjAll.features||[]).filter(isPt); if(pts.length) gjPts={type:'FeatureCollection',features:pts}; }
+    if(gjPts && (gjPts.features||[]).some(isPt)){ out.pontosGeo=gjPts; out.pontos=criarCamadaPontos(gjPts); }
   }catch(e){}
   return out;
 }
