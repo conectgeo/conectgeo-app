@@ -451,6 +451,14 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
     <div class="sec" id="sec-rec-insumo">
       <div class="sec-label"><span class="txt"><span class="sec-num"></span><span>Insumo</span></span></div>
+      <div class="compare-row" id="rec-compare-row" style="margin-bottom:10px">
+        <span class="label">Modo Comparação<span class="sub">Ver dois insumos lado a lado</span></span>
+        <div class="toggle" id="rec-compare-toggle"></div>
+      </div>
+      <div id="rec-compare-pickers" style="display:none;flex-direction:column;gap:8px;margin:0 0 10px;padding:10px;background:var(--accent3);border:1px solid var(--leaf);border-radius:9px;">
+        <div class="ctrl"><div class="ctrl-label" style="display:flex;align-items:center;gap:6px"><span class="side-tag" style="display:inline-block;background:var(--leaf);color:#fff;font-size:9px;padding:2px 6px;border-radius:4px;letter-spacing:.05em">ESQ</span> Insumo</div><select id="sel-insumo-left"></select></div>
+        <div class="ctrl"><div class="ctrl-label" style="display:flex;align-items:center;gap:6px"><span class="side-tag" style="display:inline-block;background:var(--leaf);color:#fff;font-size:9px;padding:2px 6px;border-radius:4px;letter-spacing:.05em">DIR</span> Insumo</div><select id="sel-insumo-right"></select></div>
+      </div>
       <div class="ctrl"><select id="sel-insumo"></select></div>
       <div id="rec-empty" style="font-size:12px;color:var(--muted);margin-top:6px;display:none">Envie a planilha de recomendação para ver as doses por zona.</div>
     </div>
@@ -2085,7 +2093,7 @@ function renderRecomendacao(){
   let totalHa=0,totalIns=0,mn=Infinity,mx=-Infinity; const recs=[];
   S.geoData.features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); recs.push({d,ha}); if(d!=null){ totalHa+=ha; totalIns+=d*ha; if(d<mn)mn=d; if(d>mx)mx=d; } });
   if(!isFinite(mn)){ mn=0; mx=0; }
-  const palRev=[...palColors()].reverse(); // dose alta = vermelho
+  const palRev=[...PALS.rdylgn.c].reverse(); // dose alta = vermelho (independente do invert)
   const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const t=mx===mn?0:(d-mn)/(mx-mn); return lerpColor(palRev, Math.max(0,Math.min(1,t))); };
   S.rec.layer=L.geoJSON(S.geoData,{
     style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
@@ -2096,23 +2104,14 @@ function renderRecomendacao(){
     }
   }).addTo(S.map);
   if(!S.pdfMode){ try{ S.map.fitBounds(S.rec.layer.getBounds(),{padding:[24,24]}); }catch(e){} }
-  // LEGENDA: faixas dinâmicas pela grandeza do insumo (mín/máx)
-  const doses=recs.filter(r=>r.d!=null).map(r=>r.d);
-  const hasZero=doses.some(d=>d===0); const pos=doses.filter(d=>d>0);
-  let buckets=[]; if(hasZero) buckets.push({lo:0,hi:0,ha:0,zero:true});
-  if(pos.length){ const lo0=Math.min(...pos), hi0=Math.max(...pos);
-    if(lo0===hi0){ buckets.push({lo:lo0,hi:hi0,ha:0}); }
-    else{ const step=niceStep((hi0-lo0)/6); let start=Math.floor(lo0/step)*step; for(let x=start; x<hi0-1e-6; x+=step) buckets.push({lo:x,hi:x+step,ha:0}); }
-  }
-  recs.forEach(rc=>{ if(rc.d==null) return;
-    if(rc.d===0 && hasZero){ const z=buckets.find(b=>b.zero); if(z) z.ha+=rc.ha; return; }
-    let b=buckets.find(bb=>!bb.zero && rc.d>=bb.lo && rc.d<bb.hi);
-    if(!b){ const nz=buckets.filter(bb=>!bb.zero); b=nz[nz.length-1]; }
-    if(b) b.ha+=rc.ha;
-  });
+  // LEGENDA: 5 classes iguais entre mín e máx (dinâmico pelo insumo)
+  const NB=5; let buckets=[];
+  if(mx>mn){ const step=(mx-mn)/NB; for(let i=0;i<NB;i++) buckets.push({lo:mn+step*i, hi:mn+step*(i+1), ha:0}); }
+  else buckets.push({lo:mn, hi:mx, ha:0});
+  recs.forEach(rc=>{ if(rc.d==null) return; let idx=(mx>mn)?Math.floor((rc.d-mn)/((mx-mn)/NB)):0; if(idx>=buckets.length) idx=buckets.length-1; if(idx<0) idx=0; buckets[idx].ha+=rc.ha; });
   const totHa=buckets.reduce((s,b)=>s+b.ha,0)||1;
   let html='<div class="rec-leg-head"><span>Doses (kg/ha)</span><span>Hectares</span><span>%</span></div>';
-  buckets.forEach(b=>{ const sw=corRec(b.zero?0:(b.lo+b.hi)/2); const rng=b.zero?'0 - 0':recFmt(b.lo)+' - '+recFmt(b.hi);
+  buckets.forEach(b=>{ const sw=corRec((b.lo+b.hi)/2); const rng=recFmt(b.lo)+' - '+recFmt(b.hi);
     html+='<div class="rec-leg-row"><span class="rec-leg-sw" style="background:'+sw+'"></span><span class="rng">'+rng+'</span><span class="ha">'+b.ha.toFixed(2)+'</span><span class="pct">'+(b.ha/totHa*100).toFixed(2)+'</span></div>'; });
   if(legEl) legEl.innerHTML=html;
   // ESTATÍSTICAS
@@ -2125,6 +2124,73 @@ function renderRecomendacao(){
   drawRecLabels();
 }
 
+S.recCompare={on:false,left:null,right:null};
+function _renderRecSide(targetMap, insumoCol){
+  if(!S.geoData || !insumoCol || !S.rec.rows.length) return {layer:null,mn:0,mx:0};
+  const fator=recFatorColuna(insumoCol);
+  const zoneF=S.rec.fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||S.rec.fields[0];
+  const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
+  const joinGeo=S.joinGeo||_zoneField(S.geoData.features[0].properties);
+  const doseDe=(f)=>{ const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k]; let d=row?recNum(row[insumoCol]):NaN; return isNaN(d)?null:d*fator; };
+  let mn=Infinity,mx=-Infinity; S.geoData.features.forEach(f=>{ const d=doseDe(f); if(d!=null){ if(d<mn)mn=d; if(d>mx)mx=d; } });
+  if(!isFinite(mn)){ mn=0; mx=0; }
+  const palRev=[...PALS.rdylgn.c].reverse();
+  const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const t=mx===mn?0:(d-mn)/(mx-mn); return lerpColor(palRev,Math.max(0,Math.min(1,t))); };
+  const layer=L.geoJSON(S.geoData,{
+    style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+    onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo]??'').trim(); const d=doseDe(f);
+      l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+insumoCol+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div>',{sticky:true,opacity:1});
+      l.on('mouseover',function(){this.setStyle({weight:2.5,color:'#fff'});this.bringToFront();});
+      l.on('mouseout',function(){layer.resetStyle(this);});
+    }
+  }).addTo(targetMap);
+  return {layer,mn,mx};
+}
+function renderRecCompare(){
+  if(!S.recCompare.on) return;
+  ensureCompareMap();
+  if(S.rec.layer){ try{S.map.removeLayer(S.rec.layer);}catch(e){} S.rec.layer=null; }
+  if(S.rec.layer2 && S.compare.map2){ try{S.compare.map2.removeLayer(S.rec.layer2);}catch(e){} S.rec.layer2=null; }
+  clearRecLabels();
+  const L1=S.recCompare.left, R1=S.recCompare.right;
+  if(!L1||!R1){ toast('Escolha os dois insumos','wrn'); return; }
+  const aL=_renderRecSide(S.map, L1);
+  const aR=_renderRecSide(S.compare.map2, R1);
+  S.rec.layer=aL.layer; S.rec.layer2=aR.layer;
+  const ctL=document.getElementById('ctag-left'), ctR=document.getElementById('ctag-right');
+  if(ctL) ctL.textContent=L1; if(ctR) ctR.textContent=R1;
+  const palRev=[...PALS.rdylgn.c].reverse(); const grad='linear-gradient(to right,'+palRev.join(',')+')';
+  const legHTML=(name,lo,hi)=>'<div class="ml-title">'+name+'</div><div class="ml-bar" style="background:'+grad+'"></div><div class="ml-ticks"><span>'+recFmt(lo)+'</span><span>'+recFmt(hi)+'</span></div>';
+  const ml=document.getElementById('mleg-left'), mr=document.getElementById('mleg-right');
+  if(ml){ ml.style.display=''; ml.innerHTML=legHTML(L1,aL.mn,aL.mx); }
+  if(mr){ mr.style.display=''; mr.innerHTML=legHTML(R1,aR.mn,aR.mx); }
+  try{ if(aL.layer) S.map.fitBounds(aL.layer.getBounds(),{padding:[24,24]}); }catch(e){}
+  try{ if(aR.layer) S.compare.map2.fitBounds(aR.layer.getBounds(),{padding:[24,24]}); }catch(e){}
+}
+function setRecCompareMode(on){
+  if(on && (!S.rec.rows.length || (S.rec.insumoCols||[]).length<2)){ toast('Comparação requer ao menos 2 insumos na planilha','wrn'); return; }
+  S.recCompare.on=on;
+  document.getElementById('rec-compare-row').classList.toggle('on',on);
+  document.getElementById('rec-compare-toggle').classList.toggle('on',on);
+  document.getElementById('rec-compare-pickers').style.display=on?'flex':'none';
+  document.getElementById('sec-rec-app').style.display=on?'none':'';
+  const _l=document.getElementById('sec-rec-leg'); if(_l) _l.style.display=on?'none':'';
+  const _s=document.getElementById('sec-rec-stat'); if(_s) _s.style.display=on?'none':'';
+  const selSingle=document.getElementById('sel-insumo'); if(selSingle) selSingle.parentElement.style.display=on?'none':'';
+  const wrap=document.querySelector('.map-wrap'); wrap.classList.toggle('compare-on',on);
+  if(on){
+    const cols=S.rec.insumoCols||[]; const sL=document.getElementById('sel-insumo-left'), sR=document.getElementById('sel-insumo-right');
+    sL.innerHTML=''; sR.innerHTML=''; cols.forEach(c=>{ const o1=document.createElement('option');o1.value=c;o1.textContent=c;sL.appendChild(o1); const o2=document.createElement('option');o2.value=c;o2.textContent=c;sR.appendChild(o2); });
+    S.recCompare.left=S.rec.col||cols[0]; S.recCompare.right=cols[1]||cols[0];
+    sL.value=S.recCompare.left; sR.value=S.recCompare.right;
+    setTimeout(()=>{ try{S.map.invalidateSize(true);}catch(e){} renderRecCompare(); },90);
+  }else{
+    if(S.rec.layer2 && S.compare.map2){ try{S.compare.map2.removeLayer(S.rec.layer2);}catch(e){} S.rec.layer2=null; }
+    const ml=document.getElementById('mleg-left'), mr=document.getElementById('mleg-right'); if(ml)ml.style.display='none'; if(mr)mr.style.display='none';
+    setTimeout(()=>{ try{S.map.invalidateSize(true);}catch(e){} renderRecomendacao(); },90);
+  }
+}
+
 function setMapMode(mode){
   S.mapMode=mode;
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
@@ -2132,6 +2198,19 @@ function setMapMode(mode){
   const _mr=document.getElementById('mode-recomendacao'); if(_mr) _mr.classList.toggle('active', mode==='recomendacao');
   document.body.classList.toggle('mode-rec', mode==='recomendacao');
   if(mode!=='recomendacao' && S.rec && S.rec.layer){ try{S.map.removeLayer(S.rec.layer);}catch(e){} S.rec.layer=null; }
+  if(mode!=='recomendacao' && S.recCompare && S.recCompare.on){
+    S.recCompare.on=false;
+    document.getElementById('rec-compare-row').classList.remove('on');
+    document.getElementById('rec-compare-toggle').classList.remove('on');
+    document.getElementById('rec-compare-pickers').style.display='none';
+    const _sa=document.getElementById('sec-rec-app'); if(_sa) _sa.style.display='';
+    const _sl=document.getElementById('sec-rec-leg'); if(_sl) _sl.style.display='';
+    const _ss2=document.getElementById('sec-rec-stat'); if(_ss2) _ss2.style.display='';
+    const _ss=document.getElementById('sel-insumo'); if(_ss&&_ss.parentElement) _ss.parentElement.style.display='';
+    if(S.rec.layer2 && S.compare.map2){ try{S.compare.map2.removeLayer(S.rec.layer2);}catch(e){} S.rec.layer2=null; }
+    document.querySelector('.map-wrap').classList.remove('compare-on');
+    const _ml=document.getElementById('mleg-left'), _mr=document.getElementById('mleg-right'); if(_ml)_ml.style.display='none'; if(_mr)_mr.style.display='none';
+  }
   if(S.rec){ S.rec.labels.forEach(l=>{try{S.map.removeLayer(l);}catch(e){}}); S.rec.labels=[]; }
 
   if(mode==='coleta'){
@@ -2154,14 +2233,24 @@ function setMapMode(mode){
     document.body.classList.add('mode-coleta');
     carregarColeta().then(()=>{ renderZonaLabels(); });
   }else if(mode==='recomendacao'){
+    // colapsa o comparação de nutrientes, se estiver ligado
+    if(S.compare && S.compare.on){
+      S.compare.on=false;
+      document.getElementById('compare-row').classList.remove('on');
+      document.getElementById('compare-toggle').classList.remove('on');
+      document.getElementById('compare-pickers').classList.remove('show');
+      document.getElementById('depth-grid').style.display='';
+      if(S.layer2 && S.compare.map2){ try{S.compare.map2.removeLayer(S.layer2);}catch(e){} S.layer2=null; }
+      document.getElementById('mleg-right').style.display='none';
+    }
     document.body.classList.remove('mode-coleta');
     if(S.layer) S.map.removeLayer(S.layer);
     clearLabels();
     Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
     if(S.coletaZonaLabels) S.coletaZonaLabels.forEach(l=>{try{S.map.removeLayer(l);}catch(e){}});
-    document.getElementById('mleg-left').style.display='none';
     document.getElementById('empty-msg').style.display='none';
-    loadRecData().then(()=>{ popularInsumos(); renderRecomendacao(); });
+    if(!S.recCompare.on){ document.getElementById('mleg-left').style.display='none'; document.querySelector('.map-wrap').classList.remove('compare-on'); }
+    loadRecData().then(()=>{ popularInsumos(); if(S.recCompare.on) renderRecCompare(); else renderRecomendacao(); });
   }else{
     Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
     S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l));
@@ -2533,6 +2622,13 @@ function wireColetaControls(){
   // seletor de insumo
   const selIns=document.getElementById('sel-insumo');
   if(selIns) selIns.addEventListener('change',()=>{ S.rec.col=selIns.value; renderRecomendacao(); });
+  // modo comparação (dois insumos)
+  const recCmpTgl=document.getElementById('rec-compare-toggle');
+  if(recCmpTgl) recCmpTgl.addEventListener('click',()=> setRecCompareMode(!S.recCompare.on));
+  const recCmpRow=document.getElementById('rec-compare-row');
+  if(recCmpRow) recCmpRow.addEventListener('click',(e)=>{ if(e.target.closest('#rec-compare-toggle')) return; setRecCompareMode(!S.recCompare.on); });
+  const sIL=document.getElementById('sel-insumo-left'); if(sIL) sIL.addEventListener('change',()=>{ S.recCompare.left=sIL.value; renderRecCompare(); });
+  const sIR=document.getElementById('sel-insumo-right'); if(sIR) sIR.addEventListener('change',()=>{ S.recCompare.right=sIR.value; renderRecCompare(); });
   // rótulos das zonas (padrão desligado) + tamanho
   const recLblTgl=document.getElementById('rec-labels-toggle');
   if(recLblTgl) recLblTgl.addEventListener('click',()=>{ recLblTgl.classList.toggle('on'); S.rec.showLabels=recLblTgl.classList.contains('on'); drawRecLabels(); });
