@@ -498,9 +498,27 @@ tr:hover td{background:var(--sand);}
           <div class="mapa-side-body">
             <div style="padding:0 4px 10px;">
               <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selProdutor">Produtor</label>
-              <select id="mv-cliente" onchange="mvSelCliente()" style="width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;margin-bottom:10px;"></select>
+              <div style="border:1.5px solid var(--sand2);border-radius:8px;background:#fff;overflow:hidden;margin-bottom:10px">
+                <div onclick="mvToggleDD('cli')" style="display:flex;align-items:center;justify-content:space-between;padding:9px 11px;cursor:pointer;font-size:13px">
+                  <span id="mv-cli-summary" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Selecione</span>
+                  <span id="mv-cli-chev" style="transition:transform .15s;color:var(--muted);flex-shrink:0;margin-left:8px">▾</span>
+                </div>
+                <div id="mv-cli-dropdown" style="display:none;border-top:1px solid var(--sand)">
+                  <input id="mv-cli-busca" type="text" placeholder="🔎 Buscar produtor…" oninput="mvFiltrarDD('cli',this.value)" autocomplete="off" style="width:100%;border:0;border-bottom:1px solid var(--sand);padding:9px 11px;font-size:13px;outline:none;box-sizing:border-box">
+                  <div id="mv-cliente-list" style="max-height:220px;overflow:auto"></div>
+                </div>
+              </div>
               <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px;" data-i18n="selFazenda">Fazenda</label>
-              <select id="mv-fazenda" onchange="mvSelFazenda()" style="width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;margin-bottom:10px;"></select>
+              <div style="border:1.5px solid var(--sand2);border-radius:8px;background:#fff;overflow:hidden;margin-bottom:10px">
+                <div onclick="mvToggleDD('faz')" style="display:flex;align-items:center;justify-content:space-between;padding:9px 11px;cursor:pointer;font-size:13px">
+                  <span id="mv-faz-summary" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Selecione</span>
+                  <span id="mv-faz-chev" style="transition:transform .15s;color:var(--muted);flex-shrink:0;margin-left:8px">▾</span>
+                </div>
+                <div id="mv-faz-dropdown" style="display:none;border-top:1px solid var(--sand)">
+                  <input id="mv-faz-busca" type="text" placeholder="🔎 Buscar fazenda…" oninput="mvFiltrarDD('faz',this.value)" autocomplete="off" style="width:100%;border:0;border-bottom:1px solid var(--sand);padding:9px 11px;font-size:13px;outline:none;box-sizing:border-box">
+                  <div id="mv-fazenda-list" style="max-height:220px;overflow:auto"></div>
+                </div>
+              </div>
               <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
                 <span data-i18n="selTalhao">Talhão</span>
                 <a id="mv-tal-all" onclick="event.stopPropagation();mvToggleTodos()" style="cursor:pointer;color:var(--leaf2);font-size:10px;text-transform:none;letter-spacing:0">Selecionar todos</a>
@@ -1203,28 +1221,61 @@ async function abrirTalhao(talhaoId){
   await carregarTalhaoNoMapa(talhaoId, tal.nome);
 }
 
+let MV_CLIENTES=[], MV_FAZENDAS=[];
+function mvToggleDD(which){
+  const dd=document.getElementById('mv-'+which+'-dropdown'); if(!dd) return;
+  const abrir=(dd.style.display==='none'||!dd.style.display);
+  dd.style.display=abrir?'':'none';
+  const chev=document.getElementById('mv-'+which+'-chev'); if(chev) chev.style.transform=abrir?'rotate(180deg)':'';
+  if(abrir){ const b=document.getElementById('mv-'+which+'-busca'); if(b){ b.value=''; mvFiltrarDD(which,''); setTimeout(()=>b.focus(),30); } }
+}
+function mvRenderDD(which){
+  const items = which==='cli'?MV_CLIENTES:MV_FAZENDAS;
+  const selId = which==='cli'?MAPA_CTX.clienteId:MAPA_CTX.fazendaId;
+  const fn = which==='cli'?'mvSelClienteId':'mvSelFazendaId';
+  const el=document.getElementById('mv-'+(which==='cli'?'cliente':'fazenda')+'-list'); if(!el) return;
+  el.innerHTML = items.length ? items.map(it=>`
+    <div onclick="${fn}('${it.id}','${esc(it.nome)}')" style="padding:9px 11px;border-bottom:1px solid var(--sand);font-size:13px;cursor:pointer;${it.id===selId?'background:var(--sand);font-weight:600':''}">${it.nome}</div>`).join('')
+    : '<div style="padding:10px;color:var(--muted);font-size:12px">Nenhum resultado</div>';
+  const sum=document.getElementById('mv-'+which+'-summary');
+  if(sum){ const cur=items.find(x=>x.id===selId); sum.textContent = cur ? cur.nome : (items.length?'Selecione':'—'); }
+}
+function mvFiltrarDD(which,q){
+  q=(q||'').trim().toLowerCase();
+  const all = which==='cli'?MV_CLIENTES:MV_FAZENDAS;
+  const items = q ? all.filter(x=>(x.nome||'').toLowerCase().includes(q)) : all;
+  const selId = which==='cli'?MAPA_CTX.clienteId:MAPA_CTX.fazendaId;
+  const fn = which==='cli'?'mvSelClienteId':'mvSelFazendaId';
+  const el=document.getElementById('mv-'+(which==='cli'?'cliente':'fazenda')+'-list'); if(!el) return;
+  el.innerHTML = items.length ? items.map(it=>`
+    <div onclick="${fn}('${it.id}','${esc(it.nome)}')" style="padding:9px 11px;border-bottom:1px solid var(--sand);font-size:13px;cursor:pointer;${it.id===selId?'background:var(--sand);font-weight:600':''}">${it.nome}</div>`).join('')
+    : '<div style="padding:10px;color:var(--muted);font-size:12px">Nenhum resultado</div>';
+}
+
 async function mvPopularClientes(){
   const { data } = await sb.from('clientes').select('id,nome').order('nome');
-  const sel=document.getElementById('mv-cliente');
-  sel.innerHTML=(data||[]).map(c=>`<option value="${c.id}" ${c.id===MAPA_CTX.clienteId?'selected':''}>${c.nome}</option>`).join('');
+  MV_CLIENTES=data||[];
+  if(!MV_CLIENTES.some(c=>c.id===MAPA_CTX.clienteId) && MV_CLIENTES.length) MAPA_CTX.clienteId=MV_CLIENTES[0].id;
+  mvRenderDD('cli');
   await mvPopularFazendas();
 }
-async function mvSelCliente(){
-  MAPA_CTX.clienteId=document.getElementById('mv-cliente').value;
-  MAPA_CTX.fazendaId=null;
-  MAPA_CTX.talhaoAtivo=null;
+async function mvSelClienteId(id, nome){
+  MAPA_CTX.clienteId=id; MAPA_CTX.fazendaId=null; MAPA_CTX.talhaoAtivo=null;
+  const sum=document.getElementById('mv-cli-summary'); if(sum) sum.textContent=nome||'';
+  mvToggleDD('cli');
   await mvPopularFazendas(true);
 }
 async function mvPopularFazendas(autoAbrir){
   const { data } = await sb.from('fazendas').select('id,nome').eq('cliente_id',MAPA_CTX.clienteId).order('nome');
-  const sel=document.getElementById('mv-fazenda');
-  const list=data||[];
-  if(!list.some(f=>f.id===MAPA_CTX.fazendaId)) MAPA_CTX.fazendaId = list.length ? list[0].id : null;
-  sel.innerHTML=list.map(f=>`<option value="${f.id}" ${f.id===MAPA_CTX.fazendaId?'selected':''}>${f.nome}</option>`).join('');
+  MV_FAZENDAS=data||[];
+  if(!MV_FAZENDAS.some(f=>f.id===MAPA_CTX.fazendaId)) MAPA_CTX.fazendaId = MV_FAZENDAS.length ? MV_FAZENDAS[0].id : null;
+  mvRenderDD('faz');
   await mvPopularTalhoes(autoAbrir);
 }
-async function mvSelFazenda(){
-  MAPA_CTX.fazendaId=document.getElementById('mv-fazenda').value;
+async function mvSelFazendaId(id, nome){
+  MAPA_CTX.fazendaId=id; MAPA_CTX.talhaoAtivo=null;
+  const sum=document.getElementById('mv-faz-summary'); if(sum) sum.textContent=nome||'';
+  mvToggleDD('faz');
   await mvPopularTalhoes(true);
 }
 let MV_TALHOES=[];

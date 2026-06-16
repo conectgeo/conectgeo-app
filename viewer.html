@@ -103,6 +103,8 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 .leg-bar{height:15px;border-radius:6px;margin-bottom:6px;}
 .leg-ticks{display:flex;justify-content:space-between;font-size:9.5px;color:var(--muted);margin-bottom:11px;}
 .leg-list{display:flex;flex-direction:column;gap:3px;max-height:150px;overflow-y:auto;}
+.hist-bar{transition:filter .12s ease, transform .12s ease; cursor:pointer;}
+.hist-bar:hover{filter:brightness(1.12) saturate(1.1); transform:scaleY(1.04); transform-origin:bottom;}
 .leg-list::-webkit-scrollbar{width:4px;}.leg-list::-webkit-scrollbar-thumb{background:var(--border2);}
 .leg-item{display:flex;align-items:center;gap:9px;font-size:11px;padding:3px 5px;border-radius:6px;}
 .leg-sw{width:15px;height:15px;border-radius:4px;flex-shrink:0;border:1px solid rgba(0,0,0,.1);}
@@ -808,9 +810,9 @@ function renderHistograma(vals, mn, mx, corDe){
   for(let i=0;i<NB;i++){
     const h=Math.max(2,Math.round((bins[i]/maxC)*80));
     const col=corDe?corDe(mn+w*(i+0.5)):'#6cb32d';
+    const faixa=(mn+w*i).toFixed(2)+' a '+(mn+w*(i+1)).toFixed(2);
     bars+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">'
-        + '<div style="font-size:10px;font-weight:700;color:#646a5e;margin-bottom:2px">'+bins[i]+'</div>'
-        + '<div title="'+(mn+w*i).toFixed(2)+' a '+(mn+w*(i+1)).toFixed(2)+'" style="width:100%;height:'+h+'px;background:'+col+';border-radius:5px 5px 0 0;"></div>'
+        + '<div class="hist-bar" title="'+bins[i]+' zona(s) · '+faixa+'" style="width:100%;height:'+h+'px;background:'+col+';border-radius:5px 5px 0 0;"></div>'
         + '</div>';
   }
   bars+='</div><div style="display:flex;gap:5px;padding:3px 2px 0;border-top:1px solid var(--sand2);margin-top:2px;">';
