@@ -232,6 +232,21 @@ body.mode-coleta #sec-pdf,
 body.mode-coleta #view-banner{display:none!important;}
 #view-banner{display:none!important;}
 body.mode-coleta #painel-coleta{display:block!important;}
+/* ── modo Recomendação ── */
+body.mode-rec #sec-depth, body.mode-rec #sec-nut-add, body.mode-rec #sec-join, body.mode-rec #sec-viz,
+body.mode-rec #sec-pal, body.mode-rec #sec-app, body.mode-rec #sec-leg, body.mode-rec #sec-stat,
+body.mode-rec #sec-pdf, body.mode-rec #sec-upload-geo, body.mode-rec #sec-upload-csv,
+body.mode-rec #painel-coleta, body.mode-rec #view-banner{display:none!important;}
+#painel-rec{display:none;}
+body.mode-rec #painel-rec{display:block!important;}
+.rec-leg-head{display:grid;grid-template-columns:1fr 58px 46px;gap:8px;font-size:11px;font-weight:700;color:#474a43;padding:0 0 6px 15px;border-bottom:1px solid var(--sand2);}
+.rec-leg-head span:nth-child(2),.rec-leg-head span:nth-child(3){text-align:right;}
+.rec-leg-row{display:grid;grid-template-columns:1fr 58px 46px;gap:8px;align-items:center;font-size:12px;color:#3a3d36;padding:4px 0 4px 15px;position:relative;}
+.rec-leg-row .ha,.rec-leg-row .pct{text-align:right;font-variant-numeric:tabular-nums;}
+.rec-leg-sw{position:absolute;left:0;top:1px;bottom:1px;width:9px;border-radius:2px;}
+.rec-stat-line{font-size:13px;color:#3a3d36;padding:7px 0;border-bottom:1px solid var(--sand);}
+.rec-stat-line:last-child{border-bottom:none;}
+.rec-stat-line b{color:#2f6d1f;font-weight:700;}
 body.consultor-mode .consultor-only{display:block!important;}
 .zona-rot-wrap{background:none;border:none;}
 .zona-rot{font-size:11px;font-weight:700;color:#1a1a1a;background:rgba(255,255,255,.8);padding:1px 5px;border-radius:6px;white-space:nowrap;text-align:center;transform:translate(-50%,-50%);}
@@ -417,6 +432,55 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <button class="clear-data-btn" id="btn-clear-data" data-i18n="clearData">🗑 Limpar dados salvos</button>
   </div>
 
+  <div id="painel-rec" style="display:none;">
+    <div class="sec consultor-only" id="sec-rec-add" style="display:none">
+      <div class="sec-label"><span class="txt"><span class="sec-num">⬆</span><span>Adicionar arquivos</span></span></div>
+      <div class="up-zone" id="uz-rec-shp" style="margin-bottom:8px">
+        <input type="file" id="f-rec-shp" accept=".zip,.geojson,.json">
+        <div class="up-icon">🗺</div>
+        <div class="up-text"><div class="up-title">Zonas (.zip / GeoJSON)</div><div class="up-sub">mesmo shapefile do talhão (ou outro)</div></div>
+      </div>
+      <div class="up-zone" id="uz-rec-csv">
+        <input type="file" id="f-rec-csv" accept=".csv,.xlsx,.xls">
+        <div class="up-icon">📊</div>
+        <div class="up-text"><div class="up-title">Planilha de Recomendação</div><div class="up-sub">.csv / .xlsx / .xls</div></div>
+      </div>
+      <div id="rec-up-status" style="font-size:11px;color:var(--leaf2);margin-top:6px;"></div>
+    </div>
+
+    <div class="sec" id="sec-rec-insumo">
+      <div class="sec-label"><span class="txt"><span class="sec-num"></span><span>Insumo</span></span></div>
+      <div class="ctrl"><select id="sel-insumo"></select></div>
+      <div id="rec-empty" style="font-size:12px;color:var(--muted);margin-top:6px;display:none">Envie a planilha de recomendação para ver as doses por zona.</div>
+    </div>
+
+    <div class="sec" id="sec-rec-leg">
+      <div class="sec-label"><span class="txt"><span data-i18n="secLeg">Legenda</span></span></div>
+      <div id="rec-leg"></div>
+    </div>
+
+    <div class="sec" id="sec-rec-stat">
+      <div class="sec-label"><span class="txt"><span data-i18n="secStat">Estatísticas</span></span></div>
+      <div id="rec-stat"></div>
+    </div>
+
+    <div class="sec" id="sec-rec-pdf">
+      <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secPdf">Relatório</span></span></div>
+      <button class="pdf-btn" id="btn-rec-pdf">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span>Gerar Relatório PDF</span>
+      </button>
+    </div>
+
+    <div class="sec" id="sec-rec-zip">
+      <div class="sec-label"><span class="txt"><span class="sec-num"></span><span>Exportar</span></span></div>
+      <button class="pdf-btn" id="btn-rec-zip" disabled style="background:#c9ccc4;cursor:not-allowed;opacity:.75">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span>Exportar (.zip) — em breve</span>
+      </button>
+    </div>
+  </div>
+
   <div class="sec consultor-only" id="sec-nut-add" style="display:none">
     <div class="sec-label"><span class="txt"><span class="sec-num">⬆</span><span data-i18n="nutAddArquivos">Adicionar arquivos</span></span></div>
     <div class="up-zone" id="uz-nut-shp" style="margin-bottom:8px">
@@ -562,7 +626,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="mode-switch" id="mode-switch" style="display:none">
     <button class="mode-btn active" id="mode-nutrientes" onclick="setMapMode('nutrientes')">📊 <span data-i18n="modoNutrientes">Nutrientes</span></button>
     <button class="mode-btn" id="mode-coleta" onclick="setMapMode('coleta')">📍 <span data-i18n="modoColeta">Coleta de Solo</span></button>
-    <button class="mode-btn" id="mode-recomendacao" onclick="toast(t('recEmBreve'),'ok')">🎯 <span data-i18n="modoRecomendacao">Recomendação</span></button>
+    <button class="mode-btn" id="mode-recomendacao" onclick="setMapMode('recomendacao')">🎯 <span data-i18n="modoRecomendacao">Recomendação</span></button>
   </div>
   <div class="map-host">
     <div id="map"></div>
@@ -1916,10 +1980,105 @@ function infoZonaColeta(props){
   return '<div class="tt-head">Zona de manejo</div>'+linhas;
 }
 
+// ═══════════ RECOMENDAÇÃO ═══════════
+S.rec = { rows:[], fields:[], col:null, insumoCols:[], url:null, loaded:false, layer:null, labels:[] };
+function recNum(x){ const v=parseFloat(String(x==null?'':x).replace(',','.')); return isNaN(v)?NaN:v; }
+function recFmt(n){ try{ return Number(Math.round(n)).toLocaleString('pt-BR'); }catch(e){ return String(n); } }
+// colunas de calcário/gesso etc. que podem vir em tonelada (×1000)
+function isInsumoConvertivel(name){
+  const n=(name||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+  return /(^|[^a-z])(nc|ng)([^a-z]|$)/.test(n)
+      || /calcar|calcit|calcic|caliza|calag|encalad|gesso|gessag|yeso|dolomit|dolomic|dolomita/.test(n);
+}
+// colunas numéricas candidatas a dose (insumo)
+function detectInsumoCols(fields, rows){
+  const zoneF=fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f));
+  const depthF=detectDepthColumn(fields);
+  return fields.filter(f=>{ if(f===zoneF||f===depthF) return false; return rows.some(r=>!isNaN(recNum(r[f]))); });
+}
+// fator de conversão da coluna: tonelada -> kg (×1000) quando os valores são pequenos
+function recFatorColuna(col){
+  if(!isInsumoConvertivel(col)) return 1;
+  let mx=0; S.rec.rows.forEach(r=>{ const v=recNum(r[col]); if(!isNaN(v)&&v>mx) mx=v; });
+  return (mx>0 && mx<100) ? 1000 : 1;
+}
+// área da zona em hectares (usa campo do shapefile se houver; senão calcula da geometria)
+function _ringAreaM2(ring){ const R=6378137,d=Math.PI/180; let a=0; for(let i=0;i<ring.length;i++){ const p1=ring[i],p2=ring[(i+1)%ring.length]; if(!p1||!p2) continue; a+=(p2[0]*d-p1[0]*d)*(2+Math.sin(p1[1]*d)+Math.sin(p2[1]*d)); } return Math.abs(a*R*R/2); }
+function _polyHa(geom){ if(!geom) return 0; let m2=0; const polys=geom.type==='Polygon'?[geom.coordinates]:(geom.type==='MultiPolygon'?geom.coordinates:[]); polys.forEach(poly=>(poly||[]).forEach((ring,ri)=>{ const a=_ringAreaM2(ring); m2+=ri===0?a:-a; })); return m2/10000; }
+function zoneHa(feature){
+  const p=feature.properties||{};
+  for(const k of Object.keys(p)){ if(/^(area_?ha|hectares?|ha|sup_?ha)$/i.test(k)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
+  for(const k of Object.keys(p)){ if(/^(area|area_?m2|sup|superficie|shape_?area)$/i.test(k)){ const v=recNum(p[k]); if(!isNaN(v)&&v>1000) return v/10000; } }
+  return _polyHa(feature.geometry);
+}
+function popularInsumos(){
+  const sel=document.getElementById('sel-insumo'); const emp=document.getElementById('rec-empty'); if(!sel) return;
+  const cols=detectInsumoCols(S.rec.fields, S.rec.rows); S.rec.insumoCols=cols;
+  sel.innerHTML=''; cols.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; sel.appendChild(o); });
+  if(cols.length){ S.rec.col=(S.rec.col&&cols.indexOf(S.rec.col)>=0)?S.rec.col:(cols.find(isInsumoConvertivel)||cols[0]); sel.value=S.rec.col; sel.style.display=''; if(emp) emp.style.display='none'; }
+  else { S.rec.col=null; sel.style.display='none'; if(emp) emp.style.display=''; }
+}
+async function loadRecData(){
+  if(S.rec.loaded) return;
+  const url=S.rec.url || (S.linkData && S.linkData.recomendacao_url);
+  if(!url) return;
+  try{
+    const resp=await fetch(url); const buf=await resp.arrayBuffer();
+    const ext=(url.split('?')[0].split('.').pop()||'').toLowerCase();
+    const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
+    S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[]; S.rec.loaded=true;
+  }catch(e){}
+}
+function renderRecomendacao(){
+  if(S.rec.layer){ try{S.map.removeLayer(S.rec.layer);}catch(e){} S.rec.layer=null; }
+  const legEl=document.getElementById('rec-leg'), statEl=document.getElementById('rec-stat');
+  if(!S.geoData || !S.rec.rows.length || !S.rec.col){ if(legEl) legEl.innerHTML='<div style="font-size:12px;color:var(--muted)">Envie a planilha de recomendação.</div>'; if(statEl) statEl.innerHTML=''; return; }
+  const col=S.rec.col, fator=recFatorColuna(col);
+  const zoneF=S.rec.fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||S.rec.fields[0];
+  const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
+  const joinGeo=S.joinGeo||_zoneField(S.geoData.features[0].properties);
+  const doseDe=(f)=>{ const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k]; let d=row?recNum(row[col]):NaN; return isNaN(d)?null:d*fator; };
+  let totalHa=0,totalIns=0,mn=Infinity,mx=-Infinity; const recs=[];
+  S.geoData.features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); recs.push({d,ha}); if(d!=null){ totalHa+=ha; totalIns+=d*ha; if(d<mn)mn=d; if(d>mx)mx=d; } });
+  if(!isFinite(mn)){ mn=0; mx=0; }
+  const palRev=[...palColors()].reverse(); // dose alta = vermelho
+  const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const t=mx===mn?0:(d-mn)/(mx-mn); return lerpColor(palRev, Math.max(0,Math.min(1,t))); };
+  S.rec.layer=L.geoJSON(S.geoData,{
+    style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+    onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo]??'').trim(); const d=doseDe(f); const ha=zoneHa(f);
+      l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+col+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div><div style="font-size:10px;opacity:.85">'+ha.toFixed(2)+' ha</div>',{sticky:true,opacity:1});
+      l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
+      l.on('mouseout',function(){ if(S.rec.layer) S.rec.layer.resetStyle(this); });
+    }
+  }).addTo(S.map);
+  if(!S.pdfMode){ try{ S.map.fitBounds(S.rec.layer.getBounds(),{padding:[24,24]}); }catch(e){} }
+  // LEGENDA: faixas de 500 kg/ha + faixa "0 - 0"
+  const buckets={};
+  recs.forEach(rc=>{ if(rc.d==null) return; let lo,hi,key; if(rc.d===0){lo=0;hi=0;key='z';} else {lo=Math.floor(rc.d/500)*500;hi=lo+500;key=lo+'_'+hi;} if(!buckets[key]) buckets[key]={lo,hi,ha:0}; buckets[key].ha+=rc.ha; });
+  const arr=Object.values(buckets).sort((a,b)=>a.lo-b.lo);
+  const totHa=arr.reduce((s,b)=>s+b.ha,0)||1;
+  let html='<div class="rec-leg-head"><span>Doses (kg/ha)</span><span>Hectares</span><span>%</span></div>';
+  arr.forEach(b=>{ const sw=corRec(b.hi===0?0:(b.lo+b.hi)/2); const rng=(b.lo===0&&b.hi===0)?'0 - 0':recFmt(b.lo)+' - '+recFmt(b.hi);
+    html+='<div class="rec-leg-row"><span class="rec-leg-sw" style="background:'+sw+'"></span><span class="rng">'+rng+'</span><span class="ha">'+b.ha.toFixed(2)+'</span><span class="pct">'+(b.ha/totHa*100).toFixed(2)+'</span></div>'; });
+  if(legEl) legEl.innerHTML=html;
+  // ESTATÍSTICAS
+  const taxa=totalHa>0?totalIns/totalHa:0;
+  if(statEl) statEl.innerHTML=
+      '<div class="rec-stat-line">Dose Mínima (kg): <b>'+recFmt(mn)+'</b></div>'
+    + '<div class="rec-stat-line">Dose Máxima (kg): <b>'+recFmt(mx)+'</b></div>'
+    + '<div class="rec-stat-line">Taxa Média (kg/ha): <b>'+recFmt(taxa)+'</b></div>'
+    + '<div class="rec-stat-line">Total do Insumo (kg): <b>'+recFmt(totalIns)+'</b></div>';
+}
+
 function setMapMode(mode){
   S.mapMode=mode;
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
   document.getElementById('mode-coleta').classList.toggle('active', mode==='coleta');
+  const _mr=document.getElementById('mode-recomendacao'); if(_mr) _mr.classList.toggle('active', mode==='recomendacao');
+  document.body.classList.toggle('mode-rec', mode==='recomendacao');
+  if(mode!=='recomendacao' && S.rec && S.rec.layer){ try{S.map.removeLayer(S.rec.layer);}catch(e){} S.rec.layer=null; }
+  if(S.rec){ S.rec.labels.forEach(l=>{try{S.map.removeLayer(l);}catch(e){}}); S.rec.labels=[]; }
+
   if(mode==='coleta'){
     // se o modo comparação estiver ligado, colapsa o split antes de entrar na coleta
     if(S.compare && S.compare.on){
@@ -1939,6 +2098,15 @@ function setMapMode(mode){
     document.getElementById('empty-msg').style.display='none';
     document.body.classList.add('mode-coleta');
     carregarColeta().then(()=>{ renderZonaLabels(); });
+  }else if(mode==='recomendacao'){
+    document.body.classList.remove('mode-coleta');
+    if(S.layer) S.map.removeLayer(S.layer);
+    clearLabels();
+    Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
+    if(S.coletaZonaLabels) S.coletaZonaLabels.forEach(l=>{try{S.map.removeLayer(l);}catch(e){}});
+    document.getElementById('mleg-left').style.display='none';
+    document.getElementById('empty-msg').style.display='none';
+    loadRecData().then(()=>{ popularInsumos(); renderRecomendacao(); });
   }else{
     Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
     S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l));
@@ -2269,6 +2437,50 @@ function wireColetaControls(){
       setTimeout(()=>location.reload(), 700);
     }catch(err){ st.textContent='Erro: '+err.message; }
   });
+
+  // ── Recomendação: upload da planilha (lê na hora; tenta salvar se houver backend) ──
+  const elRecCsv=document.getElementById('f-rec-csv');
+  if(elRecCsv) elRecCsv.addEventListener('change', async()=>{
+    const st=document.getElementById('rec-up-status'); const f=elRecCsv.files[0]; if(!f) return;
+    st.textContent='Lendo planilha…';
+    try{
+      const buf=await f.arrayBuffer(); const ext=(f.name.split('.').pop()||'csv').toLowerCase();
+      const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
+      S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[]; S.rec.loaded=true;
+      popularInsumos(); renderRecomendacao();
+      st.textContent='✅ Recomendação carregada.';
+      if(sb && S.tokenAtual){
+        try{
+          const path='recomendacao/'+S.tokenAtual+'/planilha.'+ext;
+          const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
+          if(!(up&&up.error)){ const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl; S.rec.url=url;
+            const r=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
+            if(!(r&&r.error)) st.textContent='✅ Recomendação salva!';
+          }
+        }catch(e){}
+      }
+    }catch(err){ st.textContent='Erro ao ler: '+err.message; }
+  });
+  // Recomendação: shapefile opcional (substitui as zonas só nesta tela)
+  const elRecShp=document.getElementById('f-rec-shp');
+  if(elRecShp) elRecShp.addEventListener('change', async()=>{
+    const st=document.getElementById('rec-up-status'); const f=elRecShp.files[0]; if(!f) return;
+    st.textContent='Lendo zonas…';
+    try{
+      const ext=(f.name.split('.').pop()||'').toLowerCase(); const buf=await f.arrayBuffer();
+      let gj; if(ext==='zip'){ gj=await shp(buf); if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])}; }
+      else { gj=JSON.parse(decodeBuffer(buf)); }
+      const polys=(gj.features||[]).filter(ft=>ft.geometry&&(ft.geometry.type==='Polygon'||ft.geometry.type==='MultiPolygon'));
+      if(polys.length){ S.geoData={type:'FeatureCollection',features:polys}; S.joinGeo=_zoneField(polys[0].properties); renderRecomendacao(); st.textContent='✅ Zonas atualizadas nesta tela.'; }
+      else st.textContent='Nenhum polígono encontrado no arquivo.';
+    }catch(err){ st.textContent='Erro ao ler zonas: '+err.message; }
+  });
+  // seletor de insumo
+  const selIns=document.getElementById('sel-insumo');
+  if(selIns) selIns.addEventListener('change',()=>{ S.rec.col=selIns.value; renderRecomendacao(); });
+  // relatório (placeholder por enquanto) e exportação zip (inativo)
+  const bRecPdf=document.getElementById('btn-rec-pdf');
+  if(bRecPdf) bRecPdf.addEventListener('click',()=>{ toast('Relatório de recomendação: em breve','ok'); });
 }
 
 // baixa zonas+pontos num único ZIP, com os shapefiles SOLTOS (sem zips/pastas internas)
@@ -2485,6 +2697,7 @@ function multiRenderExtrasZonaLabels(){
 function multiApplyMode(mode){
   if(!S.extras || !S.extras.length) return;
   S.extras.forEach(ex=>_extraClearAll(ex));
+  if(mode==='recomendacao'){ return; } // recomendação: foca no talhão principal
   if(mode==='coleta'){
     const rt=document.getElementById('clt-raster-toggle'); const pt=document.getElementById('clt-pontos-toggle'); const zt=document.getElementById('clt-zonas-toggle');
     S.extras.forEach(ex=>{
@@ -2523,6 +2736,8 @@ async function loadFromToken(token, params){
     const { data, error } = await sb.rpc('get_link_data', { p_token: token });
     if(error) throw new Error(error.message);
     if(!data || data.erro) throw new Error('Link inválido ou desativado.');
+    S.linkData=data;
+    if(data.recomendacao_url) S.rec.url=data.recomendacao_url;
 
     // logo do consultor dono do link (cabeçalho + padrão do PDF)
     carregarBrandingConsultor(token);
