@@ -223,6 +223,7 @@ body.mode-coleta #sec-viz,
 body.mode-coleta #sec-pal,
 body.mode-coleta #sec-app,
 body.mode-coleta #sec-leg,
+body.mode-coleta #sec-hist,
 body.mode-coleta #sec-stat,
 body.mode-coleta #sec-pdf,
 body.mode-coleta #view-banner{display:none!important;}
@@ -494,7 +495,6 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
   <div class="sec" id="sec-app" style="display:none">
     <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secApp">Aparência</span></span></div>
-    <div class="ctrl"><div class="ctrl-label"><span data-i18n="nClasses">Nº de classes</span> <span class="ctrl-val" id="cv-cls">5</span></div><input type="range" id="sl-cls" min="2" max="10" value="5"></div>
     <div class="ctrl"><div class="ctrl-label"><span data-i18n="opacity">Opacidade</span> <span class="ctrl-val" id="cv-opa">82%</span></div><input type="range" id="sl-opa" min="20" max="100" value="82"></div>
     <div class="ctrl"><div class="ctrl-label"><span data-i18n="lblSize">Tamanho do rótulo</span> <span class="ctrl-val" id="cv-lbl">100%</span></div><input type="range" id="sl-lbl" min="60" max="200" value="100"></div>
     <div class="invert-row" id="labels-row">
@@ -508,6 +508,11 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div class="leg-bar" id="leg-bar"></div>
     <div class="leg-ticks" id="leg-ticks"></div>
     <div class="leg-list" id="leg-list"></div>
+  </div>
+
+  <div class="sec" id="sec-hist" style="display:none">
+    <div class="sec-label"><span class="txt"><span data-i18n="secHist">Distribuição do nutriente</span></span></div>
+    <div id="hist-chart"></div>
   </div>
 
   <div class="sec" id="sec-stat" style="display:none">
@@ -557,8 +562,9 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
 <div class="map-wrap">
   <div class="mode-switch" id="mode-switch" style="display:none">
-    <button class="mode-btn active" id="mode-nutrientes" onclick="setMapMode('nutrientes')">📊 <span data-i18n="modoNutrientes">Mapa de Nutrientes</span></button>
-    <button class="mode-btn" id="mode-coleta" onclick="setMapMode('coleta')">📍 <span data-i18n="modoColeta">Mapa de Coleta de Solo</span></button>
+    <button class="mode-btn active" id="mode-nutrientes" onclick="setMapMode('nutrientes')">📊 <span data-i18n="modoNutrientes">Nutrientes</span></button>
+    <button class="mode-btn" id="mode-coleta" onclick="setMapMode('coleta')">📍 <span data-i18n="modoColeta">Coleta de Solo</span></button>
+    <button class="mode-btn" id="mode-recomendacao" onclick="toast(t('recEmBreve'),'ok')">💡 <span data-i18n="modoRecomendacao">Recomendação</span></button>
   </div>
   <div class="map-host">
     <div id="map"></div>
@@ -719,7 +725,7 @@ const S = {
   manualDepth:null,         // user-entered depth when no column
   activeDepth:null,
   joinGeo:null, joinCsv:null, colorCol:null,
-  pal:'rdylgn', invert:false, classes:5, opacity:0.82, showLabels:true, labelScale:1, pdfMode:false, lang:'pt', uploadMode:false,
+  pal:'rdylgn', invert:false, classes:4, opacity:0.82, showLabels:true, labelScale:1, pdfMode:false, lang:'pt', uploadMode:false,
   logoChoice:null, customLogo:null, consultorLogo:null,
   userTouchedPal:false,
   map:null, layer:null, layer2:null, labelLayers:[], labelLayers2:[], joined:{}, stats:{},
@@ -795,6 +801,28 @@ function rankColor(v, sorted){
   const pos=(lo+hi2-1)/2;
   return lerpColor(palColors(), Math.max(0,Math.min(1, pos/(n-1))));
 }
+// gráfico de barras: distribuição do nutriente em 5 classes
+function renderHistograma(vals, mn, mx, corDe){
+  const sec=document.getElementById('sec-hist'); const el=document.getElementById('hist-chart');
+  if(!sec||!el) return;
+  if(!vals||!vals.length||mn===mx){ el.innerHTML=''; sec.style.display='none'; return; }
+  const NB=5, w=(mx-mn)/NB, bins=new Array(NB).fill(0);
+  vals.forEach(v=>{ let i=Math.floor((v-mn)/w); if(i>=NB)i=NB-1; if(i<0)i=0; bins[i]++; });
+  const maxC=Math.max(...bins,1);
+  let bars='<div style="display:flex;align-items:flex-end;gap:5px;height:96px;padding:2px 2px 0;">';
+  for(let i=0;i<NB;i++){
+    const h=Math.max(2,Math.round((bins[i]/maxC)*80));
+    const col=corDe?corDe(mn+w*(i+0.5)):'#6cb32d';
+    bars+='<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%">'
+        + '<div style="font-size:10px;font-weight:700;color:#646a5e;margin-bottom:2px">'+bins[i]+'</div>'
+        + '<div title="'+(mn+w*i).toFixed(2)+' a '+(mn+w*(i+1)).toFixed(2)+'" style="width:100%;height:'+h+'px;background:'+col+';border-radius:5px 5px 0 0;"></div>'
+        + '</div>';
+  }
+  bars+='</div><div style="display:flex;gap:5px;padding:3px 2px 0;border-top:1px solid var(--sand2);margin-top:2px;">';
+  for(let i=0;i<NB;i++){ bars+='<div style="flex:1;text-align:center;font-size:9px;color:#9a968c">'+(mn+w*i).toFixed(1)+'</div>'; }
+  bars+='<div style="font-size:9px;color:#9a968c">'+mx.toFixed(1)+'</div></div>';
+  el.innerHTML=bars; sec.style.display='';
+}
 
 // ══ MAP ══
 function initMap(){
@@ -836,7 +864,7 @@ function setBasemap(which){
 const I18N = {
  pt:{
   viewBanner:'Visualização do projeto. Explore os nutrientes, ajuste cores e gere o relatório em PDF.',
-  modoNutrientes:'Mapa de Nutrientes', modoColeta:'Mapa de Coleta de Solo',
+  modoNutrientes:'Nutrientes', modoColeta:'Coleta de Solo', modoRecomendacao:'Recomendação', recEmBreve:'Recomendação: em breve', secHist:'Distribuição do nutriente',
   cltCamadas:'Camadas', cltVerRaster:'Mostrar imagem (raster)', cltVerPontos:'Mostrar pontos de coleta', cltVerZonas:'Mostrar zonas de manejo',
   cltAjustes:'Ajustes dos Pontos', cltTamPonto:'Tamanho dos pontos', cltTamRotPonto:'Tamanho do rótulo dos pontos', cltMostrarRotPonto:'Mostrar rótulo dos pontos',
   cltRotZonas:'Rótulos das Zonas', cltMostrarRotZona:'Mostrar rótulo nas zonas', cltCampoZona:'Campo a mostrar', cltTamRotZona:'Tamanho do rótulo das zonas',
@@ -876,7 +904,7 @@ const I18N = {
  },
  es:{
   viewBanner:'Visualización del proyecto. Explore los nutrientes, ajuste colores y genere el informe en PDF.',
-  modoNutrientes:'Mapa de Nutrientes', modoColeta:'Mapa de Muestreo de Suelo',
+  modoNutrientes:'Nutrientes', modoColeta:'Muestreo de Suelo', modoRecomendacao:'Recomendación', recEmBreve:'Recomendación: próximamente', secHist:'Distribución del nutriente',
   cltCamadas:'Capas', cltVerRaster:'Mostrar imagen (raster)', cltVerPontos:'Mostrar puntos de muestreo', cltVerZonas:'Mostrar zonas de manejo',
   cltAjustes:'Ajustes de los Puntos', cltTamPonto:'Tamaño de los puntos', cltTamRotPonto:'Tamaño de la etiqueta de puntos', cltMostrarRotPonto:'Mostrar etiqueta de puntos',
   cltRotZonas:'Etiquetas de Zonas', cltMostrarRotZona:'Mostrar etiqueta en zonas', cltCampoZona:'Campo a mostrar', cltTamRotZona:'Tamaño de la etiqueta de zonas',
@@ -1181,6 +1209,7 @@ function renderZonasVazias(){
   // talhão com zonas mas sem planilha: desenha as zonas sem cor (vazias)
   if(S.compare && S.compare.on) return;
   if(!S.geoData) return;
+  const sh=document.getElementById('sec-hist'); if(sh) sh.style.display='none';
   if(S.layer) S.map.removeLayer(S.layer);
   clearLabels();
   S.layer=L.geoJSON(S.geoData,{
@@ -1218,6 +1247,7 @@ function renderMap(){
   const cols=palColors();
   const useRank=!!(S.extras && S.extras.length);
   const corDe=(v)=> isNaN(v)?'#bbb':(useRank?rankColor(v,sorted):getColor(v,mn,mx));
+  renderHistograma(vals, mn, mx, corDe);
   document.getElementById('leg-bar').style.background=`linear-gradient(to right,${cols.join(',')})`;
   const ticks=[];for(let i=0;i<=S.classes;i++){ if(useRank){ const idx=Math.min(sorted.length-1,Math.round(i/S.classes*(sorted.length-1))); ticks.push(sorted[idx].toFixed(2)); } else { ticks.push((mn+(mx-mn)*(i/S.classes)).toFixed(2)); } }
   document.getElementById('leg-ticks').innerHTML=ticks.map(t=>`<span>${t}</span>`).join('');
@@ -1410,7 +1440,6 @@ function buildPalUI(){
 document.getElementById('sel-gjf').addEventListener('change',function(){S.joinGeo=this.value;joinData();renderMap();});
 document.getElementById('sel-csvf').addEventListener('change',function(){S.joinCsv=this.value;joinData();renderMap();});
 document.getElementById('sel-col').addEventListener('change',function(){S.colorCol=this.value;applyAutoPalette();buildPalUI();renderMap();});
-document.getElementById('sl-cls').addEventListener('input',function(){S.classes=+this.value;document.getElementById('cv-cls').textContent=S.classes;renderMap();});
 document.getElementById('sl-opa').addEventListener('input',function(){S.opacity=this.value/100;document.getElementById('cv-opa').textContent=this.value+'%';renderMap();});
 document.getElementById('sl-lbl').addEventListener('input',function(){S.labelScale=this.value/100;document.getElementById('cv-lbl').textContent=this.value+'%';if(S.compare && S.compare.on){renderCompare();return;}if(S.showLabels){clearLabels();drawLabels();}});
 document.getElementById('invert-row').addEventListener('click',function(){S.invert=!S.invert;S.userTouchedPal=true;document.getElementById('invert-toggle').classList.toggle('on',S.invert);buildPalUI();renderMap();});
