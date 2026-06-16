@@ -2327,7 +2327,7 @@ function _extraNutLayer(ex, colorCol, depthLabel){
     });
   }catch(e){ return null; }
 }
-async function _buildColeta(data, geo){
+async function _buildColeta(data, geoPoly, geoPoints){
   const out={raster:null, zonas:null, pontos:null, zonasGeo:null, pontosGeo:null};
   try{
     if(data.coleta_raster_url) out.raster=await _buildRaster(data.coleta_raster_url);
@@ -2336,14 +2336,15 @@ async function _buildColeta(data, geo){
     if(data.coleta_zonas_url){ try{ const buf=await fetchBufColeta(data.coleta_zonas_url); gjAll=await shp(buf); if(Array.isArray(gjAll)) gjAll={type:'FeatureCollection',features:gjAll.flatMap(l=>l.features||[])}; }catch(e){} }
     const isPoly=f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon');
     const isPt=f=>f&&f.geometry&&(f.geometry.type==='Point'||f.geometry.type==='MultiPoint');
-    // zonas = polígonos do zip; senão o geojson de nutrientes
+    // zonas = polígonos do zip; senão os polígonos do geojson de nutrientes
     let gjZonas = gjAll ? {type:'FeatureCollection',features:(gjAll.features||[]).filter(isPoly)} : null;
-    if(!gjZonas || !gjZonas.features.length) gjZonas=geo;
+    if(!gjZonas || !gjZonas.features.length) gjZonas=geoPoly;
     if(gjZonas){ out.zonasGeo=gjZonas; out.zonas=L.geoJSON(gjZonas,{filter:isPoly, style:estiloZonaColeta}); }
-    // pontos = arquivo separado; senão pontos embutidos no zip de zonas
+    // pontos: arquivo separado → pontos no zip de zonas → pontos embutidos no geojson
     let gjPts=null;
     if(data.coleta_pontos_url){ try{ const buf=await fetchBufColeta(data.coleta_pontos_url); let g=await shp(buf); if(Array.isArray(g)) g={type:'FeatureCollection',features:g.flatMap(l=>l.features||[])}; if((g.features||[]).some(isPt)) gjPts=g; }catch(e){} }
     if(!gjPts && gjAll){ const pts=(gjAll.features||[]).filter(isPt); if(pts.length) gjPts={type:'FeatureCollection',features:pts}; }
+    if(!gjPts && geoPoints && (geoPoints.features||[]).length){ gjPts=geoPoints; }
     if(gjPts && (gjPts.features||[]).some(isPt)){ out.pontosGeo=gjPts; out.pontos=criarCamadaPontos(gjPts); }
   }catch(e){}
   return out;
@@ -2362,7 +2363,15 @@ async function buildExtras(allTokens){
       const nome=data.talhao||'Talhão';
       if(i===0){ addLeg(nome,true); continue; } // primário já renderizado pelo viewer
       if(!data.geojson_url) continue;
-      let geo=null; try{ const r=await fetch(data.geojson_url); geo=await r.json(); }catch(e){ continue; }
+      let geoRaw=null; try{ const r=await fetch(data.geojson_url); geoRaw=await r.json(); }catch(e){ continue; }
+      // separa polígonos (zonas/nutrientes) e pontos (vão para a coleta) — como o principal faz
+      const _isPoly=f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon');
+      const _isPt=f=>f&&f.geometry&&(f.geometry.type==='Point'||f.geometry.type==='MultiPoint');
+      const allF=(geoRaw&&geoRaw.features)||[];
+      const polys=allF.filter(_isPoly);
+      const geo={type:'FeatureCollection',features: polys.length?polys:allF};
+      const geoPts=allF.filter(_isPt);
+      const geoPoints = geoPts.length ? {type:'FeatureCollection',features:geoPts} : null;
       // planilha de nutrientes (guardada para seguir o nutriente/profundidade do painel)
       let rows=[], fields=[], sheetZone=null, depthCol=null;
       if(data.planilha_url){
@@ -2375,9 +2384,9 @@ async function buildExtras(allTokens){
           depthCol=detectDepthColumn(fields);
         }catch(e){}
       }
-      // coleta (prébuilt)
-      const temColeta = !!(data.tem_coleta_solo || data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url);
-      const coleta = temColeta ? await _buildColeta(data, geo) : {raster:null,zonas:null,pontos:null};
+      // coleta (prébuilt) — passa os pontos embutidos do geojson como fallback
+      const temColeta = !!(data.tem_coleta_solo || data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url || geoPoints);
+      const coleta = temColeta ? await _buildColeta(data, geo, geoPoints) : {raster:null,zonas:null,pontos:null};
       let bounds=null; try{ bounds=L.geoJSON(geo).getBounds(); }catch(e){}
       S.extras.push({ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _zonaLabels:[] });
       addLeg(nome,false);
