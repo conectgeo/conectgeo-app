@@ -503,9 +503,18 @@ tr:hover td{background:var(--sand);}
               <select id="mv-fazenda" onchange="mvSelFazenda()" style="width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:8px;font-size:13px;margin-bottom:10px;"></select>
               <label style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
                 <span data-i18n="selTalhao">Talhão</span>
-                <a id="mv-tal-all" onclick="mvToggleTodos()" style="cursor:pointer;color:var(--leaf2);font-size:10px;text-transform:none;letter-spacing:0">Selecionar todos</a>
+                <a id="mv-tal-all" onclick="event.stopPropagation();mvToggleTodos()" style="cursor:pointer;color:var(--leaf2);font-size:10px;text-transform:none;letter-spacing:0">Selecionar todos</a>
               </label>
-              <div id="mv-talhao-list" style="border:1.5px solid var(--sand2);border-radius:8px;max-height:240px;overflow:auto;background:#fff;"></div>
+              <div style="border:1.5px solid var(--sand2);border-radius:8px;background:#fff;overflow:hidden">
+                <div onclick="mvToggleLista()" style="display:flex;align-items:center;justify-content:space-between;padding:9px 11px;cursor:pointer;font-size:13px">
+                  <span id="mv-tal-summary" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Selecione talhões</span>
+                  <span id="mv-tal-chev" style="transition:transform .15s;color:var(--muted);flex-shrink:0;margin-left:8px">▾</span>
+                </div>
+                <div id="mv-tal-dropdown" style="display:none;border-top:1px solid var(--sand)">
+                  <input id="mv-tal-busca" type="text" placeholder="🔎 Buscar talhão…" oninput="mvFiltrarTalhoes(this.value)" autocomplete="off" style="width:100%;border:0;border-bottom:1px solid var(--sand);padding:9px 11px;font-size:13px;outline:none;box-sizing:border-box">
+                  <div id="mv-talhao-list" style="max-height:230px;overflow:auto"></div>
+                </div>
+              </div>
               <button class="btn pri" id="mv-abrir-sel" onclick="mvAbrirSelecionados()" style="width:100%;margin-top:9px;padding:9px;font-size:13px;">Ver no mapa</button>
               <div style="font-size:10.5px;color:var(--muted);margin-top:6px;line-height:1.35">Marque 1 talhão para ver detalhado, ou vários para ver juntos no mesmo mapa.</div>
             </div>
@@ -794,6 +803,13 @@ async function openSO(){
 }
 function renderSOClientes(list){
   document.getElementById('so-cli-sub').textContent = `${list.length} produtor${list.length!==1?'es':''}`;
+  // ao re-renderizar a lista (busca/abertura), nenhum cliente fica selecionado: zera fazendas e talhões
+  document.getElementById('so-faz-title').textContent='Fazendas';
+  document.getElementById('so-faz-sub').textContent='Selecione um cliente';
+  document.getElementById('so-fazendas').innerHTML='<div class="so-empty"><div class="ic">🏡</div>Selecione um cliente</div>';
+  document.getElementById('so-tal-title').textContent='Talhões';
+  document.getElementById('so-tal-sub').textContent='Selecione uma fazenda';
+  document.getElementById('so-talhoes').innerHTML='<div class="so-empty"><div class="ic">🗺</div>Selecione uma fazenda</div>';
   document.getElementById('so-clientes').innerHTML = list.length ? list.map(c=>`
     <div class="so-item">
       <div class="so-av" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')">${c.nome[0].toUpperCase()}</div>
@@ -849,7 +865,7 @@ async function soSelFazenda(el, id, nome){
   document.getElementById('so-talhoes').innerHTML = list.length ? list.map(t=>{
     const link=(t.links_view||[]).find(l=>l.ativo);
     return `
-    <div class="tal-row" onclick="abrirTalhao('${t.id}')" style="cursor:pointer" title="Ver no mapa">
+    <div class="tal-row" onclick="closeSO();abrirTalhao('${t.id}')" style="cursor:pointer" title="Ver no mapa">
       <div class="tal-ic">🗺</div>
       <div style="min-width:0;flex:1">
         <div class="tal-nm">${t.nome}</div>
@@ -1216,8 +1232,12 @@ async function mvPopularTalhoes(autoAbrir){
   const { data } = await sb.from('talhoes').select('id,nome,hectares').eq('fazenda_id',MAPA_CTX.fazendaId).order('nome');
   MV_TALHOES=data||[];
   const box=document.getElementById('mv-talhao-list');
-  if(!MV_TALHOES.length){ box.innerHTML='<div style="padding:12px;color:var(--muted);font-size:12px">Sem talhões nesta fazenda.</div>'; return; }
-  box.innerHTML=MV_TALHOES.map((t,i)=>`
+  // recolhe e limpa busca ao repopular
+  const dd=document.getElementById('mv-tal-dropdown'); if(dd) dd.style.display='none';
+  const chev=document.getElementById('mv-tal-chev'); if(chev) chev.style.transform='';
+  const busca=document.getElementById('mv-tal-busca'); if(busca) busca.value='';
+  if(!MV_TALHOES.length){ box.innerHTML='<div style="padding:12px;color:var(--muted);font-size:12px">Sem talhões nesta fazenda.</div>'; mvCheckChange(); return; }
+  box.innerHTML=MV_TALHOES.map(t=>`
     <label style="display:flex;align-items:center;gap:8px;padding:9px 10px;border-bottom:1px solid var(--sand);font-size:13px;cursor:pointer">
       <input type="checkbox" value="${t.id}" data-nome="${esc(t.nome)}" onchange="mvCheckChange()" style="width:16px;height:16px;accent-color:var(--leaf2)">
       <span style="flex:1;min-width:0">${t.nome} <span style="color:var(--muted)">· ${(Number(t.hectares)||0).toFixed(1)} ha</span></span>
@@ -1229,12 +1249,29 @@ async function mvPopularTalhoes(autoAbrir){
   } else { mvCheckChange(); }
 }
 function mvChecks(){ return Array.from(document.querySelectorAll('#mv-talhao-list input[type=checkbox]')); }
+function mvToggleLista(){
+  const d=document.getElementById('mv-tal-dropdown'); if(!d) return;
+  const abrir=(d.style.display==='none'||!d.style.display);
+  d.style.display=abrir?'':'none';
+  const chev=document.getElementById('mv-tal-chev'); if(chev) chev.style.transform=abrir?'rotate(180deg)':'';
+  if(abrir){ const b=document.getElementById('mv-tal-busca'); if(b) setTimeout(()=>b.focus(),30); }
+}
+function mvFiltrarTalhoes(q){
+  q=(q||'').trim().toLowerCase();
+  mvChecks().forEach(c=>{ const row=c.closest('label'); const nome=(c.dataset.nome||'').toLowerCase(); if(row) row.style.display=(!q||nome.includes(q))?'':'none'; });
+}
 function mvCheckChange(){
   const all=mvChecks(); const marc=all.filter(c=>c.checked);
   const link=document.getElementById('mv-tal-all');
   if(link) link.textContent = (marc.length===all.length && all.length) ? 'Desmarcar todos' : 'Selecionar todos';
   const btn=document.getElementById('mv-abrir-sel');
   if(btn) btn.textContent = marc.length>1 ? ('Ver '+marc.length+' juntos no mapa') : 'Ver no mapa';
+  const sum=document.getElementById('mv-tal-summary');
+  if(sum){
+    if(!marc.length) sum.textContent='Selecione talhões';
+    else if(marc.length===1) sum.textContent=marc[0].dataset.nome;
+    else sum.textContent=marc.length+' talhões selecionados';
+  }
 }
 function mvToggleTodos(){
   const all=mvChecks(); const marcarTodos = all.some(c=>!c.checked);
