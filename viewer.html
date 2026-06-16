@@ -223,7 +223,6 @@ body.mode-coleta #sec-viz,
 body.mode-coleta #sec-pal,
 body.mode-coleta #sec-app,
 body.mode-coleta #sec-leg,
-body.mode-coleta #sec-hist,
 body.mode-coleta #sec-stat,
 body.mode-coleta #sec-pdf,
 body.mode-coleta #view-banner{display:none!important;}
@@ -507,12 +506,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div class="sec-label"><span class="txt"><span data-i18n="secLeg">Legenda</span></span></div>
     <div class="leg-bar" id="leg-bar"></div>
     <div class="leg-ticks" id="leg-ticks"></div>
-    <div class="leg-list" id="leg-list"></div>
-  </div>
-
-  <div class="sec" id="sec-hist" style="display:none">
-    <div class="sec-label"><span class="txt"><span data-i18n="secHist">Distribuição do nutriente</span></span></div>
-    <div id="hist-chart"></div>
+    <div id="hist-chart" style="margin-top:10px"></div>
   </div>
 
   <div class="sec" id="sec-stat" style="display:none">
@@ -564,7 +558,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="mode-switch" id="mode-switch" style="display:none">
     <button class="mode-btn active" id="mode-nutrientes" onclick="setMapMode('nutrientes')">📊 <span data-i18n="modoNutrientes">Nutrientes</span></button>
     <button class="mode-btn" id="mode-coleta" onclick="setMapMode('coleta')">📍 <span data-i18n="modoColeta">Coleta de Solo</span></button>
-    <button class="mode-btn" id="mode-recomendacao" onclick="toast(t('recEmBreve'),'ok')">💡 <span data-i18n="modoRecomendacao">Recomendação</span></button>
+    <button class="mode-btn" id="mode-recomendacao" onclick="toast(t('recEmBreve'),'ok')">🎯 <span data-i18n="modoRecomendacao">Recomendação</span></button>
   </div>
   <div class="map-host">
     <div id="map"></div>
@@ -803,13 +797,14 @@ function rankColor(v, sorted){
 }
 // gráfico de barras: distribuição do nutriente em 5 classes
 function renderHistograma(vals, mn, mx, corDe){
-  const sec=document.getElementById('sec-hist'); const el=document.getElementById('hist-chart');
-  if(!sec||!el) return;
-  if(!vals||!vals.length||mn===mx){ el.innerHTML=''; sec.style.display='none'; return; }
+  const el=document.getElementById('hist-chart');
+  if(!el) return;
+  if(!vals||!vals.length||mn===mx){ el.innerHTML=''; return; }
   const NB=5, w=(mx-mn)/NB, bins=new Array(NB).fill(0);
   vals.forEach(v=>{ let i=Math.floor((v-mn)/w); if(i>=NB)i=NB-1; if(i<0)i=0; bins[i]++; });
   const maxC=Math.max(...bins,1);
-  let bars='<div style="display:flex;align-items:flex-end;gap:5px;height:96px;padding:2px 2px 0;">';
+  let bars='<div style="font-size:11px;font-weight:700;color:#646a5e;margin-bottom:6px">Distribuição (5 classes)</div>';
+  bars+='<div style="display:flex;align-items:flex-end;gap:5px;height:96px;padding:2px 2px 0;">';
   for(let i=0;i<NB;i++){
     const h=Math.max(2,Math.round((bins[i]/maxC)*80));
     const col=corDe?corDe(mn+w*(i+0.5)):'#6cb32d';
@@ -821,7 +816,7 @@ function renderHistograma(vals, mn, mx, corDe){
   bars+='</div><div style="display:flex;gap:5px;padding:3px 2px 0;border-top:1px solid var(--sand2);margin-top:2px;">';
   for(let i=0;i<NB;i++){ bars+='<div style="flex:1;text-align:center;font-size:9px;color:#9a968c">'+(mn+w*i).toFixed(1)+'</div>'; }
   bars+='<div style="font-size:9px;color:#9a968c">'+mx.toFixed(1)+'</div></div>';
-  el.innerHTML=bars; sec.style.display='';
+  el.innerHTML=bars;
 }
 
 // ══ MAP ══
@@ -1209,7 +1204,7 @@ function renderZonasVazias(){
   // talhão com zonas mas sem planilha: desenha as zonas sem cor (vazias)
   if(S.compare && S.compare.on) return;
   if(!S.geoData) return;
-  const sh=document.getElementById('sec-hist'); if(sh) sh.style.display='none';
+  const sh=document.getElementById('hist-chart'); if(sh) sh.innerHTML='';
   if(S.layer) S.map.removeLayer(S.layer);
   clearLabels();
   S.layer=L.geoJSON(S.geoData,{
@@ -1252,7 +1247,7 @@ function renderMap(){
   const ticks=[];for(let i=0;i<=S.classes;i++){ if(useRank){ const idx=Math.min(sorted.length-1,Math.round(i/S.classes*(sorted.length-1))); ticks.push(sorted[idx].toFixed(2)); } else { ticks.push((mn+(mx-mn)*(i/S.classes)).toFixed(2)); } }
   document.getElementById('leg-ticks').innerHTML=ticks.map(t=>`<span>${t}</span>`).join('');
 
-  const ll=document.getElementById('leg-list');ll.innerHTML='';const legendItems=[];
+  const legendItems=[];
   S.layer=L.geoJSON(S.geoData,{
     style:f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[S.colorCol]):NaN;return{fillColor:corDe(v),color:'#333',weight:1.2,fillOpacity:S.opacity};},
     onEachFeature:(f,layer)=>{
@@ -1267,7 +1262,6 @@ function renderMap(){
   }).addTo(S.map);
   if(!S.pdfMode) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
   if(S.showLabels) drawLabels();
-  legendItems.forEach(({key,v,color})=>{const d=document.createElement('div');d.className='leg-item';d.innerHTML=`<div class="leg-sw" style="background:${color}"></div><span class="leg-zid">${key||'—'}</span><span class="leg-val">${isNaN(v)?'N/D':v.toFixed(2)}</span>`;ll.appendChild(d);});
   document.getElementById('empty-msg').style.display='none';
   document.body.classList.add('has-data');
   document.getElementById('sec-leg').style.display='';
@@ -2804,7 +2798,7 @@ function renderCompare(){
   document.getElementById('leg-bar').style.background=gradient;
   const ticks=[]; for(let i=0;i<=S.classes;i++) ticks.push((mn+(mx-mn)*(i/S.classes)).toFixed(2));
   document.getElementById('leg-ticks').innerHTML=ticks.map(t=>`<span>${t}</span>`).join('');
-  document.getElementById('leg-list').innerHTML='<div style="font-size:10px;color:var(--muted);padding:4px;">Comparação ativa — cada mapa usa sua própria escala de cores.</div>';
+  const _hc=document.getElementById('hist-chart'); if(_hc) _hc.innerHTML='<div style="font-size:10px;color:var(--muted);padding:4px;">Comparação ativa — cada mapa usa sua própria escala de cores.</div>';
   // per-map floating legends, each with its OWN range
   const legHTML = (depth,lo,hi)=>`<div class="ml-title">${depth} · ${S.colorCol}</div><div class="ml-bar" style="background:${gradient}"></div><div class="ml-ticks"><span>${lo.toFixed(2)}</span><span>${hi.toFixed(2)}</span></div>`;
   document.getElementById('mleg-left').innerHTML  = legHTML(L1,mnL,mxL);
