@@ -2132,18 +2132,18 @@ function wireColetaControls(){
     const sa=document.getElementById('sec-clt-ajustes'); if(sa) sa.style.display=on?'':'none';
     multiExtrasColeta('pontos',on);
   });
-  tgl('clt-zonas-toggle',on=>{ if(S.coletaLayers.zonas){ on?S.coletaLayers.zonas.addTo(S.map):S.map.removeLayer(S.coletaLayers.zonas); } renderZonaLabels(); multiExtrasColeta('zonas',on); });
+  tgl('clt-zonas-toggle',on=>{ if(S.coletaLayers.zonas){ on?S.coletaLayers.zonas.addTo(S.map):S.map.removeLayer(S.coletaLayers.zonas); } renderZonaLabels(); multiExtrasColeta('zonas',on); multiRenderExtrasZonaLabels(); });
   tgl('clt-rpt-toggle',on=>{ S.cltCfg.showPtLbl=on; refreshPontos(); });
   tgl('clt-rzona-toggle',on=>{
     S.cltCfg.showZonaLbl=on;
     document.getElementById('clt-campo-row').style.display=on?'block':'none';
     document.getElementById('clt-tamrz-row').style.display=on?'block':'none';
-    renderZonaLabels();
+    renderZonaLabels(); multiRenderExtrasZonaLabels();
   });
   const sl=(id,valId,cb)=>{ const el=document.getElementById(id); if(el) el.addEventListener('input',()=>{ const v=+el.value; if(valId)document.getElementById(valId).textContent=v+'%'; cb(v); }); };
   sl('sl-clt-pt','cv-clt-pt',v=>{ S.cltCfg.ptSize=v; refreshPontos(); });
   sl('sl-clt-rpt','cv-clt-rpt',v=>{ S.cltCfg.ptLblSize=v; refreshPontos(); });
-  sl('sl-clt-rz','cv-clt-rz',v=>{ S.cltCfg.zonaLblSize=v; renderZonaLabels(); });
+  sl('sl-clt-rz','cv-clt-rz',v=>{ S.cltCfg.zonaLblSize=v; renderZonaLabels(); multiRenderExtrasZonaLabels(); });
   const selc=document.getElementById('sel-clt-campo');
   if(selc) selc.addEventListener('change',()=>{ S.cltCfg.zonaCampo=selc.value; renderZonaLabels(); });
 
@@ -2334,7 +2334,7 @@ async function _buildColeta(data, geo){
     let gjZonas=null;
     if(data.coleta_zonas_url){ try{ const buf=await fetchBufColeta(data.coleta_zonas_url); gjZonas=await shp(buf); if(Array.isArray(gjZonas)) gjZonas={type:'FeatureCollection',features:gjZonas.flatMap(l=>l.features||[])}; }catch(e){} }
     if(!gjZonas) gjZonas=geo;
-    if(gjZonas) out.zonas=L.geoJSON(gjZonas,{filter:f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'), style:estiloZonaColeta});
+    if(gjZonas){ out.zonasGeo=gjZonas; out.zonas=L.geoJSON(gjZonas,{filter:f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'), style:estiloZonaColeta}); }
     if(data.coleta_pontos_url){ try{ const buf=await fetchBufColeta(data.coleta_pontos_url); let gj=await shp(buf); if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])}; out.pontosGeo=gj; out.pontos=criarCamadaPontos(gj); }catch(e){} }
   }catch(e){}
   return out;
@@ -2370,17 +2370,17 @@ async function buildExtras(allTokens){
       const temColeta = !!(data.tem_coleta_solo || data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url);
       const coleta = temColeta ? await _buildColeta(data, geo) : {raster:null,zonas:null,pontos:null};
       let bounds=null; try{ bounds=L.geoJSON(geo).getBounds(); }catch(e){}
-      let labelMarker=null;
-      if(bounds){ try{ labelMarker=L.marker(bounds.getCenter(),{interactive:false, icon:L.divIcon({className:'multi-lbl', html:'<div style="background:#474a43;color:#fff;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">'+nome+'</div>', iconSize:[0,0]})}); }catch(e){} }
-      S.extras.push({ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, labelMarker, _nut:null, _empty:null });
+      S.extras.push({ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _zonaLabels:[] });
       addLeg(nome,false);
     }catch(e){}
   }
   multiApplyMode(S.mapMode||'nutrientes');
   setTimeout(()=>{ try{ S.map.invalidateSize(true); multiFitAll(); }catch(e){} }, 350);
 }
+function _extraClearZonaLabels(ex){ (ex._zonaLabels||[]).forEach(m=>{ try{S.map.removeLayer(m);}catch(e){} }); ex._zonaLabels=[]; }
 function _extraClearAll(ex){
-  [ex._nut, ex._empty, ex.coleta.raster, ex.coleta.zonas, ex.coleta.pontos, ex.labelMarker].forEach(l=>{ if(l){ try{ S.map.removeLayer(l); }catch(e){} } });
+  [ex._nut, ex._empty, ex.coleta.raster, ex.coleta.zonas, ex.coleta.pontos].forEach(l=>{ if(l){ try{ S.map.removeLayer(l); }catch(e){} } });
+  _extraClearZonaLabels(ex);
   ex._nut=null; ex._empty=null;
 }
 // nutrientes: cada extra segue o nutriente/profundidade do painel (cinza se não tiver)
@@ -2388,27 +2388,52 @@ function multiRenderExtrasNutrient(){
   if(!S.extras||!S.extras.length) return;
   if(S.mapMode==='coleta') return;
   S.extras.forEach(ex=>{
+    // garante que NADA da coleta apareça no modo nutrientes
+    [ex.coleta.raster, ex.coleta.zonas, ex.coleta.pontos].forEach(l=>{ if(l){ try{S.map.removeLayer(l);}catch(e){} } });
+    _extraClearZonaLabels(ex);
     if(ex._nut){ try{S.map.removeLayer(ex._nut);}catch(e){} ex._nut=null; }
     if(ex._empty){ try{S.map.removeLayer(ex._empty);}catch(e){} ex._empty=null; }
     const lay=_extraNutLayer(ex, S.colorCol, S.activeDepth);
     if(lay){ ex._nut=lay; lay.addTo(S.map); }
     else { ex._empty=_emptyZonesLayer(ex.geo); ex._empty.addTo(S.map); }
-    if(ex.labelMarker){ try{ ex.labelMarker.addTo(S.map);}catch(e){} }
+  });
+}
+// coleta: rótulos das zonas de cada extra (acompanha o painel)
+function multiRenderExtrasZonaLabels(){
+  if(!S.extras||!S.extras.length||S.mapMode!=='coleta') return;
+  const zt=document.getElementById('clt-zonas-toggle');
+  const zonasVisiveis = !zt || zt.classList.contains('on');
+  const fs=Math.round(11*((S.cltCfg.zonaLblSize||100)/100));
+  S.extras.forEach(ex=>{
+    _extraClearZonaLabels(ex);
+    if(!S.cltCfg.showZonaLbl || !zonasVisiveis) return;
+    const gj=ex.coleta && ex.coleta.zonasGeo; if(!gj) return;
+    const feats=(gj.features||[]).filter(f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'));
+    const campo=_zoneField(feats[0] && feats[0].properties);
+    feats.forEach((f,idx)=>{
+      let c; try{ c=interiorPoint(f.geometry); }catch(e){ c=centroidePoly(f.geometry); }
+      if(!c) return;
+      let val=(f.properties&&f.properties[campo]!=null)?f.properties[campo]:'';
+      if(typeof val==='number') val=Math.round(val*100)/100;
+      if(val===''||val==null) val=idx+1;
+      const m=L.marker(c,{icon:L.divIcon({className:'zona-rot-wrap',html:'<div class="zona-rot" style="font-size:'+fs+'px;">'+val+'</div>',iconSize:null}),interactive:false});
+      m.addTo(S.map); ex._zonaLabels.push(m);
+    });
   });
 }
 function multiApplyMode(mode){
   if(!S.extras || !S.extras.length) return;
   S.extras.forEach(ex=>_extraClearAll(ex));
   if(mode==='coleta'){
+    const rt=document.getElementById('clt-raster-toggle'); const pt=document.getElementById('clt-pontos-toggle'); const zt=document.getElementById('clt-zonas-toggle');
     S.extras.forEach(ex=>{
       if(ex.hasColeta){
-        const rt=document.getElementById('clt-raster-toggle'); const pt=document.getElementById('clt-pontos-toggle'); const zt=document.getElementById('clt-zonas-toggle');
         if(ex.coleta.raster && (!rt||rt.classList.contains('on'))) ex.coleta.raster.addTo(S.map);
         if(ex.coleta.zonas && (!zt||zt.classList.contains('on'))) ex.coleta.zonas.addTo(S.map);
         if(ex.coleta.pontos && S.cltCfg.showPontos!==false && (!pt||pt.classList.contains('on'))) ex.coleta.pontos.addTo(S.map);
       } else { ex._empty=_emptyZonesLayer(ex.geo); ex._empty.addTo(S.map); }
-      if(ex.labelMarker) ex.labelMarker.addTo(S.map);
     });
+    multiRenderExtrasZonaLabels();
   } else {
     multiRenderExtrasNutrient();
   }
