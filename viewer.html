@@ -241,10 +241,8 @@ body.has-data .basemap-float{display:flex;}
 body.embed header{display:none!important;}
 body.embed .lang-toggle{display:none!important;}
 body.embed .workspace{height:100vh!important;}
-/* modo multi-talhão (visão geral de vários talhões) */
-body.multimode .sidebar, body.multimode .sb-toggle, body.multimode .mode-switch, body.multimode #empty-msg{display:none!important;}
-body.multimode .map-wrap{width:100%!important;left:0!important;}
-.multi-legend{position:absolute;top:12px;left:12px;z-index:650;background:rgba(255,255,255,.96);border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.16);padding:10px 12px;max-width:250px;font-size:12px;max-height:62vh;overflow:auto;}
+/* modo multi-talhão (vários talhões no mesmo mapa, com a interface completa) */
+.multi-legend{position:absolute;left:12px;bottom:26px;z-index:650;background:rgba(255,255,255,.96);border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.16);padding:10px 12px;max-width:250px;font-size:12px;max-height:46vh;overflow:auto;}
 .multi-legend h4{margin:0 0 7px;font-size:12px;color:#474a43;letter-spacing:.02em;}
 .multi-legend .ml-it{display:flex;align-items:center;gap:7px;padding:3px 0;color:#3a3d36;}
 .multi-legend .ml-sw{width:13px;height:13px;border-radius:3px;flex-shrink:0;}
@@ -2265,43 +2263,44 @@ async function baixarShpColeta(){
   }catch(err){ alert('Erro ao baixar: '+err.message); }
 }
 
-// modo multi-talhão: sobrepõe as zonas de vários talhões num só mapa
-async function carregarMulti(tokens){
-  document.body.classList.add('viewmode','embed','multimode','has-data');
-  document.getElementById('loader-screen').classList.add('show');
-  document.getElementById('ls-logo').src=LOGO_DATA;
-  document.getElementById('ls-text').textContent='Carregando talhões…';
-  const palette=['#2e7d32','#1565c0','#e65100','#6a1b9a','#c62828','#00838f','#9e9d24','#4527a0','#ad1457','#37474f','#00695c','#5d4037'];
+// modo multi-talhão: o 1º talhão usa o viewer completo; os demais são sobrepostos
+async function overlayExtras(allTokens){
+  const palette=['#1565c0','#e65100','#6a1b9a','#c62828','#00838f','#9e9d24','#4527a0','#ad1457','#37474f','#00695c','#5d4037','#2e7d32'];
   const legend=document.createElement('div'); legend.className='multi-legend';
   legend.innerHTML='<h4>🗺 Talhões no mapa</h4>';
   document.querySelector('.map-wrap').appendChild(legend);
-  let allBounds=null, idx=0;
-  for(const tk of tokens){
+  let allBounds=null;
+  const addBounds=(b)=>{ if(!b) return; try{ allBounds = allBounds ? allBounds.extend(b) : L.latLngBounds(b.getSouthWest(), b.getNorthEast()); }catch(e){} };
+  const addLegend=(nome, color, detalhado)=>{
+    const it=document.createElement('div'); it.className='ml-it';
+    const sw = detalhado ? '<span class="ml-sw" style="background:linear-gradient(90deg,#e3000f,#ffd400,#2e7d32)"></span>' : '<span class="ml-sw" style="background:'+color+'"></span>';
+    it.innerHTML=sw+'<span>'+nome+(detalhado?' <span style="color:#888">(detalhado)</span>':'')+'</span>';
+    legend.appendChild(it);
+  };
+  for(let i=0;i<allTokens.length;i++){
     try{
-      const { data } = await sb.rpc('get_link_data',{ p_token: tk });
-      if(!data || data.erro || !data.geojson_url) continue;
-      const r=await fetch(data.geojson_url); if(!r.ok) continue;
-      const gj=await r.json();
-      const color=palette[idx%palette.length];
-      const layer=L.geoJSON(gj,{ style:{ color:color, weight:2, opacity:1, fillColor:color, fillOpacity:.42 } }).addTo(S.map);
-      try{
-        const b=layer.getBounds();
-        L.marker(b.getCenter(),{interactive:false, icon:L.divIcon({className:'multi-lbl', html:'<div style="background:'+color+';color:#fff;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">'+(data.talhao||'Talhão')+'</div>', iconSize:[0,0]})}).addTo(S.map);
-        allBounds = allBounds ? allBounds.extend(b) : L.latLngBounds(b.getSouthWest(), b.getNorthEast());
-      }catch(e){}
-      const nome=(data.fazenda?data.fazenda+' — ':'')+(data.talhao||'Talhão')+(data.hectares?' · '+Number(data.hectares).toFixed(1)+' ha':'');
-      const it=document.createElement('div'); it.className='ml-it';
-      it.innerHTML='<span class="ml-sw" style="background:'+color+'"></span><span>'+nome+'</span>';
-      legend.appendChild(it);
-      idx++;
+      const { data } = await sb.rpc('get_link_data',{ p_token: allTokens[i] });
+      if(!data || data.erro) continue;
+      const nome=(data.talhao||'Talhão');
+      if(i===0){
+        // talhão primário já está renderizado pelo viewer (com nutrientes/coleta)
+        let b=null; try{ b=S.layer?S.layer.getBounds():null; }catch(e){}
+        if(!b && data.geojson_url){ try{ const r=await fetch(data.geojson_url); const gj=await r.json(); b=L.geoJSON(gj).getBounds(); }catch(e){} }
+        addBounds(b); addLegend(nome, null, true);
+      } else {
+        if(!data.geojson_url){ continue; }
+        const color=palette[(i-1)%palette.length];
+        const r=await fetch(data.geojson_url); if(!r.ok) continue;
+        const gj=await r.json();
+        const layer=L.geoJSON(gj,{ style:{ color:color, weight:2, opacity:1, fillColor:color, fillOpacity:.4 } }).addTo(S.map);
+        let b=null; try{ b=layer.getBounds(); }catch(e){}
+        if(b){ try{ L.marker(b.getCenter(),{interactive:false, icon:L.divIcon({className:'multi-lbl', html:'<div style="background:'+color+';color:#fff;padding:2px 7px;border-radius:6px;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.3)">'+nome+'</div>', iconSize:[0,0]})}).addTo(S.map); }catch(e){} }
+        addBounds(b); addLegend(nome, color, false);
+      }
     }catch(e){}
   }
-  document.getElementById('loader-screen').classList.remove('show');
-  document.getElementById('empty-msg').style.display='none';
-  if(tokens[0]) carregarBrandingConsultor(tokens[0]);
-  // enquadra só depois do mapa ter o tamanho certo (evita ficar pequeno/descentralizado)
-  setTimeout(()=>{ try{ S.map.invalidateSize(true); if(allBounds) S.map.fitBounds(allBounds,{padding:[50,50]}); }catch(e){} }, 180);
-  return true;
+  // enquadra todos só depois do mapa ter tamanho certo
+  setTimeout(()=>{ try{ S.map.invalidateSize(true); if(allBounds) S.map.fitBounds(allBounds,{padding:[50,50]}); }catch(e){} }, 350);
 }
 
 async function loadFromToken(token, params){
@@ -2408,8 +2407,13 @@ async function loadFromURL(){
   const multi=params.get('multi');
   if(multi){
     const toks=multi.split(',').map(s=>s.trim()).filter(Boolean);
-    if(toks.length>1) return await carregarMulti(toks);
     if(toks.length===1) return await loadFromToken(toks[0], params);
+    if(toks.length>1){
+      S.multiTokens=toks;
+      const ok=await loadFromToken(toks[0], params); // 1º talhão: viewer completo (todas as funções)
+      overlayExtras(toks);                            // sobrepõe os demais talhões
+      return ok;
+    }
   }
 
   // PLATAFORMA: link do produtor por token  ?t=TOKEN
