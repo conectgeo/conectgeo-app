@@ -1423,15 +1423,15 @@ function emClose(){ document.getElementById('edit-modal').classList.remove('open
 let ARQ_URLS={};
 async function excluirArquivo(tipo, talhaoId){
   const url=ARQ_URLS[talhaoId+'_'+tipo]||'';
-  const nomes={gj:'as zonas de nutrientes',cz:'as zonas de coleta',cp:'os pontos de coleta',cr:'o raster',pl:'a planilha de análises'};
+  const nomes={gj:'as zonas de nutrientes',cz:'as zonas de coleta',cp:'os pontos de coleta',cr:'o raster',pl:'a planilha de nutrientes',rec:'a planilha de recomendação'};
   confirmarExclusao('Excluir arquivo', 'Tem certeza que quer excluir <b>'+(nomes[tipo]||'este arquivo')+'</b>? Esta ação não pode ser desfeita.', async()=>{
     try{
-      if(url){ const p=url.split('/object/public/arquivos/')[1]; if(p){ try{ await sb.storage.from('arquivos').remove([decodeURIComponent(p)]); }catch(e){} } }
+      if(url){ const p=(url.split('/object/public/arquivos/')[1]||'').split('?')[0]; if(p){ try{ await sb.storage.from('arquivos').remove([decodeURIComponent(p)]); }catch(e){} } }
       if(tipo==='pl'){
         const { error } = await sb.from('analises').delete().eq('talhao_id',talhaoId);
         if(error) throw error;
       } else {
-        const col={gj:'zonas_geojson_url',cz:'coleta_zonas_url',cp:'coleta_pontos_url',cr:'coleta_raster_url'}[tipo];
+        const col={gj:'zonas_geojson_url',cz:'coleta_zonas_url',cp:'coleta_pontos_url',cr:'coleta_raster_url',rec:'recomendacao_url'}[tipo];
         const upd={}; upd[col]=null;
         const { error } = await sb.from('talhoes').update(upd).eq('id',talhaoId);
         if(error) throw error;
@@ -1444,7 +1444,7 @@ async function excluirArquivo(tipo, talhaoId){
 }
 async function renderEdicao(){
   ARQ_URLS={};
-  const { data:c } = await sb.from('clientes').select('id,nome,email,municipio,pais,fazendas(id,nome,municipio,estado,talhoes(id,nome,hectares,coleta_zonas_url,coleta_pontos_url,coleta_raster_url,zonas_geojson_url,analises(id,planilha_url)))').eq('id',EDIT_CLI).single();
+  const { data:c } = await sb.from('clientes').select('id,nome,email,municipio,pais,fazendas(id,nome,municipio,estado,talhoes(id,nome,hectares,coleta_zonas_url,coleta_pontos_url,coleta_raster_url,zonas_geojson_url,recomendacao_url,analises(id,planilha_url)))').eq('id',EDIT_CLI).single();
   if(!c){ document.getElementById('em-body').innerHTML='<div style="padding:24px">Cliente não encontrado.</div>'; return; }
   document.getElementById('em-title').textContent='Editar — '+c.nome;
   const fazendas=(c.fazendas||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
@@ -1479,7 +1479,8 @@ async function renderEdicao(){
       if(t.coleta_pontos_url){ arqs.push(['cp','Pontos (coleta)']); ARQ_URLS[t.id+'_cp']=t.coleta_pontos_url; }
       if(t.coleta_raster_url){ arqs.push(['cr','Raster']); ARQ_URLS[t.id+'_cr']=t.coleta_raster_url; }
       const planilha=(t.analises||[]).find(a=>a.planilha_url);
-      if(planilha){ arqs.push(['pl','Planilha']); ARQ_URLS[t.id+'_pl']=planilha.planilha_url; }
+      if(planilha){ arqs.push(['pl','Planilha nutri']); ARQ_URLS[t.id+'_pl']=planilha.planilha_url; }
+      if(t.recomendacao_url){ arqs.push(['rec','Planilha rec']); ARQ_URLS[t.id+'_rec']=t.recomendacao_url; }
       const arqHtml = arqs.length
         ? '<div class="ed-arqs">'+arqs.map(a=>'<span class="ed-arq">'+a[1]+'<button title="Excluir arquivo" onclick="excluirArquivo(\''+a[0]+'\',\''+t.id+'\')">✕</button></span>').join('')+'</div>'
         : '<div class="ed-arqs-vazio">Nenhum arquivo enviado.</div>';
