@@ -352,6 +352,8 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 #sec-viz .sec-label .txt{color:var(--leaf2);font-weight:800;}
 #sec-viz #sel-col{border:2px solid var(--leaf);background:var(--accent3);border-radius:9px;font-weight:700;color:var(--ink);padding:11px 13px;width:100%;cursor:pointer;}
 #sec-viz #sel-col:hover{background:#fff;}
+#sel-insumo{border:2px solid var(--leaf);background:var(--accent3);border-radius:9px;font-weight:700;color:var(--ink);padding:11px 13px;width:100%;cursor:pointer;}
+#sel-insumo:hover{background:#fff;}
 .compare-row:hover{border-color:var(--leaf);}
 .compare-row.on{border-color:var(--leaf);background:var(--accent3);}
 .compare-row .label{font-size:11px;color:var(--ink);flex:1;font-weight:700;}
@@ -2446,7 +2448,7 @@ async function generateRecPDF(insumos){
         +'<span style="flex:1;text-align:center">Doses (kg/ha)</span><span style="flex:1;text-align:center">Hectares</span><span style="flex:1;text-align:center">%</span></div>';
       st.buckets.forEach(b=>{ const sw=corLM((b.lo+b.hi)/2,st.mn,st.mx);
         legRows+='<div style="display:flex;align-items:center;font-size:11px;color:#222;margin:5px 0;">'
-          +'<span style="flex:1;display:flex;align-items:center;justify-content:center;gap:6px;"><span style="width:14px;height:11px;background:'+sw+';border:1px solid #999;flex-shrink:0;display:inline-block"></span><span>'+recFmt(b.lo)+' - '+recFmt(b.hi)+'</span></span>'
+          +'<span style="flex:1;display:flex;justify-content:center;"><span style="display:flex;align-items:center;gap:7px;width:118px;white-space:nowrap;"><span style="width:14px;height:11px;background:'+sw+';border:1px solid #999;flex-shrink:0;display:inline-block"></span><span>'+recFmt(b.lo)+' - '+recFmt(b.hi)+'</span></span></span>'
           +'<span style="flex:1;text-align:center">'+b.ha.toFixed(2)+'</span>'
           +'<span style="flex:1;text-align:center">'+(b.ha/st.totBucketHa*100).toFixed(2)+'</span></div>'; });
       const legHTML='<div style="border-top:1px solid #e2e2e2;padding-top:13px;">'+lab('Legenda')+legRows+'</div>';
