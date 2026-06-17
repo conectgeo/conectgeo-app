@@ -492,9 +492,9 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
     <div class="sec" id="sec-rec-zip">
       <div class="sec-label"><span class="txt"><span class="sec-num"></span><span>Exportar</span></span></div>
-      <button class="pdf-btn" id="btn-rec-zip" disabled style="background:#c9ccc4;cursor:not-allowed;opacity:.75">
+      <button class="pdf-btn" id="btn-rec-zip">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <span>Exportar (.zip) — em breve</span>
+        <span>Exportar (.zip)</span>
       </button>
     </div>
   </div>
@@ -714,6 +714,39 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div class="modal-foot">
       <button class="mbtn cancel" id="mbtn-cancel" data-i18n="cancel">Cancelar</button>
       <button class="mbtn go" id="mbtn-go" data-i18n="genPdfBtn">Gerar PDF</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="rec-export-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">Exportar prescrição (.zip)</div>
+      <div class="modal-sub">Um shapefile por insumo, na estrutura de pastas do monitor</div>
+    </div>
+    <div class="modal-body">
+      <span class="mlabel">Modelo (monitor)</span>
+      <select id="rec-exp-modelo" style="width:100%;padding:9px 11px;border:1.5px solid var(--border2);border-radius:9px;font-size:13px;margin-bottom:16px;">
+        <option value="trimble" selected>Trimble</option>
+        <option value="stara">Stara</option>
+        <option value="johndeere">John Deere</option>
+        <option value="caseih">Case IH</option>
+        <option value="raiz">Salvar na raiz</option>
+      </select>
+
+      <span class="mlabel">Insumos a exportar</span>
+      <div class="modal-tools">
+        <div class="mtool" id="rec-exp-all">Selecionar todos</div>
+        <div class="mtool" id="rec-exp-none">Limpar</div>
+      </div>
+      <div class="nut-grid" id="rec-exp-insumos"></div>
+
+      <span class="mlabel" style="margin-top:14px">Estrutura de pastas</span>
+      <pre id="rec-exp-preview" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--ink);white-space:pre;overflow:auto;margin:0;line-height:1.5;"></pre>
+    </div>
+    <div class="modal-foot">
+      <button class="mbtn cancel" id="rec-exp-cancel">Cancelar</button>
+      <button class="mbtn go" id="rec-exp-go">Exportar .zip</button>
     </div>
   </div>
 </div>
@@ -2195,6 +2228,150 @@ function setRecCompareMode(on){
   }
 }
 
+// ═══════════ EXPORTAÇÃO (shapefile por insumo, em zip) ═══════════
+const REC_MODELOS={
+  trimble:{nome:'Trimble', subs:['AgData','Prescriptions']},
+  stara:{nome:'Stara', subs:['Dados','Mapas']},
+  johndeere:{nome:'John Deere', subs:['Rx']},
+  caseih:{nome:'Case IH', subs:['Shapefile']},
+  raiz:{nome:'Salvar na raiz', subs:[]}
+};
+const PRJ_WGS84='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]';
+function _normNome(t){
+  if(t==null) return '';
+  const nf=String(t).normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
+  const low=nf.toLowerCase().replace(/\s+/g,'_');
+  const ok='abcdefghijklmnopqrstuvwxyz0123456789_-';
+  return low.split('').filter(c=>ok.includes(c)).join('') || 'campo';
+}
+function _dbfField(insumo){
+  const nf=String(insumo).normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9_]/g,'_');
+  let s=nf.replace(/^_+/,''); if(!/^[A-Z]/.test(s)) s='F_'+s; return s.substring(0,10) || 'DOSE';
+}
+function _ringArea(r){ let a=0; for(let i=0;i<r.length-1;i++){ a+=r[i][0]*r[i+1][1]-r[i+1][0]*r[i][1]; } return a/2; }
+function _closeRing(r){ const f=r[0], l=r[r.length-1]; return (f[0]===l[0]&&f[1]===l[1])?r:r.concat([f]); }
+function _orient(r, wantCW){ const cw=_ringArea(r)<0; return (cw!==wantCW)?r.slice().reverse():r; }
+function _polysOf(g){ if(g.type==='Polygon') return [g.coordinates]; if(g.type==='MultiPolygon') return g.coordinates; return []; }
+function _shpRecord(geom){
+  const polys=_polysOf(geom); if(!polys.length) return null;
+  const parts=[], points=[]; let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
+  polys.forEach(poly=>{ poly.forEach((ring,ri)=>{ let r=_orient(_closeRing(ring), ri===0); parts.push(points.length);
+    r.forEach(p=>{ const x=+p[0], y=+p[1]; points.push([x,y]); if(x<xmin)xmin=x; if(x>xmax)xmax=x; if(y<ymin)ymin=y; if(y>ymax)ymax=y; }); }); });
+  if(!points.length) return null;
+  return {parts, points, bbox:[xmin,ymin,xmax,ymax]};
+}
+function _buildShp(records){
+  let contentBytes=0; const meta=[]; let gx0=Infinity,gy0=Infinity,gx1=-Infinity,gy1=-Infinity;
+  records.forEach(rec=>{ const cl=4+32+4+4+4*rec.parts.length+16*rec.points.length; meta.push(cl); contentBytes+=8+cl;
+    if(rec.bbox[0]<gx0)gx0=rec.bbox[0]; if(rec.bbox[1]<gy0)gy0=rec.bbox[1]; if(rec.bbox[2]>gx1)gx1=rec.bbox[2]; if(rec.bbox[3]>gy1)gy1=rec.bbox[3]; });
+  const shpLen=100+contentBytes, shxLen=100+records.length*8;
+  const shp=new DataView(new ArrayBuffer(shpLen)), shx=new DataView(new ArrayBuffer(shxLen));
+  const hdr=(dv,len)=>{ dv.setInt32(0,9994,false); dv.setInt32(24,len/2,false); dv.setInt32(28,1000,true); dv.setInt32(32,5,true);
+    dv.setFloat64(36,gx0,true);dv.setFloat64(44,gy0,true);dv.setFloat64(52,gx1,true);dv.setFloat64(60,gy1,true);
+    dv.setFloat64(68,0,true);dv.setFloat64(76,0,true);dv.setFloat64(84,0,true);dv.setFloat64(92,0,true); };
+  hdr(shp,shpLen); hdr(shx,shxLen);
+  let off=100, sx=100;
+  records.forEach((rec,i)=>{ const cl=meta[i]; shp.setInt32(off,i+1,false); shp.setInt32(off+4,cl/2,false);
+    let p=off+8; shp.setInt32(p,5,true);p+=4;
+    shp.setFloat64(p,rec.bbox[0],true);p+=8;shp.setFloat64(p,rec.bbox[1],true);p+=8;shp.setFloat64(p,rec.bbox[2],true);p+=8;shp.setFloat64(p,rec.bbox[3],true);p+=8;
+    shp.setInt32(p,rec.parts.length,true);p+=4; shp.setInt32(p,rec.points.length,true);p+=4;
+    rec.parts.forEach(pi=>{ shp.setInt32(p,pi,true);p+=4; });
+    rec.points.forEach(pt=>{ shp.setFloat64(p,pt[0],true);p+=8; shp.setFloat64(p,pt[1],true);p+=8; });
+    shx.setInt32(sx,off/2,false); shx.setInt32(sx+4,cl/2,false); sx+=8; off+=8+cl; });
+  return {shp:new Uint8Array(shp.buffer), shx:new Uint8Array(shx.buffer)};
+}
+function _buildDbf(fieldName, values){
+  const fname=fieldName, FL=18, FD=3, n=values.length;
+  const headerSize=32+32+1, recSize=1+FL, total=headerSize+n*recSize+1;
+  const buf=new Uint8Array(total), dv=new DataView(buf.buffer);
+  buf[0]=0x03; const d=new Date(); buf[1]=d.getFullYear()-1900; buf[2]=d.getMonth()+1; buf[3]=d.getDate();
+  dv.setUint32(4,n,true); dv.setUint16(8,headerSize,true); dv.setUint16(10,recSize,true);
+  for(let i=0;i<fname.length&&i<11;i++) buf[32+i]=fname.charCodeAt(i);
+  buf[32+11]='N'.charCodeAt(0); buf[32+16]=FL; buf[32+17]=FD;
+  buf[headerSize-1]=0x0D;
+  let off=headerSize;
+  values.forEach(v=>{ buf[off]=0x20; let s=(v==null||isNaN(v))?'':Number(v).toFixed(FD); if(s.length>FL)s=s.substring(0,FL); s=s.padStart(FL,' ');
+    for(let i=0;i<FL;i++) buf[off+1+i]=s.charCodeAt(i); off+=recSize; });
+  buf[off]=0x1A;
+  return buf;
+}
+function _shapefileInsumo(insumoCol){
+  const fator=recFatorColuna(insumoCol);
+  const zoneF=S.rec.fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||S.rec.fields[0];
+  const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
+  const joinGeo=S.joinGeo||_zoneField(S.geoData.features[0].properties);
+  const records=[], values=[];
+  S.geoData.features.forEach(f=>{ if(!f.geometry||(f.geometry.type!=='Polygon'&&f.geometry.type!=='MultiPolygon')) return;
+    const rec=_shpRecord(f.geometry); if(!rec) return;
+    const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k];
+    let dval=row?recNum(row[insumoCol]):NaN; if(!isNaN(dval)) dval*=fator;
+    records.push(rec); values.push(isNaN(dval)?null:dval); });
+  if(!records.length) return null;
+  const {shp,shx}=_buildShp(records);
+  const dbf=_buildDbf(_dbfField(insumoCol), values);
+  return {shp,shx,dbf,prj:PRJ_WGS84};
+}
+// ----- modal -----
+function recExpRenderInsumos(){
+  const grid=document.getElementById('rec-exp-insumos'); if(!grid) return;
+  grid.innerHTML='';
+  (S.rec.insumoCols||[]).forEach(col=>{
+    const chip=document.createElement('div'); chip.className='nut-chip'+(col===S.rec.col?' sel':'');
+    chip.dataset.col=col; chip.innerHTML='<div class="nut-check"></div><div class="nut-name" title="'+col+'">'+col+'</div>';
+    chip.addEventListener('click',()=>{ chip.classList.toggle('sel'); recExpPreview(); });
+    grid.appendChild(chip);
+  });
+}
+function recExpSelected(){ return Array.from(document.querySelectorAll('#rec-exp-insumos .nut-chip.sel')).map(c=>c.dataset.col); }
+function recExpPreview(){
+  const pre=document.getElementById('rec-exp-preview'); if(!pre) return;
+  const modelo=REC_MODELOS[document.getElementById('rec-exp-modelo').value]||REC_MODELOS.raiz;
+  const sel=recExpSelected(); const talhao=_normNome((S.linkData&&S.linkData.talhao)||'talhao');
+  const exemplo = sel.length?sel : ((S.rec.insumoCols||[]).slice(0,1));
+  let txt='';
+  (exemplo.length?exemplo:['(nenhum)']).forEach(col=>{
+    if(col==='(nenhum)'){ txt+='(selecione ao menos um insumo)'; return; }
+    const ins=_normNome(col); txt+=ins+'/\n'; let ind='  ';
+    modelo.subs.forEach((s,i)=>{ txt+=ind.repeat(i+1)+s+'/\n'; });
+    txt+=ind.repeat(modelo.subs.length+1)+ins+'_'+talhao+'.shp (.shx .dbf .prj)\n';
+  });
+  pre.textContent=txt.trim();
+}
+function openRecExport(){
+  if(!S.geoData){ toast('Carregue as zonas do talhão primeiro','wrn'); return; }
+  if(!S.rec.rows.length || !(S.rec.insumoCols||[]).length){ toast('Envie a planilha de recomendação primeiro','wrn'); return; }
+  recExpRenderInsumos(); recExpPreview();
+  document.getElementById('rec-export-modal').classList.add('show');
+}
+async function doRecExport(){
+  const sel=recExpSelected();
+  if(!sel.length){ toast('Selecione ao menos um insumo','wrn'); return; }
+  if(!window.JSZip){ toast('Biblioteca de zip indisponível','err'); return; }
+  const modelo=REC_MODELOS[document.getElementById('rec-exp-modelo').value]||REC_MODELOS.raiz;
+  const talhao=_normNome((S.linkData&&S.linkData.talhao)||'talhao');
+  const goBtn=document.getElementById('rec-exp-go'); goBtn.disabled=true; const txt0=goBtn.textContent; goBtn.textContent='Gerando…';
+  try{
+    const zip=new JSZip();
+    let ok=0;
+    sel.forEach(col=>{
+      const sf=_shapefileInsumo(col); if(!sf) return;
+      const ins=_normNome(col);
+      let dir=zip.folder(ins); modelo.subs.forEach(s=>{ dir=dir.folder(s); });
+      const base=ins+'_'+talhao;
+      dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
+      ok++;
+    });
+    if(!ok){ toast('Nada para exportar','wrn'); goBtn.disabled=false; goBtn.textContent=txt0; return; }
+    const blob=await zip.generateAsync({type:'blob'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download='prescricao_'+talhao+'_'+document.getElementById('rec-exp-modelo').value+'.zip';
+    document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
+    document.getElementById('rec-export-modal').classList.remove('show');
+    toast('Exportação concluída ('+ok+' insumo'+(ok>1?'s':'')+')','ok');
+  }catch(e){ toast('Erro na exportação: '+e.message,'err'); }
+  goBtn.disabled=false; goBtn.textContent=txt0;
+}
+
 function setMapMode(mode){
   S.mapMode=mode;
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
@@ -2641,6 +2818,15 @@ function wireColetaControls(){
   // relatório (placeholder por enquanto) e exportação zip (inativo)
   const bRecPdf=document.getElementById('btn-rec-pdf');
   if(bRecPdf) bRecPdf.addEventListener('click',()=>{ toast('Relatório de recomendação: em breve','ok'); });
+  // exportação (.zip)
+  const bRecZip=document.getElementById('btn-rec-zip');
+  if(bRecZip) bRecZip.addEventListener('click', openRecExport);
+  const reCancel=document.getElementById('rec-exp-cancel'); if(reCancel) reCancel.addEventListener('click',()=>document.getElementById('rec-export-modal').classList.remove('show'));
+  const reGo=document.getElementById('rec-exp-go'); if(reGo) reGo.addEventListener('click', doRecExport);
+  const reAll=document.getElementById('rec-exp-all'); if(reAll) reAll.addEventListener('click',()=>{ document.querySelectorAll('#rec-exp-insumos .nut-chip').forEach(c=>c.classList.add('sel')); recExpPreview(); });
+  const reNone=document.getElementById('rec-exp-none'); if(reNone) reNone.addEventListener('click',()=>{ document.querySelectorAll('#rec-exp-insumos .nut-chip').forEach(c=>c.classList.remove('sel')); recExpPreview(); });
+  const reMod=document.getElementById('rec-exp-modelo'); if(reMod) reMod.addEventListener('change', recExpPreview);
+  const reBg=document.getElementById('rec-export-modal'); if(reBg) reBg.addEventListener('click',(e)=>{ if(e.target===reBg) reBg.classList.remove('show'); });
 }
 
 // baixa zonas+pontos num único ZIP, com os shapefiles SOLTOS (sem zips/pastas internas)
