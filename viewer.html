@@ -1785,11 +1785,32 @@ confirmBox.addEventListener('click',e=>{if(e.target===confirmBox)confirmBox.clas
 
 
 // ══ PDF — render each page as an HTML template → canvas → PDF (preserves Arial + accents) ══
+// PDF: no basemap "Mapa" o fundo sai branco (sem tiles); no "Satélite" mantém a imagem
+function _pdfBaseHide(){
+  if(S.activeBase==='satelite') return null;
+  const mapEl=document.getElementById('map');
+  const prevBg=mapEl?mapEl.style.backgroundColor:'';
+  try{ S.map.removeLayer(S.baseLayers.mapa); }catch(e){}
+  if(mapEl) mapEl.style.backgroundColor='#ffffff';
+  let map2El=null, prevBg2='';
+  if(S.compare && S.compare.map2 && S.compare.baseLayers2){
+    map2El=document.getElementById('map2');
+    if(map2El){ prevBg2=map2El.style.backgroundColor; map2El.style.backgroundColor='#ffffff'; }
+    try{ S.compare.map2.removeLayer(S.compare.baseLayers2.mapa); }catch(e){}
+  }
+  return function(){
+    try{ S.baseLayers.mapa.addTo(S.map); S.baseLayers.mapa.bringToBack(); }catch(e){}
+    if(mapEl) mapEl.style.backgroundColor=prevBg;
+    if(map2El){ try{ S.compare.baseLayers2.mapa.addTo(S.compare.map2); S.compare.baseLayers2.mapa.bringToBack(); }catch(e){} map2El.style.backgroundColor=prevBg2; }
+  };
+}
+
 async function generatePDF(nutrients){
   showLoading(t('loadingPrep'));
   const savedCol=S.colorCol, savedPal=S.pal, savedInv=S.invert, savedLabels=S.showLabels, savedTouched=S.userTouchedPal;
   S.showLabels=true;
   S.pdfMode=true;
+  const _baseRestore=_pdfBaseHide();
   const fazenda=(document.getElementById('pdf-fazenda').value||'').trim()||'—';
   const produtor=(document.getElementById('pdf-produtor').value||'').trim()||'—';
   const resp=(document.getElementById('pdf-resp').value||'').trim()||'—';
@@ -2013,6 +2034,7 @@ async function generatePDF(nutrients){
     // restore
     S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;S.userTouchedPal=savedTouched;
     S.pdfMode=false;
+    if(_baseRestore) _baseRestore();
     document.getElementById('sel-col').value=savedCol;
     S.map.invalidateSize(false);
     renderMap();
@@ -2026,6 +2048,7 @@ async function generatePDF(nutrients){
   }catch(err){
     S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;
     S.pdfMode=false;
+    if(_baseRestore) _baseRestore();
     S.map.invalidateSize(false);
     renderMap();
     hideLoading();toast('Erro ao gerar PDF: '+err.message,'err');console.error(err);
@@ -2231,6 +2254,7 @@ function renderRecomendacao(){
     + '<div class="rec-stat-line">Dose Máxima (kg): <b>'+recFmt(mx)+'</b></div>'
     + '<div class="rec-stat-line">Taxa Média (kg/ha): <b>'+recFmt(taxa)+'</b></div>'
     + '<div class="rec-stat-line">Total do Insumo (kg): <b>'+recFmt(totalIns)+'</b></div>';
+  if(S.extras && S.extras.length) multiRenderExtrasRec();
   drawRecLabels();
 }
 
@@ -2380,9 +2404,11 @@ async function generateRecPDF(insumos){
   const sel=document.getElementById('sel-insumo');
   const mapEl=document.getElementById('map'), wrap=document.querySelector('.map-wrap');
   const orig={w:mapEl.style.width,h:mapEl.style.height,f:mapEl.style.flex}, origWrapW=wrap?wrap.style.width:'';
+  let _baseRestore=null;
   const restore=()=>{
     mapEl.style.width=orig.w; mapEl.style.height=orig.h; mapEl.style.flex=orig.f;
     if(wrap) wrap.style.width=origWrapW;
+    if(_baseRestore){ _baseRestore(); _baseRestore=null; }
     try{ S.map.invalidateSize(true); }catch(e){}
     S.rec.col=savedCol; S.rec.showLabels=savedShow; S.rec.labelScale=savedScale; S.rec.labelsHideId=savedHideId; S.pdfMode=false;
     if(sel) sel.value=savedCol;
@@ -2390,6 +2416,7 @@ async function generateRecPDF(insumos){
   };
   showLoading('Preparando relatório…');
   S.pdfMode=true; S.rec.showLabels=true; S.rec.labelsHideId=true;
+  _baseRestore=_pdfBaseHide();
   const cliente=(document.getElementById('rpdf-cliente').value||'').trim()||(S.linkData&&S.linkData.cliente)||'—';
   const regiao=(document.getElementById('rpdf-regiao').value||'').trim()||(S.linkData&&S.linkData.fazenda)||'—';
   const resp=(document.getElementById('rpdf-resp').value||'').trim();
@@ -2416,11 +2443,11 @@ async function generateRecPDF(insumos){
       try{ S.map.invalidateSize(true); }catch(e){}
       renderRecomendacao();
       try{ if(S.rec.layer) S.map.fitBounds(S.rec.layer.getBounds(),{padding:[26,26],animate:false}); }catch(e){}
-      await new Promise(r=>setTimeout(r,650));
+      await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1300:550));
 
       let mapImg;
       if(S.shooter){ mapImg=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'}); }
-      else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:'#e4e0d4'}); mapImg=cv.toDataURL('image/jpeg',0.95); }
+      else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); mapImg=cv.toDataURL('image/jpeg',0.95); }
 
       const st=recComputeStats(col);
       const sb=recScaleBar(660);
@@ -3355,7 +3382,21 @@ async function buildExtras(allTokens){
       const temColeta = !!(data.tem_coleta_solo || data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url || geoPoints);
       const coleta = temColeta ? await _buildColeta(data, geo, geoPoints) : {raster:null,zonas:null,pontos:null};
       let bounds=null; try{ bounds=L.geoJSON(geo).getBounds(); }catch(e){}
-      S.extras.push({ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _zonaLabels:[] });
+      // planilha de recomendação do talhão (para o modo Recomendação no multi)
+      let recRows=[], recFields=[], recZone=null, recInsumoCols=[];
+      try{
+        let recUrl=data.recomendacao_url;
+        if(!recUrl){ const { data:ru } = await sb.rpc('get_recomendacao_url',{ p_token: allTokens[i] }); if(ru && ru.recomendacao_url) recUrl=ru.recomendacao_url; }
+        if(recUrl){
+          const respR=await fetch(recUrl); const bufR=await respR.arrayBuffer();
+          const extR=(recUrl.split('?')[0].split('.').pop()||'').toLowerCase();
+          const parsedR=(extR==='csv')?parseCSVText(decodeBuffer(bufR)):parseXLSX(bufR);
+          recRows=parsedR.rows||[]; recFields=parsedR.fields||[];
+          recZone=recFields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||recFields[0];
+          recInsumoCols=detectInsumoCols(recFields, recRows);
+        }
+      }catch(e){}
+      S.extras.push({ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _zonaLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,_layer:null} });
       addLeg(nome);
     }catch(e){}
   }
@@ -3364,9 +3405,9 @@ async function buildExtras(allTokens){
 }
 function _extraClearZonaLabels(ex){ (ex._zonaLabels||[]).forEach(m=>{ try{S.map.removeLayer(m);}catch(e){} }); ex._zonaLabels=[]; }
 function _extraClearAll(ex){
-  [ex._nut, ex._empty, ex.coleta.raster, ex.coleta.zonas, ex.coleta.pontos].forEach(l=>{ if(l){ try{ S.map.removeLayer(l); }catch(e){} } });
+  [ex._nut, ex._empty, ex.coleta.raster, ex.coleta.zonas, ex.coleta.pontos, ex.rec&&ex.rec._layer].forEach(l=>{ if(l){ try{ S.map.removeLayer(l); }catch(e){} } });
   _extraClearZonaLabels(ex);
-  ex._nut=null; ex._empty=null;
+  ex._nut=null; ex._empty=null; if(ex.rec) ex.rec._layer=null;
 }
 // nutrientes: cada extra segue o nutriente/profundidade do painel (cinza se não tiver)
 function multiRenderExtrasNutrient(){
@@ -3409,7 +3450,7 @@ function multiRenderExtrasZonaLabels(){
 function multiApplyMode(mode){
   if(!S.extras || !S.extras.length) return;
   S.extras.forEach(ex=>_extraClearAll(ex));
-  if(mode==='recomendacao'){ return; } // recomendação: foca no talhão principal
+  if(mode==='recomendacao'){ multiRenderExtrasRec(); return; }
   if(mode==='coleta'){
     const rt=document.getElementById('clt-raster-toggle'); const pt=document.getElementById('clt-pontos-toggle'); const zt=document.getElementById('clt-zonas-toggle');
     S.extras.forEach(ex=>{
@@ -3428,6 +3469,33 @@ function multiApplyMode(mode){
 function multiExtrasColeta(kind,on){
   if(!S.extras||!S.extras.length||S.mapMode!=='coleta') return;
   S.extras.forEach(ex=>{ if(!ex.hasColeta) return; const lay=ex.coleta[kind]; if(lay){ on?lay.addTo(S.map):S.map.removeLayer(lay); } });
+}
+// recomendação: colore as zonas de cada talhão extra pelo insumo selecionado (escala própria de cada talhão)
+function multiRenderExtrasRec(){
+  if(!S.extras||!S.extras.length||S.mapMode!=='recomendacao') return;
+  const palRev=[...PALS.rdylgn.c].reverse();
+  const col=S.rec.col;
+  S.extras.forEach(ex=>{
+    if(ex.rec && ex.rec._layer){ try{S.map.removeLayer(ex.rec._layer);}catch(e){} ex.rec._layer=null; }
+    if(ex._nut){ try{S.map.removeLayer(ex._nut);}catch(e){} ex._nut=null; }
+    if(ex._empty){ try{S.map.removeLayer(ex._empty);}catch(e){} ex._empty=null; }
+    const rec=ex.rec;
+    const recCol=(rec && col && (rec.fields||[]).indexOf(col)>=0)?col:null;
+    if(!rec || !recCol || !rec.rows.length){ ex._empty=_emptyZonesLayer(ex.geo); ex._empty.addTo(S.map); return; }
+    const fator=recFatorColuna(recCol);
+    const joined={}; rec.rows.forEach(r=>{ joined[String(r[rec.zone]??'').trim()]=r; });
+    const jg=ex.joinGeo||_zoneField(ex.geo.features[0].properties);
+    const doseDe=(f)=>{ const k=String(f.properties[jg]??'').trim(); const row=joined[k]; let d=row?recNum(row[recCol]):NaN; return isNaN(d)?null:d*fator; };
+    let mn=Infinity,mx=-Infinity; ex.geo.features.forEach(f=>{ const d=doseDe(f); if(d!=null){ if(d<mn)mn=d; if(d>mx)mx=d; } });
+    if(!isFinite(mn)){ mn=0; mx=0; }
+    const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const tt=mx===mn?0:(d-mn)/(mx-mn); return lerpColor(palRev,Math.max(0,Math.min(1,tt))); };
+    const layer=L.geoJSON(ex.geo,{
+      style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+      onEachFeature:(f,l)=>{ const k=String(f.properties[jg]??'').trim(); const d=doseDe(f);
+        l.bindTooltip('<div class="tt-head">'+(ex.nome||'Talhão')+' — Zona '+(k||'—')+'</div><div class="tt-col">'+recCol+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div>',{sticky:true,opacity:1}); }
+    }).addTo(S.map);
+    ex.rec._layer=layer;
+  });
 }
 function multiFitAll(){
   let b=null;
