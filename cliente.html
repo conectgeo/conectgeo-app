@@ -62,7 +62,7 @@
       const b = (typeof data==='string') ? JSON.parse(data) : data;
       if(b && !b.erro && b.logo_url){
         const el=document.getElementById('cg-brand');
-        if(el) el.innerHTML='<img src="'+b.logo_url+'" alt="logo" style="height:34px;max-width:190px;object-fit:contain;display:block" onerror="this.parentNode.innerHTML=\'Conect<span style=&quot;color:var(--leaf)&quot;>Geo</span>\'">';
+        if(el) el.innerHTML='<img src="'+b.logo_url+'" alt="logo" style="height:50px;max-width:240px;object-fit:contain;display:block" onerror="this.parentNode.innerHTML=\'Conect<span style=&quot;color:var(--leaf)&quot;>Geo</span>\'">';
       }
     }catch(e){}
   }
