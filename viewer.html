@@ -1785,24 +1785,27 @@ confirmBox.addEventListener('click',e=>{if(e.target===confirmBox)confirmBox.clas
 
 
 // ══ PDF — render each page as an HTML template → canvas → PDF (preserves Arial + accents) ══
-// PDF: no basemap "Mapa" o fundo sai branco (sem tiles); no "Satélite" mantém a imagem
+// PDF: no basemap "Mapa" o fundo sai BRANCO PURO (camada de tiles brancos); no "Satélite" mantém a imagem
+function _pdfWhiteLayer(){
+  const WL = L.GridLayer.extend({ createTile:function(){ const c=document.createElement('canvas'); c.width=256;c.height=256; const x=c.getContext('2d'); x.fillStyle='#ffffff'; x.fillRect(0,0,256,256); return c; } });
+  return new WL();
+}
 function _pdfBaseHide(){
   if(S.activeBase==='satelite') return null;
-  const mapEl=document.getElementById('map');
-  const prevBg=mapEl?mapEl.style.backgroundColor:'';
+  const restorers=[];
+  const mapEl=document.getElementById('map'); const prevBg=mapEl?mapEl.style.backgroundColor:'';
   try{ S.map.removeLayer(S.baseLayers.mapa); }catch(e){}
+  const wl=_pdfWhiteLayer(); wl.addTo(S.map); try{ wl.bringToBack(); }catch(e){}
   if(mapEl) mapEl.style.backgroundColor='#ffffff';
-  let map2El=null, prevBg2='';
+  restorers.push(()=>{ try{ S.map.removeLayer(wl); }catch(e){} try{ S.baseLayers.mapa.addTo(S.map); S.baseLayers.mapa.bringToBack(); }catch(e){} if(mapEl) mapEl.style.backgroundColor=prevBg; });
   if(S.compare && S.compare.map2 && S.compare.baseLayers2){
-    map2El=document.getElementById('map2');
-    if(map2El){ prevBg2=map2El.style.backgroundColor; map2El.style.backgroundColor='#ffffff'; }
+    const map2El=document.getElementById('map2'); const prevBg2=map2El?map2El.style.backgroundColor:'';
     try{ S.compare.map2.removeLayer(S.compare.baseLayers2.mapa); }catch(e){}
+    const wl2=_pdfWhiteLayer(); wl2.addTo(S.compare.map2); try{ wl2.bringToBack(); }catch(e){}
+    if(map2El) map2El.style.backgroundColor='#ffffff';
+    restorers.push(()=>{ try{ S.compare.map2.removeLayer(wl2); }catch(e){} try{ S.compare.baseLayers2.mapa.addTo(S.compare.map2); S.compare.baseLayers2.mapa.bringToBack(); }catch(e){} if(map2El) map2El.style.backgroundColor=prevBg2; });
   }
-  return function(){
-    try{ S.baseLayers.mapa.addTo(S.map); S.baseLayers.mapa.bringToBack(); }catch(e){}
-    if(mapEl) mapEl.style.backgroundColor=prevBg;
-    if(map2El){ try{ S.compare.baseLayers2.mapa.addTo(S.compare.map2); S.compare.baseLayers2.mapa.bringToBack(); }catch(e){} map2El.style.backgroundColor=prevBg2; }
-  };
+  return function(){ restorers.forEach(fn=>{ try{fn();}catch(e){} }); };
 }
 
 async function generatePDF(nutrients){
