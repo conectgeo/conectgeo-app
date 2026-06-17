@@ -2475,10 +2475,10 @@ async function generateRecPDF(insumos){
         +line('Dose Mínima (kg):',recFmt(st.mn))+line('Dose Máxima (kg):',recFmt(st.mx))
         +line('Taxa Média (kg/ha):',recFmt(st.taxa))+line('Total do Insumo (kg):',recFmt(st.totalIns))+'</div>';
       let legRows='<div style="display:flex;font-size:11px;font-weight:700;color:#222;margin-bottom:7px;">'
-        +'<span style="flex:1;text-align:center">Doses (kg/ha)</span><span style="flex:1;text-align:center">Hectares</span><span style="flex:1;text-align:center">%</span></div>';
+        +'<span style="flex:1;text-align:left;padding-left:6px">Doses (kg/ha)</span><span style="flex:1;text-align:center">Hectares</span><span style="flex:1;text-align:center">%</span></div>';
       st.buckets.forEach(b=>{ const sw=corLM((b.lo+b.hi)/2,st.mn,st.mx);
         legRows+='<div style="display:flex;align-items:center;font-size:11px;color:#222;margin:5px 0;">'
-          +'<span style="flex:1;display:flex;justify-content:center;"><span style="display:flex;align-items:center;gap:7px;width:118px;white-space:nowrap;"><span style="width:14px;height:11px;background:'+sw+';border:1px solid #999;flex-shrink:0;display:inline-block"></span><span>'+recFmt(b.lo)+' - '+recFmt(b.hi)+'</span></span></span>'
+          +'<span style="flex:1;display:flex;align-items:center;gap:7px;padding-left:6px;white-space:nowrap;"><span style="width:14px;height:11px;background:'+sw+';border:1px solid #999;flex-shrink:0;display:inline-block"></span><span>'+recFmt(b.lo)+' - '+recFmt(b.hi)+'</span></span>'
           +'<span style="flex:1;text-align:center">'+b.ha.toFixed(2)+'</span>'
           +'<span style="flex:1;text-align:center">'+(b.ha/st.totBucketHa*100).toFixed(2)+'</span></div>'; });
       const legHTML='<div style="border-top:1px solid #e2e2e2;padding-top:13px;">'+lab('Legenda')+legRows+'</div>';
