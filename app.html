@@ -251,7 +251,9 @@ tr:hover td{background:var(--sand);}
 .ebox{background:var(--sand);border-radius:16px;max-width:780px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3);overflow:hidden;}
 .ehead{display:flex;align-items:center;justify-content:space-between;padding:15px 20px;background:#fff;border-bottom:1px solid var(--sand2);}
 .ehead h3{margin:0;font-size:16px;}
-.ebody{padding:18px 20px;overflow-y:auto;}
+.ebody{padding:18px 20px;overflow-y:auto;flex:1;}
+.efoot{padding:12px 20px;background:#fff;border-top:1px solid var(--sand2);display:flex;justify-content:flex-end;}
+.efoot .btn{padding:10px 22px;font-size:14px;}
 .ed-sec{background:#fff;border:1px solid var(--sand2);border-radius:12px;padding:16px;margin-bottom:14px;}
 .ed-h{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:12px;}
 .ed-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
@@ -1454,7 +1456,7 @@ async function renderEdicao(){
       <label>Município<input id="ec-mun" value="${attr(c.municipio)}"></label>
       <label>País<input id="ec-pais" value="${attr(c.pais)}"></label>
     </div>
-    <div class="ed-row-btns"><button class="btn pri" onclick="salvarCliente()">Salvar cliente</button>
+    <div class="ed-row-btns">
       <button class="btn danger sm" onclick="pedirExcluirCliente('${c.id}','${esc(c.nome)}')">Excluir cliente</button></div>
   </div>`;
   h+=`<div class="ed-sec"><div class="ed-h">Fazendas (${fazendas.length})</div>`;
@@ -1462,12 +1464,11 @@ async function renderEdicao(){
   fazendas.forEach(f=>{
     const tals=(f.talhoes||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
     h+=`<div class="ed-faz">
-      <div class="ed-grid3">
+      <div class="ed-grid">
         <label>Fazenda<input id="ef-nome-${f.id}" value="${attr(f.nome)}"></label>
         <label>Município<input id="ef-mun-${f.id}" value="${attr(f.municipio)}"></label>
-        <label>Estado<input id="ef-est-${f.id}" value="${attr(f.estado)}"></label>
       </div>
-      <div class="ed-row-btns"><button class="btn sec sm" onclick="salvarFazenda('${f.id}')">Salvar fazenda</button>
+      <div class="ed-row-btns">
         <button class="btn danger sm" onclick="pedirExcluirFazenda('${f.id}','${esc(f.nome)}')">Excluir fazenda</button></div>
       <div class="ed-tals">`;
     if(!tals.length) h+='<div class="ed-vazio">Sem talhões.</div>';
@@ -1486,7 +1487,6 @@ async function renderEdicao(){
         <input id="et-nome-${t.id}" value="${attr(t.nome)}" style="flex:1;min-width:120px">
         <input id="et-ha-${t.id}" value="${t.hectares??''}" type="number" step="0.01" placeholder="ha" style="width:88px">
         <button class="btn sec sm" onclick="emClose();abrirTalhao('${t.id}')" title="Editar no mapa">🗺 Mapa</button>
-        <button class="btn sec sm" onclick="salvarTalhaoEdit('${t.id}')">Salvar</button>
         <button class="btn danger sm" onclick="pedirExcluirTalhao('${t.id}','${esc(t.nome)}')">Excluir</button>
       </div>${arqHtml}`;
     });
@@ -1495,13 +1495,29 @@ async function renderEdicao(){
   h+=`</div>`;
   document.getElementById('em-body').innerHTML=h;
 }
+async function salvarTudo(){
+  const btn=document.getElementById('ed-save-all'); const t0=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Salvando…'; }
+  let err=null;
+  try{
+    const r1=await sb.from('clientes').update({ nome:val('ec-nome'), email:val('ec-email'), municipio:val('ec-mun'), pais:val('ec-pais') }).eq('id',EDIT_CLI);
+    if(r1.error) err=r1.error;
+    const fazIds=[...document.querySelectorAll('[id^="ef-nome-"]')].map(e=>e.id.replace('ef-nome-',''));
+    for(const id of fazIds){ const r=await sb.from('fazendas').update({ nome:val('ef-nome-'+id), municipio:val('ef-mun-'+id) }).eq('id',id); if(r.error) err=r.error; }
+    const talIds=[...document.querySelectorAll('[id^="et-nome-"]')].map(e=>e.id.replace('et-nome-',''));
+    for(const id of talIds){ const ha=parseFloat(val('et-ha-'+id)); const r=await sb.from('talhoes').update({ nome:val('et-nome-'+id), hectares:isNaN(ha)?null:ha }).eq('id',id); if(r.error) err=r.error; }
+    if(err) toast('Erro ao salvar: '+err.message,'⚠️'); else toast('Alterações salvas','✅');
+    carregarDashboard();
+  }catch(e){ toast('Erro: '+(e.message||e),'⚠️'); }
+  if(btn){ btn.disabled=false; btn.textContent=t0||'Salvar alterações'; }
+}
 async function salvarCliente(){
   const { error } = await sb.from('clientes').update({ nome:val('ec-nome'), email:val('ec-email'), municipio:val('ec-mun'), pais:val('ec-pais') }).eq('id',EDIT_CLI);
   if(error){ toast('Erro: '+error.message,'⚠️'); return; }
   toast('Cliente salvo','✅'); carregarDashboard();
 }
 async function salvarFazenda(id){
-  const { error } = await sb.from('fazendas').update({ nome:val('ef-nome-'+id), municipio:val('ef-mun-'+id), estado:val('ef-est-'+id) }).eq('id',id);
+  const { error } = await sb.from('fazendas').update({ nome:val('ef-nome-'+id), municipio:val('ef-mun-'+id) }).eq('id',id);
   if(error){ toast('Erro: '+error.message,'⚠️'); return; }
   toast('Fazenda salva','✅'); carregarDashboard();
 }
@@ -1717,6 +1733,7 @@ function toast(msg,ic='✅'){
 <div id="edit-modal" class="emodal"><div class="ebox">
   <div class="ehead"><h3 id="em-title">Editar cliente</h3><button class="so-close" onclick="emClose()">✕</button></div>
   <div class="ebody" id="em-body"></div>
+  <div class="efoot"><button class="btn pri" id="ed-save-all" onclick="salvarTudo()">Salvar alterações</button></div>
 </div></div>
 </body>
 </html>

@@ -225,6 +225,8 @@ body.rec-cmp-on .rec-edit-float{display:none!important;}
 .rec-save-btn{background:#15a800;}.rec-save-btn:hover{background:#138f00;}
 .rec-cancel-btn{background:#e23b2e;}.rec-cancel-btn:hover{background:#c92e22;}
 .rec-edit-float svg{flex-shrink:0;}
+body.rec-editing .mode-btn span{display:none;}
+body.rec-editing .mode-btn{padding:8px 10px;}
 .rzedit-pop input{outline:none;}
 .mode-btn.active{background:#5fa832;color:#fff;box-shadow:0 2px 6px rgba(95,168,50,.35);}
 @media(max-width:680px){.mode-switch{top:8px;flex-direction:column;}.mode-btn{padding:6px 12px;font-size:11px;}}
@@ -2226,7 +2228,7 @@ function renderRecCompare(){
 }
 function setRecCompareMode(on){
   if(on && (!S.rec.rows.length || (S.rec.insumoCols||[]).length<2)){ toast('Comparação requer ao menos 2 insumos na planilha','wrn'); return; }
-  if(on && S.rec.editing){ if(S.rec._backup){ S.rec.rows=S.rec._backup; S.rec._backup=null; } S.rec.editing=false; const _be=document.getElementById('btn-rec-editar'); if(_be){_be.classList.remove('active');_be.style.display='';} const _ra=document.getElementById('rec-edit-actions'); if(_ra)_ra.style.display='none'; }
+  if(on && S.rec.editing){ if(S.rec._backup){ S.rec.rows=S.rec._backup; S.rec._backup=null; } S.rec.editing=false; document.body.classList.remove('rec-editing'); const _be=document.getElementById('btn-rec-editar'); if(_be){_be.classList.remove('active');_be.style.display='';} const _ra=document.getElementById('rec-edit-actions'); if(_ra)_ra.style.display='none'; }
   document.body.classList.toggle('rec-cmp-on', on);
   S.recCompare.on=on;
   document.getElementById('rec-compare-row').classList.toggle('on',on);
@@ -2398,6 +2400,7 @@ function setRecEditMode(on){
   if(on && S.recCompare.on){ toast('Saia do modo comparação para editar','wrn'); return; }
   if(on && (!S.rec.rows.length || !S.rec.col)){ toast('Sem recomendação para editar','wrn'); return; }
   S.rec.editing=on;
+  document.body.classList.toggle('rec-editing', on);
   document.getElementById('btn-rec-editar').classList.toggle('active', on);
   document.getElementById('btn-rec-editar').style.display=on?'none':'';
   document.getElementById('rec-edit-actions').style.display=on?'flex':'none';
@@ -2435,6 +2438,7 @@ function buildRecCSV(){
 function recEditCancelar(){
   if(S.rec._backup){ S.rec.rows=S.rec._backup; S.rec._backup=null; }
   S.rec.editing=false;
+  document.body.classList.remove('rec-editing');
   document.getElementById('btn-rec-editar').classList.remove('active');
   document.getElementById('btn-rec-editar').style.display='';
   document.getElementById('rec-edit-actions').style.display='none';
@@ -2444,6 +2448,7 @@ function recEditCancelar(){
 }
 async function recEditSalvar(){
   S.rec._backup=null; S.rec.editing=false;
+  document.body.classList.remove('rec-editing');
   document.getElementById('btn-rec-editar').classList.remove('active');
   document.getElementById('btn-rec-editar').style.display='';
   document.getElementById('rec-edit-actions').style.display='none';
@@ -2480,6 +2485,7 @@ function setMapMode(mode){
   if(mode!=='recomendacao' && S.rec && S.rec.editing){
     if(S.rec._backup){ S.rec.rows=S.rec._backup; S.rec._backup=null; }
     S.rec.editing=false;
+    document.body.classList.remove('rec-editing');
     const _be=document.getElementById('btn-rec-editar'); if(_be){ _be.classList.remove('active'); _be.style.display=''; }
     const _ra=document.getElementById('rec-edit-actions'); if(_ra) _ra.style.display='none';
     try{ S.map.closePopup(); }catch(e){}
