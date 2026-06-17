@@ -215,6 +215,17 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 .mode-switch{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:650;display:flex;gap:4px;background:rgba(255,255,255,.95);padding:5px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.2);}
 .mode-btn{padding:8px 16px;border:none;background:transparent;border-radius:9px;font-size:12.5px;font-weight:700;color:#7a7268;cursor:pointer;transition:.15s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;}
 .mode-btn svg{flex-shrink:0;}
+.rec-edit-float{position:absolute;top:12px;right:12px;z-index:651;display:none;align-items:center;gap:8px;}
+body.consultor-mode.mode-rec .rec-edit-float{display:flex;}
+body.rec-cmp-on .rec-edit-float{display:none!important;}
+.rec-edit-btn{display:inline-flex;align-items:center;gap:6px;background:#fff;border:2px solid #f6990d;color:#dd7d00;font-weight:700;font-size:12.5px;padding:7px 15px;border-radius:12px;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:.15s;white-space:nowrap;}
+.rec-edit-btn:hover{background:#fff7ec;}
+.rec-edit-btn.active{background:#f6990d;color:#fff;}
+.rec-save-btn,.rec-cancel-btn{display:inline-flex;align-items:center;gap:6px;border:0;font-weight:700;font-size:12.5px;padding:8px 15px;border-radius:12px;cursor:pointer;color:#fff;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:.15s;white-space:nowrap;}
+.rec-save-btn{background:#15a800;}.rec-save-btn:hover{background:#138f00;}
+.rec-cancel-btn{background:#e23b2e;}.rec-cancel-btn:hover{background:#c92e22;}
+.rec-edit-float svg{flex-shrink:0;}
+.rzedit-pop input{outline:none;}
 .mode-btn.active{background:#5fa832;color:#fff;box-shadow:0 2px 6px rgba(95,168,50,.35);}
 @media(max-width:680px){.mode-switch{top:8px;flex-direction:column;}.mode-btn{padding:6px 12px;font-size:11px;}}
 .pt-coleta{display:flex;flex-direction:column;align-items:center;transform:translate(-50%,-50%);}
@@ -646,6 +657,13 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <button class="mode-btn" id="mode-coleta" onclick="setMapMode('coleta')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6 -3l6 3l6 -3v13l-6 3l-6 -3l-6 3v-13"/><path d="M9 4v13"/><path d="M15 7v13"/></svg><span data-i18n="modoColeta">Coleta de Solo</span></button>
     <button class="mode-btn" id="mode-recomendacao" onclick="setMapMode('recomendacao')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="10" r="2"/><path d="M6 4v4"/><path d="M6 12v8"/><circle cx="12" cy="16" r="2"/><path d="M12 4v10"/><path d="M12 18v2"/><circle cx="18" cy="7" r="2"/><path d="M18 4v1"/><path d="M18 9v11"/></svg><span data-i18n="modoRecomendacao">Recomendação</span></button>
   </div>
+  <div class="rec-edit-float" id="rec-edit-float">
+    <button class="rec-edit-btn" id="btn-rec-editar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg><span>Editar</span></button>
+    <div id="rec-edit-actions" style="display:none;align-items:center;gap:8px">
+      <button class="rec-save-btn" id="btn-rec-save"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg><span>Salvar</span></button>
+      <button class="rec-cancel-btn" id="btn-rec-cancel"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg><span>Cancelar</span></button>
+    </div>
+  </div>
   <div class="map-host">
     <div id="map"></div>
     <div id="map2"></div>
@@ -731,7 +749,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
         <option value="stara">Stara</option>
         <option value="johndeere">John Deere</option>
         <option value="caseih">Case IH</option>
-        <option value="raiz">Salvar na raiz</option>
+        <option value="raiz">Genérico</option>
       </select>
 
       <span class="mlabel">Insumos a exportar</span>
@@ -2138,6 +2156,7 @@ function renderRecomendacao(){
       l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+col+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div><div style="font-size:10px;opacity:.85">'+ha.toFixed(2)+' ha</div>',{sticky:true,opacity:1});
       l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
       l.on('mouseout',function(){ if(S.rec.layer) S.rec.layer.resetStyle(this); });
+      l.on('click',function(e){ if(S.rec.editing){ L.DomEvent.stop(e); openZoneEdit(k, e.latlng); } });
     }
   }).addTo(S.map);
   if(!S.pdfMode){ try{ S.map.fitBounds(S.rec.layer.getBounds(),{padding:[24,24]}); }catch(e){} }
@@ -2207,6 +2226,8 @@ function renderRecCompare(){
 }
 function setRecCompareMode(on){
   if(on && (!S.rec.rows.length || (S.rec.insumoCols||[]).length<2)){ toast('Comparação requer ao menos 2 insumos na planilha','wrn'); return; }
+  if(on && S.rec.editing){ if(S.rec._backup){ S.rec.rows=S.rec._backup; S.rec._backup=null; } S.rec.editing=false; const _be=document.getElementById('btn-rec-editar'); if(_be){_be.classList.remove('active');_be.style.display='';} const _ra=document.getElementById('rec-edit-actions'); if(_ra)_ra.style.display='none'; }
+  document.body.classList.toggle('rec-cmp-on', on);
   S.recCompare.on=on;
   document.getElementById('rec-compare-row').classList.toggle('on',on);
   document.getElementById('rec-compare-toggle').classList.toggle('on',on);
@@ -2234,7 +2255,7 @@ const REC_MODELOS={
   stara:{nome:'Stara', subs:['Dados','Mapas']},
   johndeere:{nome:'John Deere', subs:['Rx']},
   caseih:{nome:'Case IH', subs:['Shapefile']},
-  raiz:{nome:'Salvar na raiz', subs:[]}
+  raiz:{nome:'Genérico', subs:[]}
 };
 const PRJ_WGS84='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]';
 function _normNome(t){
@@ -2372,6 +2393,83 @@ async function doRecExport(){
   goBtn.disabled=false; goBtn.textContent=txt0;
 }
 
+// ═══════════ EDIÇÃO DE DOSES (consultor) ═══════════
+function setRecEditMode(on){
+  if(on && S.recCompare.on){ toast('Saia do modo comparação para editar','wrn'); return; }
+  if(on && (!S.rec.rows.length || !S.rec.col)){ toast('Sem recomendação para editar','wrn'); return; }
+  S.rec.editing=on;
+  document.getElementById('btn-rec-editar').classList.toggle('active', on);
+  document.getElementById('btn-rec-editar').style.display=on?'none':'';
+  document.getElementById('rec-edit-actions').style.display=on?'flex':'none';
+  if(on){ S.rec._backup=JSON.parse(JSON.stringify(S.rec.rows)); toast('Clique numa zona para editar a dose de '+S.rec.col,'ok'); }
+  else { try{ S.map.closePopup(); }catch(e){} }
+}
+function openZoneEdit(zoneKey, latlng){
+  if(!S.rec.editing || !S.rec.col) return;
+  const insumo=S.rec.col, fator=recFatorColuna(insumo);
+  const zoneF=S.rec.fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||S.rec.fields[0];
+  let row=S.rec.rows.find(r=>String(r[zoneF]??'').trim()===zoneKey);
+  let cur=row?recNum(row[insumo]):NaN; if(!isNaN(cur)) cur*=fator;
+  const html='<div class="rzedit-pop"><div style="font-size:12px;font-weight:700;margin-bottom:6px;color:#3a3a3a">Zona '+(zoneKey||'—')+' · '+insumo+'</div>'
+    +'<div style="display:flex;align-items:center;gap:6px"><input id="rzedit" type="number" step="any" value="'+(isNaN(cur)?'':cur)+'" style="width:110px;padding:6px 8px;border:1.5px solid #ccc;border-radius:7px;font-size:13px"><span style="font-size:11px;color:#777">kg/ha</span></div>'
+    +'<div style="margin-top:9px;display:flex;gap:6px;justify-content:flex-end"><button id="rzok" style="background:#15a800;color:#fff;border:0;border-radius:7px;padding:6px 14px;font-weight:700;cursor:pointer;font-size:12px">Aplicar</button></div></div>';
+  const pop=L.popup({closeButton:true,minWidth:160}).setLatLng(latlng).setContent(html).openOn(S.map);
+  setTimeout(()=>{ const inp=document.getElementById('rzedit'); if(inp){ inp.focus(); inp.select(); }
+    const apply=()=>{ const raw=document.getElementById('rzedit').value; const val=parseFloat(raw);
+      if(!row){ row={}; row[zoneF]=zoneKey; S.rec.fields.forEach(f=>{ if(!(f in row)) row[f]=''; }); S.rec.rows.push(row); }
+      if(raw===''||isNaN(val)) row[insumo]=''; else row[insumo]=(fator!==1 ? val/fator : val);
+      try{ S.map.closePopup(pop); }catch(e){}
+      renderRecomendacao();
+    };
+    const ok=document.getElementById('rzok'); if(ok) ok.onclick=apply;
+    if(inp) inp.onkeydown=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); apply(); } };
+  },60);
+}
+function buildRecCSV(){
+  const fields=S.rec.fields||[];
+  const esc=(v)=>{ v=(v==null?'':String(v)); return /[",\n;]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  let csv=fields.map(esc).join(',')+'\n';
+  (S.rec.rows||[]).forEach(r=>{ csv+=fields.map(f=>esc(r[f])).join(',')+'\n'; });
+  return csv;
+}
+function recEditCancelar(){
+  if(S.rec._backup){ S.rec.rows=S.rec._backup; S.rec._backup=null; }
+  S.rec.editing=false;
+  document.getElementById('btn-rec-editar').classList.remove('active');
+  document.getElementById('btn-rec-editar').style.display='';
+  document.getElementById('rec-edit-actions').style.display='none';
+  try{ S.map.closePopup(); }catch(e){}
+  renderRecomendacao();
+  toast('Edição cancelada','ok');
+}
+async function recEditSalvar(){
+  S.rec._backup=null; S.rec.editing=false;
+  document.getElementById('btn-rec-editar').classList.remove('active');
+  document.getElementById('btn-rec-editar').style.display='';
+  document.getElementById('rec-edit-actions').style.display='none';
+  try{ S.map.closePopup(); }catch(e){}
+  renderRecomendacao();
+  const saveBtn=document.getElementById('btn-rec-save');
+  if(sb && S.tokenAtual){
+    if(saveBtn) saveBtn.disabled=true;
+    try{
+      const csv=buildRecCSV(); const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+      const path='recomendacao/'+S.tokenAtual+'/planilha.csv';
+      const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv'});
+      if(up && up.error){ toast('Aplicado na tela; falha ao salvar na planilha: '+up.error.message,'wrn'); }
+      else {
+        const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
+        S.rec.url=url;
+        await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
+        toast('Alterações salvas na planilha de entrada','ok');
+      }
+    }catch(e){ toast('Aplicado na tela; erro ao salvar: '+e.message,'wrn'); }
+    if(saveBtn) saveBtn.disabled=false;
+  } else {
+    toast('Alterações aplicadas','ok');
+  }
+}
+
 function setMapMode(mode){
   S.mapMode=mode;
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
@@ -2379,6 +2477,13 @@ function setMapMode(mode){
   const _mr=document.getElementById('mode-recomendacao'); if(_mr) _mr.classList.toggle('active', mode==='recomendacao');
   document.body.classList.toggle('mode-rec', mode==='recomendacao');
   if(mode!=='recomendacao' && S.rec && S.rec.layer){ try{S.map.removeLayer(S.rec.layer);}catch(e){} S.rec.layer=null; }
+  if(mode!=='recomendacao' && S.rec && S.rec.editing){
+    if(S.rec._backup){ S.rec.rows=S.rec._backup; S.rec._backup=null; }
+    S.rec.editing=false;
+    const _be=document.getElementById('btn-rec-editar'); if(_be){ _be.classList.remove('active'); _be.style.display=''; }
+    const _ra=document.getElementById('rec-edit-actions'); if(_ra) _ra.style.display='none';
+    try{ S.map.closePopup(); }catch(e){}
+  }
   if(mode!=='recomendacao' && S.recCompare && S.recCompare.on){
     S.recCompare.on=false;
     document.getElementById('rec-compare-row').classList.remove('on');
@@ -2827,6 +2932,10 @@ function wireColetaControls(){
   const reNone=document.getElementById('rec-exp-none'); if(reNone) reNone.addEventListener('click',()=>{ document.querySelectorAll('#rec-exp-insumos .nut-chip').forEach(c=>c.classList.remove('sel')); recExpPreview(); });
   const reMod=document.getElementById('rec-exp-modelo'); if(reMod) reMod.addEventListener('change', recExpPreview);
   const reBg=document.getElementById('rec-export-modal'); if(reBg) reBg.addEventListener('click',(e)=>{ if(e.target===reBg) reBg.classList.remove('show'); });
+  // edição de doses
+  const bEdit=document.getElementById('btn-rec-editar'); if(bEdit) bEdit.addEventListener('click',()=>setRecEditMode(true));
+  const bSave=document.getElementById('btn-rec-save'); if(bSave) bSave.addEventListener('click', recEditSalvar);
+  const bCanc=document.getElementById('btn-rec-cancel'); if(bCanc) bCanc.addEventListener('click', recEditCancelar);
 }
 
 // baixa zonas+pontos num único ZIP, com os shapefiles SOLTOS (sem zips/pastas internas)
