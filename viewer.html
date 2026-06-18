@@ -206,6 +206,12 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 #rec-pdf-modal .rpl-opt .tx{display:flex;flex-direction:column;gap:2px;line-height:1.2;}
 #rec-pdf-modal .rpl-opt .tx strong{font-size:11.5px;color:var(--ink);}
 #rec-pdf-modal .rpl-opt .tx span{font-size:9px;color:var(--muted);}
+/* tela de conferência do Modelo B (níveis ideais) */
+#mb-grid .mb-head{display:grid;grid-template-columns:1fr 92px 110px;gap:8px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:7px;font-weight:700;}
+#mb-grid .mb-row{display:grid;grid-template-columns:1fr 92px 110px;gap:8px;align-items:center;margin-bottom:7px;}
+#mb-grid .mb-row label{font-size:13px;font-weight:600;color:var(--ink);}
+#mb-grid .mb-row input{padding:8px 9px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;width:100%;box-sizing:border-box;}
+#mb-grid .mb-row input:focus{outline:none;border-color:var(--leaf);}
 
 .leaflet-container{background:#e4e0d4 !important;}
 .leaflet-control-zoom a{background:var(--surface) !important;color:var(--ink) !important;border-color:var(--border) !important;}
@@ -818,6 +824,23 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div class="modal-foot">
       <button class="mbtn cancel" id="rpdf-cancel">Cancelar</button>
       <button class="mbtn go" id="rpdf-go">Gerar PDF</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="mb-modal">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-head">
+      <div class="modal-title">Relatório de Nutrientes — Modelo B</div>
+      <div class="modal-sub">Confira o Nível Ideal de cada nutriente (salvo por cliente)</div>
+    </div>
+    <div class="modal-body">
+      <div id="mb-grid"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="mbtn cancel" id="mb-limpar" style="margin-right:auto;">Limpar</button>
+      <button class="mbtn cancel" id="mb-cancel">Cancelar</button>
+      <button class="mbtn go" id="mb-go">Gerar PDF</button>
     </div>
   </div>
 </div>
@@ -1710,6 +1733,7 @@ document.getElementById('btn-demo').addEventListener('click',()=>{
 const modalBg=document.getElementById('modal-bg');
 document.getElementById('btn-pdf').addEventListener('click',()=>{
   if(!S.geoData||!S.colorCol){toast('Carregue os dados primeiro','wrn');return;}
+  if(S.modeloB && S.modeloB.on){ openMbModal(); return; }
   const rows=getActiveRows();
   const numCols=S.csvFields.filter(f=>f!==S.joinCsv&&f!==S.depthCol&&rows.some(r=>typeof r[f]==='number'));
   const grid=document.getElementById('nut-grid');grid.innerHTML='';
@@ -2329,6 +2353,190 @@ function setRecCompareMode(on){
     setTimeout(()=>{ try{S.map.invalidateSize(true);}catch(e){} renderRecomendacao(); },90);
   }
 }
+
+// ═══════════ MODELO B — relatório de nutrientes (layout do consultor) ═══════════
+// dicionário canônico (pares/labels/unidades/inversão fixos, do plugin Alan Nutri)
+const MB_DEFS=[
+  {key:'calcio',    re:/c[aá]lc/i,                 depth:'00-20', nome:'Cálcio',     uni:'cmolc/dm³', uid:'cmolc/dm³', inv:false, l3:false, pair:0, slot:0},
+  {key:'magnesio',  re:/magn[eé]s|magn\w{1,3}s/i,  depth:'00-20', nome:'Magnésio',   uni:'cmolc/dm³', uid:'cmolc/dm³', inv:false, l3:false, pair:0, slot:1},
+  {key:'potassio',  re:/pot[aá]ss|pot\w{1,3}ss/i,  depth:'00-20', nome:'Potássio',   uni:'cmolc/dm³', uid:'cmolc/dm³', inv:false, l3:false, pair:1, slot:0},
+  {key:'v',         re:/v\s*%|sat.*base/i,         depth:'00-20', nome:'V%',         uni:'',          uid:'%',         inv:false, l3:false, pair:1, slot:1},
+  {key:'hal',       re:/h\s*\+\s*al/i,             depth:'00-20', nome:'H+Al',       uni:'cmolc/dm³', uid:'cmolc/dm³', inv:true,  l3:false, pair:2, slot:0},
+  {key:'al',        re:/^al[\s³²3(]|al\s*cmol/i,   depth:'00-20', nome:'Al³',        uni:'cmolc/dm³', uid:'cmolc/dm³', inv:true,  l3:false, pair:2, slot:0},
+  {key:'ph',        re:/ph/i,                      depth:'00-20', nome:'pH',         uni:'CaCl²',     uid:'CaCl²',     inv:false, l3:false, pair:2, slot:1},
+  {key:'boro',      re:/boro/i,                    depth:'00-20', nome:'Boro',       uni:'mg/dm³',    uid:'mg/dm³',    inv:false, l3:false, pair:3, slot:0},
+  {key:'mo',        re:/m\.?o%?|mat[eé]ria/i,      depth:'00-20', nome:'M.O%',       uni:'',          uid:'%',         inv:false, l3:false, pair:3, slot:1},
+  {key:'pmehlich',  re:/mehlich/i,                 depth:'00-20', nome:'P-Mehlich 1',uni:'mg/dm³',    uid:'mg/dm³',    inv:false, l3:false, pair:4, slot:0},
+  {key:'presina',   re:/resina/i,                  depth:'00-20', nome:'P-resina',   uni:'mg/dm³',    uid:'mg/dm³',    inv:false, l3:false, pair:4, slot:1},
+  {key:'s0020',     re:/enxofre|so4/i,             depth:'00-20', nome:'Enxofre SO4²',uni:'mg/dm³',   uid:'mg/dm³',    inv:false, l3:false, pair:5, slot:0},
+  {key:'s2040',     re:/enxofre|so4/i,             depth:'20-40', nome:'Enxofre SO4²',uni:'mg/dm³',   uid:'mg/dm³',    inv:false, l3:false, pair:5, slot:1},
+  {key:'calcio2040',re:/c[aá]lc/i,                 depth:'20-40', nome:'Cálcio',     uni:'cmol/dm³',  uid:'cmolc/dm³', inv:false, l3:true,  pair:6, slot:0},
+  {key:'satal2040', re:/satura.*alum/i,            depth:'20-40', nome:'Saturação de Alumínio', uni:'(m%)', uid:'%', inv:true, l3:true, pair:6, slot:2},
+  {key:'al2040',    re:/alum[ií]n/i,               depth:'20-40', nome:'Alumínio',   uni:'cmol/dm³',  uid:'cmolc/dm³', inv:true,  l3:true,  pair:6, slot:1},
+];
+
+// casa as colunas numéricas de nutriente com o dicionário (respeitando profundidade)
+function modeloBMatch(){
+  const cols=(S.csvFields||[]).filter(f=>f!==S.joinCsv && f!==S.depthCol && (S.csvData||[]).some(r=>typeof r[f]==='number'));
+  const temProf=!!(S.depthCol && (S.availDepths||[]).length>1);
+  const has2040=(S.availDepths||[]).some(d=>normDepth(d)==='20-40');
+  const out=[]; const used=new Set();
+  MB_DEFS.forEach(def=>{
+    const col=cols.find(c=>{
+      if(used.has(c+'@'+def.depth)) return false;   // coluna já reservada nessa profundidade
+      if(!def.re.test(c)) return false;
+      const cd = /20\s*-?\s*40/.test(c) ? '20-40' : (/00\s*-?\s*20|[^0-9]0-20/.test(c) ? '00-20' : null);
+      if(cd) return cd===def.depth;                 // profundidade no nome da coluna
+      if(def.depth==='00-20') return true;          // sem prof no nome: vale p/ 00-20
+      return def.depth==='20-40' && temProf && has2040; // trio 20-40 via linhas
+    });
+    if(!col) return;
+    if(out.find(o=>o.def.pair===def.pair && o.def.slot===def.slot)) return; // 1 por slot (H+Al vs Al)
+    used.add(col+'@'+def.depth);
+    out.push({def, col, prof:def.depth});
+  });
+  return out;
+}
+
+// captura 1 mapa de nutriente (fundo branco, rótulos), redimensionando p/ o slot
+async function _mbCapture(col, inv, prof, slotW, slotH){
+  if(prof && S.depthCol && (S.availDepths||[]).length>1 && normDepth(S.activeDepth)!==normDepth(prof)){
+    const m=(S.availDepths||[]).find(d=>normDepth(d)===normDepth(prof));
+    if(m){ S.activeDepth=m; applyActiveDepth(); }
+  }
+  S.colorCol=col;
+  const auto=autoPalette(col);
+  S.pal=auto?auto.pal:'rdylgn';
+  S.invert=(auto?auto.invert:false)||inv;
+  S.showLabels=true; S.pdfMode=true;
+  const mapEl=document.getElementById('map'), wrap=document.querySelector('.map-wrap');
+  const orig={w:mapEl.style.width,h:mapEl.style.height,f:mapEl.style.flex,ww:wrap?wrap.style.width:''};
+  mapEl.style.flex='none'; mapEl.style.width=slotW+'px'; mapEl.style.height=slotH+'px';
+  if(wrap) wrap.style.width=slotW+'px';
+  try{ S.map.invalidateSize(true); }catch(e){}
+  renderMap();
+  try{ if(S.layer) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24],animate:false}); }catch(e){}
+  await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1200:520));
+  let img;
+  if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'}); }
+  else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); img=cv.toDataURL('image/jpeg',0.95); }
+  mapEl.style.width=orig.w; mapEl.style.height=orig.h; mapEl.style.flex=orig.f; if(wrap) wrap.style.width=orig.ww;
+  try{ S.map.invalidateSize(true); }catch(e){}
+  return img;
+}
+
+function openMbModal(){
+  const matched=modeloBMatch();
+  const grid=document.getElementById('mb-grid');
+  if(!matched.length){
+    grid.innerHTML='<div style="color:var(--muted);font-size:13px;padding:10px;">Nenhum nutriente reconhecido nesta planilha para o Modelo B. (Verifique os nomes das colunas.)</div>';
+  } else {
+    let h='<div class="mb-head"><span>Nutriente</span><span>Nível ideal</span><span>Unidade</span></div>';
+    matched.forEach(m=>{
+      const niv=(S.modeloB.niveis&&S.modeloB.niveis[m.def.key])||{};
+      const val=(niv.valor!=null?niv.valor:''); const uni=(niv.unidade!=null?niv.unidade:m.def.uid);
+      const prof=m.prof==='20-40'?' (20-40)':'';
+      h+='<div class="mb-row" data-key="'+m.def.key+'"><label>'+m.def.nome+prof+'</label>'+
+         '<input type="text" class="mb-val" value="'+String(val).replace(/"/g,'&quot;')+'" placeholder="ex: 5">'+
+         '<input type="text" class="mb-uni" value="'+String(uni).replace(/"/g,'&quot;')+'"></div>';
+    });
+    grid.innerHTML=h;
+  }
+  document.getElementById('mb-modal').classList.add('show');
+}
+function _mbCollect(){
+  const map={};
+  document.querySelectorAll('#mb-grid .mb-row').forEach(r=>{
+    map[r.dataset.key]={ valor:(r.querySelector('.mb-val').value||'').trim(), unidade:(r.querySelector('.mb-uni').value||'').trim() };
+  });
+  return map;
+}
+async function _mbSalvarNiveis(map){
+  S.modeloB.niveis=map;
+  try{ await sb.rpc('atualizar_niveis_ideais',{ p_token:S.tokenAtual, p_json:map }); }catch(e){ console.warn('salvar níveis ideais:', e); }
+}
+
+async function generateModeloB(idealMap){
+  const matched=modeloBMatch();
+  if(!matched.length){ toast('Nenhum nutriente reconhecido para o Modelo B','wrn'); return; }
+  const saved={col:S.colorCol,pal:S.pal,inv:S.invert,labels:S.showLabels,depth:S.activeDepth};
+  const _baseRestore=_pdfBaseHide();
+  showLoading('Preparando relatório…');
+  S.pdfMode=true; S.showLabels=true;
+  const logoSrc=S.consultorLogo||LOGO_DATA;
+  const restore=()=>{
+    if(_baseRestore) _baseRestore();
+    S.colorCol=saved.col;S.pal=saved.pal;S.invert=saved.inv;S.showLabels=saved.labels;S.pdfMode=false;
+    if(saved.depth && S.depthCol && normDepth(S.activeDepth)!==normDepth(saved.depth)){ S.activeDepth=saved.depth; applyActiveDepth(); }
+    else { try{ renderMap(); }catch(e){} }
+  };
+  try{
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+    const PW=297,PH=210,pageW=1123,pageH=794;
+    const pares={}; matched.forEach(m=>{ (pares[m.def.pair]=pares[m.def.pair]||[]).push(m); });
+    const ordem=Object.keys(pares).map(Number).sort((a,b)=>a-b);
+    let first=true;
+    for(const p of ordem){
+      const itens=pares[p].sort((a,b)=>a.def.slot-b.def.slot);
+      const trio=itens.some(i=>i.def.l3);
+      const nCell=trio?3:itens.length;
+      const marg=24, gap=14;
+      const headerH=trio?54:0;
+      const topY=trio?(18+headerH+12):18;
+      const titleH=78;
+      const mapTop=topY+titleH+8;
+      const cellH=(pageH-40)-mapTop;
+      let cellW, leftOf;
+      if(trio){ cellW=(pageW-2*marg-(nCell-1)*gap)/nCell; leftOf=i=>marg+i*(cellW+gap); }
+      else if(nCell===2){ cellW=(pageW-2*marg-gap)/2; leftOf=i=>marg+i*(cellW+gap); }
+      else { cellW=540; const ls=(pageW-cellW)/2; leftOf=()=>ls; }
+      const slotW=Math.round(cellW*1.4), slotH=Math.round(cellH*1.4);
+      const caps=[];
+      for(let i=0;i<itens.length;i++){
+        const it=itens[i]; setLoading('Gerando '+it.def.nome+(it.prof==='20-40'?' (20-40)':'')+'…');
+        const img=await _mbCapture(it.col, it.def.inv, it.prof, slotW, slotH);
+        const niv=(idealMap&&idealMap[it.def.key])||{};
+        caps.push({it,img,valor:(niv.valor!=null?niv.valor:''),unidade:(niv.unidade!=null?niv.unidade:it.def.uid)});
+      }
+      const page=document.createElement('div');
+      page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
+      let html='';
+      if(trio){
+        html+='<div style="position:absolute;left:'+marg+'px;right:'+marg+'px;top:18px;height:'+headerH+'px;border:1px solid #444;border-radius:3px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:17px;font-weight:700;padding:0 18px;">Potencial Químico para o Crescimento de Raiz em Profundidade (20-40cm)</div>';
+      }
+      caps.forEach((cap,i)=>{
+        const cx=leftOf(i), d=cap.it.def;
+        const linhas=[d.nome, d.uni, '('+cap.it.prof+'cm)'].filter(Boolean);
+        html+='<div style="position:absolute;left:'+(cx+cellW/2-90)+'px;top:'+topY+'px;width:180px;border:1px solid #444;border-radius:3px;padding:8px 6px;text-align:center;font-size:14px;font-weight:600;line-height:1.3;">'+linhas.join('<br>')+'</div>';
+        html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;">'
+          +'<img src="'+cap.img+'" style="width:100%;height:100%;object-fit:cover;display:block;">'
+          +'<div style="position:absolute;left:10px;top:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:11px;">Nível Ideal: '+(cap.valor!==''?cap.valor:'—')+(cap.unidade?(' '+cap.unidade):'')+'</div>'
+          +'</div>';
+      });
+      html+='<img src="'+logoSrc+'" style="position:absolute;right:26px;bottom:14px;height:54px;max-width:200px;object-fit:contain;">';
+      page.innerHTML=html;
+      document.body.appendChild(page);
+      await new Promise(r=>setTimeout(r,150));
+      const cv=await html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
+      document.body.removeChild(page);
+      if(!first) doc.addPage(); first=false;
+      doc.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
+    }
+    restore(); hideLoading();
+    const fz=_normNome((S.linkData&&S.linkData.fazenda)||'fazenda'), tl=_normNome((S.linkData&&S.linkData.talhao)||'talhao');
+    doc.save('Nutrientes_'+(fz||'fazenda')+'_'+(tl||'talhao')+'.pdf');
+    toast('Relatório (Modelo B) gerado','ok');
+  }catch(err){ restore(); hideLoading(); toast('Erro ao gerar Modelo B: '+(err.message||err),'err'); console.error(err); }
+}
+
+// wiring da tela de conferência do Modelo B
+(function(){
+  const go=document.getElementById('mb-go'); if(go) go.addEventListener('click', async()=>{ const map=_mbCollect(); document.getElementById('mb-modal').classList.remove('show'); await _mbSalvarNiveis(map); generateModeloB(map); });
+  const lp=document.getElementById('mb-limpar'); if(lp) lp.addEventListener('click', async()=>{ document.querySelectorAll('#mb-grid .mb-row .mb-val').forEach(inp=>{ inp.value=''; }); await _mbSalvarNiveis(_mbCollect()); toast('Níveis ideais limpos','ok'); });
+  const cc=document.getElementById('mb-cancel'); if(cc) cc.addEventListener('click',()=>document.getElementById('mb-modal').classList.remove('show'));
+  const bg=document.getElementById('mb-modal'); if(bg) bg.addEventListener('click',e=>{ if(e.target===bg) bg.classList.remove('show'); });
+})();
 
 // ═══════════ RELATÓRIO PDF DA RECOMENDAÇÃO ═══════════
 S.recPdf = { logo:'cadastrada', custom:null };
@@ -3524,6 +3732,13 @@ async function loadFromToken(token, params){
 
     // logo do consultor dono do link (cabeçalho + padrão do PDF)
     carregarBrandingConsultor(token);
+
+    // modelo B (layout do consultor): flag (consultor) + níveis ideais (cliente)
+    S.modeloB={on:false,niveis:{}};
+    sb.rpc('get_modelo_b_config',{p_token:token}).then(({data})=>{
+      const d=(typeof data==='string')?JSON.parse(data):data;
+      if(d && !d.erro){ S.modeloB.on=!!d.usar_modelo_b; S.modeloB.niveis=(typeof d.niveis_ideais==='string'?JSON.parse(d.niveis_ideais):d.niveis_ideais)||{}; }
+    }).catch(()=>{});
 
     // pré-preenche os campos do PDF com os dados do banco
     const fzd=document.getElementById('pdf-fazenda');
