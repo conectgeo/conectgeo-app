@@ -512,10 +512,25 @@ function verCliente(clienteId, consultorId){
     '<div><div style="font-family:var(--fd);font-size:19px;font-weight:700;">'+cl.nome+'</div>'+
     '<div style="color:var(--muted);font-size:13px;margin-top:5px;">'+(cl.email||'sem e-mail')+' · '+local+'</div></div>'+
     '<button class="action-btn" onclick="editarCliente(\''+cl.id+'\')">Editar dados</button></div>'+
+    '<div class="table-card" style="margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">'+
+    '<div><div style="font-weight:700;font-size:14px;">Relatório de nutrientes</div>'+
+    '<div style="color:var(--muted);font-size:12px;margin-top:3px;">Modelo B = layout do consultor (2 mapas/página, Nível Ideal). Desligado = modelo padrão.</div></div>'+
+    '<button class="action-btn" id="mb-btn" onclick="admToggleModeloB(\''+cl.id+'\')" style="'+(cl.usar_modelo_b?'background:#6cb32d':'background:#9aa08f')+'">'+(cl.usar_modelo_b?'✓ Modelo B ligado':'Usar Modelo B')+'</button></div>'+
     '<div class="table-card"><h3>Fazendas e Talhões</h3>'+fazHtml+'</div>';
   showView('cliente');
 }
 
+async function admToggleModeloB(clienteId){
+  const cl=DATA.clientes.find(c=>c.id===clienteId); if(!cl) return;
+  const novo=!cl.usar_modelo_b;
+  const btn=document.getElementById('mb-btn'); if(btn){ btn.disabled=true; btn.textContent='...'; }
+  try{
+    const { error } = await sb.rpc('admin_set_modelo_b',{ p_cliente_id: clienteId, p_valor: novo });
+    if(error) throw error;
+    cl.usar_modelo_b=novo;
+    verCliente(clienteId, (CLIENTE_CTX&&CLIENTE_CTX.consultorId)||cl.consultor_id);
+  }catch(e){ alert('Erro ao alterar Modelo B: '+(e.message||e)); if(btn){ btn.disabled=false; } }
+}
 function editarCliente(clienteId){
   const cl=DATA.clientes.find(c=>c.id===clienteId); if(!cl) return;
   ADM_EDIT_CLI=clienteId; ADM_EDIT_CONS=cl.consultor_id||null;
