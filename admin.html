@@ -328,6 +328,11 @@ async function carregarTudo(){
     DATA.fazendas=pacote.fazendas||[];
     DATA.talhoes=pacote.talhoes||[];
     DATA.links=pacote.links||[];
+    // flags do Modelo B por consultor (admin_dados pode não trazer a coluna nova)
+    try{
+      const { data: mb } = await sb.rpc('admin_modelo_b_list');
+      if(mb){ const m=(typeof mb==='string')?JSON.parse(mb):mb; DATA.consultores.forEach(c=>{ if(m[c.id]!==undefined) c.usar_modelo_b=!!m[c.id]; }); }
+    }catch(e){ console.warn('modelo_b_list falhou:', e); }
     console.log('Admin carregou:', {consultores:DATA.consultores.length, clientes:DATA.clientes.length, fazendas:DATA.fazendas.length, talhoes:DATA.talhoes.length});
     renderDashboard();
     renderConfig();
