@@ -3275,7 +3275,7 @@ function wireColetaControls(){
         const path='coleta/'+S.tokenAtual+'/'+(ehPonto?'pontos':'zonas')+'.zip';
         const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
         if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
-        const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
+        const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
         await sb.rpc('atualizar_coleta', ehPonto?{p_token:S.tokenAtual,p_pontos_url:url}:{p_token:S.tokenAtual,p_zonas_url:url});
       }
       st.textContent='✅ Salvo! Atualizando…';
@@ -3294,7 +3294,7 @@ function wireColetaControls(){
       const path='coleta/'+S.tokenAtual+'/raster.tif';
       const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
       if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
-      const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
+      const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
       await sb.rpc('atualizar_coleta', {p_token:S.tokenAtual,p_raster_url:url});
       st.textContent='✅ Salvo! Atualizando…';
       await recarregarColetaInPlace();
@@ -3322,7 +3322,7 @@ function wireColetaControls(){
       const path='nutrientes/'+S.tokenAtual+'/zonas.geojson';
       const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'application/json'});
       if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
-      const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
+      const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
       const r=await sb.rpc('atualizar_nutrientes', {p_token:S.tokenAtual, p_zonas_geojson_url:url});
       if(r&&r.error) throw new Error(r.error.message);
       st.textContent='✅ Zonas salvas! Atualizando…';
@@ -3340,7 +3340,7 @@ function wireColetaControls(){
       const path='nutrientes/'+S.tokenAtual+'/planilha.'+ext;
       const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
       if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
-      const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl;
+      const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
       const r=await sb.rpc('atualizar_nutrientes', {p_token:S.tokenAtual, p_planilha_url:url});
       if(r&&r.error) throw new Error(r.error.message);
       st.textContent='✅ Planilha salva! Atualizando…';
@@ -3363,7 +3363,7 @@ function wireColetaControls(){
         try{
           const path='recomendacao/'+S.tokenAtual+'/planilha.'+ext;
           const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
-          if(!(up&&up.error)){ const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl; S.rec.url=url;
+          if(!(up&&up.error)){ const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now(); S.rec.url=url;
             const r=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
             if(!(r&&r.error)) st.textContent='✅ Recomendação salva!';
           }
