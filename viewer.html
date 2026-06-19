@@ -2415,7 +2415,7 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
   if(wrap) wrap.style.width=slotW+'px';
   try{ S.map.invalidateSize(true); }catch(e){}
   renderMap();
-  try{ if(S.layer) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24],animate:false}); }catch(e){}
+  try{ if(S.layer) S.map.fitBounds(S.layer.getBounds(),{padding:[14,14],animate:false}); }catch(e){}
   await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1200:520));
   let img;
   if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'}); }
@@ -2460,12 +2460,15 @@ async function generateModeloB(idealMap){
   const matched=modeloBMatch();
   if(!matched.length){ toast('Nenhum nutriente reconhecido para o Modelo B','wrn'); return; }
   const saved={col:S.colorCol,pal:S.pal,inv:S.invert,labels:S.showLabels,depth:S.activeDepth};
+  const savedSnapMB=(S.map&&S.map.options)?S.map.options.zoomSnap:1;
   const _baseRestore=_pdfBaseHide();
+  try{ if(S.map&&S.map.options){ S.map.options.zoomSnap=0; S.map.options.zoomDelta=0.25; } }catch(e){}
   showLoading('Preparando relatório…');
   S.pdfMode=true; S.showLabels=true;
   const logoSrc=S.consultorLogo||LOGO_DATA;
   const restore=()=>{
     if(_baseRestore) _baseRestore();
+    try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnapMB; }catch(e){}
     S.colorCol=saved.col;S.pal=saved.pal;S.invert=saved.inv;S.showLabels=saved.labels;S.pdfMode=false;
     if(saved.depth && S.depthCol && normDepth(S.activeDepth)!==normDepth(saved.depth)){ S.activeDepth=saved.depth; applyActiveDepth(); }
     else { try{ renderMap(); }catch(e){} }
@@ -2618,6 +2621,7 @@ function openRecPdfModal(){
 
 async function generateRecPDF(insumos){
   const savedCol=S.rec.col, savedShow=S.rec.showLabels, savedScale=S.rec.labelScale, savedHideId=S.rec.labelsHideId;
+  const savedSnap=(S.map&&S.map.options)?S.map.options.zoomSnap:1;
   const sel=document.getElementById('sel-insumo');
   const mapEl=document.getElementById('map'), wrap=document.querySelector('.map-wrap');
   const orig={w:mapEl.style.width,h:mapEl.style.height,f:mapEl.style.flex}, origWrapW=wrap?wrap.style.width:'';
@@ -2626,6 +2630,7 @@ async function generateRecPDF(insumos){
     mapEl.style.width=orig.w; mapEl.style.height=orig.h; mapEl.style.flex=orig.f;
     if(wrap) wrap.style.width=origWrapW;
     if(_baseRestore){ _baseRestore(); _baseRestore=null; }
+    try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnap; }catch(e){}
     try{ S.map.invalidateSize(true); }catch(e){}
     S.rec.col=savedCol; S.rec.showLabels=savedShow; S.rec.labelScale=savedScale; S.rec.labelsHideId=savedHideId; S.pdfMode=false;
     if(sel) sel.value=savedCol;
@@ -2633,6 +2638,7 @@ async function generateRecPDF(insumos){
   };
   showLoading('Preparando relatório…');
   S.pdfMode=true; S.rec.showLabels=true; S.rec.labelsHideId=true;
+  try{ if(S.map&&S.map.options){ S.map.options.zoomSnap=0; S.map.options.zoomDelta=0.25; } }catch(e){}
   _baseRestore=_pdfBaseHide();
   const cliente=(document.getElementById('rpdf-cliente').value||'').trim()||(S.linkData&&S.linkData.cliente)||'—';
   const regiao=(document.getElementById('rpdf-regiao').value||'').trim()||(S.linkData&&S.linkData.fazenda)||'—';
@@ -2659,7 +2665,7 @@ async function generateRecPDF(insumos){
       if(wrap) wrap.style.width=SLOT_W+'px';
       try{ S.map.invalidateSize(true); }catch(e){}
       renderRecomendacao();
-      try{ if(S.rec.layer) S.map.fitBounds(S.rec.layer.getBounds(),{padding:[26,26],animate:false}); }catch(e){}
+      try{ if(S.rec.layer) S.map.fitBounds(S.rec.layer.getBounds(),{padding:[14,14],animate:false}); }catch(e){}
       await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1300:550));
 
       let mapImg;
