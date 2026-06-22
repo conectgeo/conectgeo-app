@@ -2190,13 +2190,14 @@ function popularInsumos(){
   if(cols.length){ S.rec.col=(S.rec.col&&cols.indexOf(S.rec.col)>=0)?S.rec.col:(cols.find(isInsumoConvertivel)||cols[0]); sel.value=S.rec.col; sel.style.display=''; if(emp) emp.style.display='none'; }
   else { S.rec.col=null; sel.style.display='none'; if(emp) emp.style.display=''; }
 }
+function _isPoly(f){ return !!(f && f.geometry && /Polygon/i.test(f.geometry.type)); }
 function recGeo(){ return (S.rec && S.rec.geo && S.rec.geo.features && S.rec.geo.features.length) ? S.rec.geo : S.geoData; }
 async function _loadRecGeo(){
   if(S.rec.geo) return;
   try{
     let gu=(S.linkData && S.linkData.recomendacao_zonas_url)||null;
     if(!gu && sb && S.tokenAtual){ const { data:gz }=await sb.rpc('get_recomendacao_zonas_url',{p_token:S.tokenAtual}); if(gz && gz.recomendacao_zonas_url) gu=gz.recomendacao_zonas_url; }
-    if(gu){ const gr=await fetch(gu); const gj=await gr.json(); if(gj && gj.features && gj.features.length) S.rec.geo=gj; }
+    if(gu){ const gr=await fetch(gu); const gj=await gr.json(); if(gj && gj.features && gj.features.length){ const pol=gj.features.filter(_isPoly); S.rec.geo = pol.length ? {type:'FeatureCollection',features:pol} : gj; } }
   }catch(e){}
 }
 async function loadRecData(){
@@ -2246,7 +2247,7 @@ function renderRecomendacao(){
   // sem recomendação → zonas vazias (igual nutrientes/coleta)
   if(!S.rec.rows.length || !S.rec.col){
     const joinGeo0=S.joinGeo||_zoneField(recGeo().features[0].properties);
-    S.rec.layer=L.geoJSON(recGeo(),{ style:{color:'#333',weight:1.2,fillColor:'#cfd3cb',fillOpacity:0.25},
+    S.rec.layer=L.geoJSON(recGeo(),{ filter:_isPoly, style:{color:'#333',weight:1.2,fillColor:'#cfd3cb',fillOpacity:0.25},
       onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo0]??'').trim(); l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">Sem recomendação</div>',{sticky:true,opacity:1}); }
     }).addTo(S.map);
     if(!S.pdfMode){ try{ S.map.fitBounds(S.rec.layer.getBounds(),{padding:[24,24]}); }catch(e){} }
@@ -2264,7 +2265,7 @@ function renderRecomendacao(){
   if(!isFinite(mn)){ mn=0; mx=0; }
   const palRev=[...PALS.rdylgn.c].reverse(); // dose alta = vermelho (independente do invert)
   const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const t=mx===mn?0:(d-mn)/(mx-mn); return lerpColor(palRev, Math.max(0,Math.min(1,t))); };
-  S.rec.layer=L.geoJSON(recGeo(),{
+  S.rec.layer=L.geoJSON(recGeo(),{ filter:_isPoly,
     style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
     onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo]??'').trim(); const d=doseDe(f); const ha=zoneHa(f);
       l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+col+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div><div style="font-size:10px;opacity:.85">'+ha.toFixed(2)+' ha</div>',{sticky:true,opacity:1});
@@ -2307,7 +2308,7 @@ function _renderRecSide(targetMap, insumoCol){
   if(!isFinite(mn)){ mn=0; mx=0; }
   const palRev=[...PALS.rdylgn.c].reverse();
   const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const t=mx===mn?0:(d-mn)/(mx-mn); return lerpColor(palRev,Math.max(0,Math.min(1,t))); };
-  const layer=L.geoJSON(recGeo(),{
+  const layer=L.geoJSON(recGeo(),{ filter:_isPoly,
     style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
     onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo]??'').trim(); const d=doseDe(f);
       l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+insumoCol+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div>',{sticky:true,opacity:1});
