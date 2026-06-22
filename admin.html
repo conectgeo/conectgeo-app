@@ -430,10 +430,11 @@ function renderConfig(){
       const bloq=(c.ativo===false);
       const bloqBtn=c.is_admin?'':'<button class="action-btn" style="background:'+(bloq?'#e8852b':'#5fa832')+';color:#fff;border-color:transparent" onclick="toggleBloqueio(\''+c.id+'\','+(bloq?'true':'false')+')">'+(bloq?'🔒 Bloqueado':'🔓 Desbloqueado')+'</button>';
       const mbOn=(c.usar_modelo_b===true);
+      const imBtn=c.is_admin?'':'<button class="action-btn" style="background:#2d6cb3;color:#fff;border-color:transparent" onclick="entrarComoConsultor(\''+c.id+'\')">Entrar como</button>';
       const mbBtn=c.is_admin?'':'<button class="action-btn" style="background:'+(mbOn?'#6cb32d':'#9aa08f')+';color:#fff;border-color:transparent" onclick="admToggleModeloB(\''+c.id+'\','+(mbOn?'true':'false')+')">'+(mbOn?'✓ Relatório B':'Relatório padrão')+'</button>';
       tr.innerHTML='<td><strong>'+(c.nome||'—')+'</strong></td><td>'+c.email+'</td><td>'+(c.empresa||'—')+'</td>'+
         '<td><span class="badge '+(c.is_admin?'admin':'consultor')+'">'+(c.is_admin?'Admin':'Consultor')+'</span></td>'+
-        '<td><button class="action-btn" onclick="abrirEdicao(\''+c.id+'\')">Editar acesso</button> '+bloqBtn+' '+mbBtn+' '+delBtn+'</td>';
+        '<td><button class="action-btn" onclick="abrirEdicao(\''+c.id+'\')">Editar acesso</button> '+bloqBtn+' '+mbBtn+' '+imBtn+' '+delBtn+'</td>';
       tc.appendChild(tr);
     });
   }
@@ -532,6 +533,21 @@ async function admToggleModeloB(consultorId, estaLigado){
     c.usar_modelo_b=novo;
     renderConfig();
   }catch(e){ alert('Erro ao alterar Modelo B: '+(e.message||e)); }
+}
+function _cgAuthKey(){ for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(/^sb-.*-auth-token$/.test(k)) return k; } return 'sb-xlhwhhettdnssvvppiuf-auth-token'; }
+async function entrarComoConsultor(consultorId){
+  const c=DATA.consultores.find(x=>x.id===consultorId); if(!c) return;
+  if(!confirm('Entrar na conta de "'+(c.nome||c.email||'consultor')+'"?\n\nVocê vai usar a plataforma como este consultor. Use o botão "Voltar ao Admin" para retornar.')) return;
+  try{
+    const { data, error } = await sb.functions.invoke('dynamic-processor', { body: { consultor_id: consultorId, redirect_to: 'https://www.conectgeo.com.br/app.html' } });
+    if(error) throw error;
+    if(!data || data.error || !data.action_link) throw new Error((data&&data.error)||'Falha ao gerar acesso');
+    const KEY=_cgAuthKey();
+    const adminSess=localStorage.getItem(KEY);
+    if(adminSess) localStorage.setItem('cg-admin-session-backup', adminSess);
+    localStorage.setItem('cg-impersonando', c.nome||c.email||'consultor');
+    window.location.href=data.action_link;
+  }catch(e){ alert('Erro ao entrar como consultor: '+(e.message||e)); }
 }
 function editarCliente(clienteId){
   const cl=DATA.clientes.find(c=>c.id===clienteId); if(!cl) return;

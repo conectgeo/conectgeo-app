@@ -1741,5 +1741,31 @@ function toast(msg,ic='✅'){
   <div class="ebody" id="em-body"></div>
   <div class="efoot"><button class="btn pri" id="ed-save-all" onclick="salvarTudo()">Salvar alterações</button></div>
 </div></div>
+<script>
+// faixa "Voltar ao Admin" quando o admin entra na conta de um consultor
+(function(){
+  try{
+    var imp=localStorage.getItem('cg-impersonando');
+    var bak=localStorage.getItem('cg-admin-session-backup');
+    if(!imp || !bak) return;
+    function authKey(){ for(var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(/^sb-.*-auth-token$/.test(k)) return k; } return 'sb-xlhwhhettdnssvvppiuf-auth-token'; }
+    var bar=document.createElement('div');
+    bar.style.cssText='position:fixed;left:0;right:0;bottom:0;z-index:2147483647;background:#b8730a;color:#fff;font:600 13px/1.4 system-ui,-apple-system,sans-serif;padding:9px 16px;display:flex;align-items:center;justify-content:center;gap:16px;box-shadow:0 -2px 10px rgba(0,0,0,.25);';
+    var span=document.createElement('span');
+    span.innerHTML='👤 Você está como <strong>'+String(imp).replace(/[<>&]/g,'')+'</strong> (acesso do admin)';
+    var btn=document.createElement('button');
+    btn.textContent='Voltar ao Admin';
+    btn.style.cssText='background:#fff;color:#b8730a;border:none;border-radius:6px;padding:6px 14px;font-weight:700;cursor:pointer;font-size:13px;';
+    btn.onclick=function(){
+      try{ var b=localStorage.getItem('cg-admin-session-backup'); if(b) localStorage.setItem(authKey(), b); }catch(e){}
+      localStorage.removeItem('cg-admin-session-backup');
+      localStorage.removeItem('cg-impersonando');
+      window.location.href='https://www.conectgeo.com.br/admin.html';
+    };
+    bar.appendChild(span); bar.appendChild(btn);
+    (document.body||document.documentElement).appendChild(bar);
+  }catch(e){}
+})();
+</script>
 </body>
 </html>
