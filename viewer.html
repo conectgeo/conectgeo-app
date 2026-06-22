@@ -3558,7 +3558,7 @@ function _extraNutVals(ex, colorCol, depthLabel){
     return out;
   }catch(e){ return []; }
 }
-function _extraNutLayer(ex, colorCol, depthLabel){
+function _extraNutLayer(ex, colorCol, depthLabel, scaleOverride){
   try{
     if(!ex.geo||!ex.rows||!ex.rows.length||!colorCol) return null;
     if(ex.fields.indexOf(colorCol)<0) return null;            // não tem esse nutriente → cinza
@@ -3572,7 +3572,7 @@ function _extraNutLayer(ex, colorCol, depthLabel){
     if(!vals.length) return null;
     const sorted=[...vals].sort((a,b)=>a-b);
     const lay=L.geoJSON(ex.geo,{
-      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; return {fillColor:isNaN(v)?'#bbb':(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted)),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; return {fillColor:isNaN(v)?'#bbb':(scaleOverride?getColor(v,scaleOverride.mn,scaleOverride.mx):(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted))),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
       onEachFeature:(f,l)=>{ const kraw=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[colorCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
         l.bindTooltip('<div class="tt-head">Zona '+(kraw||'—')+'</div><div class="tt-col">'+colorCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1});
         l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
@@ -3670,7 +3670,7 @@ async function buildExtras(allTokens){
           recInsumoCols=detectInsumoCols(recFields, recRows);
         }
       }catch(e){}
-      S.extras.push({ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,_layer:null} });
+      S.extras.push({ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,_layer:null} });
       addLeg(nome);
     }catch(e){}
   }
@@ -3679,9 +3679,9 @@ async function buildExtras(allTokens){
 }
 function _extraClearZonaLabels(ex){ (ex._zonaLabels||[]).forEach(m=>{ try{S.map.removeLayer(m);}catch(e){} }); ex._zonaLabels=[]; }
 function _extraClearAll(ex){
-  [ex._nut, ex._empty, ex.coleta.raster, ex.coleta.zonas, ex.coleta.pontos, ex.rec&&ex.rec._layer].concat(ex._valLabels||[]).forEach(l=>{ if(l){ try{ S.map.removeLayer(l); }catch(e){} } });
+  [ex._nut, ex._empty, ex._cmpL, ex._cmpR, ex.coleta.raster, ex.coleta.zonas, ex.coleta.pontos, ex.rec&&ex.rec._layer].concat(ex._valLabels||[]).forEach(l=>{ if(l){ try{ S.map.removeLayer(l); }catch(e){} } });
   _extraClearZonaLabels(ex);
-  ex._nut=null; ex._empty=null; if(ex.rec) ex.rec._layer=null;
+  ex._nut=null; ex._empty=null; if(ex._cmpR&&S.compare&&S.compare.map2){try{S.compare.map2.removeLayer(ex._cmpR);}catch(e){}} ex._cmpL=null; ex._cmpR=null; if(ex.rec) ex.rec._layer=null;
 }
 // nutrientes: cada extra segue o nutriente/profundidade do painel (cinza se não tiver)
 function multiRenderExtrasNutrient(){
@@ -3692,6 +3692,7 @@ function multiRenderExtrasNutrient(){
     [ex.coleta.raster, ex.coleta.zonas, ex.coleta.pontos].forEach(l=>{ if(l){ try{S.map.removeLayer(l);}catch(e){} } });
     _extraClearZonaLabels(ex);
     _extraClearValLabels(ex);
+    _extraClearCompare(ex);
     if(ex._nut){ try{S.map.removeLayer(ex._nut);}catch(e){} ex._nut=null; }
     if(ex._empty){ try{S.map.removeLayer(ex._empty);}catch(e){} ex._empty=null; }
     const lay=_extraNutLayer(ex, S.colorCol, S.activeDepth);
@@ -3701,6 +3702,24 @@ function multiRenderExtrasNutrient(){
 }
 function _extraClearValLabels(ex){ (ex._valLabels||[]).forEach(m=>{ try{S.map.removeLayer(m);}catch(e){} }); ex._valLabels=[]; }
 function multiRefreshExtraLabels(){ if(S.extras&&S.extras.length&&S.mapMode!=='coleta') S.extras.forEach(ex=>{ if(ex._nut) _extraNutLabels(ex); else _extraClearValLabels(ex); }); }
+function _extraClearCompare(ex){
+  [ex._cmpL, ex._cmpR].forEach(l=>{ if(l){ try{S.map.removeLayer(l);}catch(e){} try{ if(S.compare&&S.compare.map2) S.compare.map2.removeLayer(l);}catch(e){} } });
+  ex._cmpL=null; ex._cmpR=null;
+}
+// comparação: cada extra desenhado no mapa de cima (profundidade L) e no de baixo (profundidade R)
+function multiRenderExtrasCompare(L1, R1, sL, sR){
+  if(!S.extras||!S.extras.length) return;
+  S.extras.forEach(ex=>{
+    _extraClearCompare(ex);
+    // remove qualquer camada de modo simples do extra
+    if(ex._nut){ try{S.map.removeLayer(ex._nut);}catch(e){} ex._nut=null; }
+    if(ex._empty){ try{S.map.removeLayer(ex._empty);}catch(e){} ex._empty=null; }
+    _extraClearValLabels(ex); _extraClearZonaLabels(ex);
+    [ex.coleta.raster, ex.coleta.zonas, ex.coleta.pontos].forEach(l=>{ if(l){ try{S.map.removeLayer(l);}catch(e){} } });
+    const lL=_extraNutLayer(ex, S.colorCol, L1, sL); if(lL){ ex._cmpL=lL; lL.addTo(S.map); }
+    if(S.compare && S.compare.map2){ const lR=_extraNutLayer(ex, S.colorCol, R1, sR); if(lR){ ex._cmpR=lR; lR.addTo(S.compare.map2); } }
+  });
+}
 function _extraNutLabels(ex){
   _extraClearValLabels(ex);
   if(!S.showLabels || !ex.geo || ex.fields.indexOf(S.colorCol)<0) return;
@@ -4087,6 +4106,7 @@ function renderCompare(){
   const valsL=[], valsR=[];
   rowsL.forEach(r=>{const v=parseFloat(r[S.colorCol]); if(!isNaN(v)) valsL.push(v);});
   rowsR.forEach(r=>{const v=parseFloat(r[S.colorCol]); if(!isNaN(v)) valsR.push(v);});
+  if(S.extras && S.extras.length){ S.extras.forEach(ex=>{ _extraNutVals(ex,S.colorCol,L1).forEach(v=>valsL.push(v)); _extraNutVals(ex,S.colorCol,R1).forEach(v=>valsR.push(v)); }); }
   if(!valsL.length && !valsR.length){ toast('Sem valores para comparação','wrn'); return; }
   const mnL=valsL.length?Math.min(...valsL):0, mxL=valsL.length?Math.max(...valsL):1;
   const mnR=valsR.length?Math.min(...valsR):0, mxR=valsR.length?Math.max(...valsR):1;
@@ -4114,8 +4134,11 @@ function renderCompare(){
   if(S.labelLayers2 && S.compare.map2){ S.labelLayers2.forEach(l=>{try{S.compare.map2.removeLayer(l);}catch(e){}}); } S.labelLayers2=[];
   _renderSide(S.map, 'layer', 'labelLayers', L1, mnL, mxL);
   _renderSide(S.compare.map2, 'layer2', 'labelLayers2', R1, mnR, mxR);
-  if(S.layer)  S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
-  if(S.layer2) S.compare.map2.fitBounds(S.layer2.getBounds(),{padding:[24,24]});
+  if(S.extras && S.extras.length) multiRenderExtrasCompare(L1, R1, {mn:mnL,mx:mxL}, {mn:mnR,mx:mxR});
+  let _cb=null; try{ _cb=S.layer.getBounds(); }catch(e){}
+  if(S.extras) S.extras.forEach(ex=>{ if(ex.bounds){ try{ _cb=_cb?_cb.extend(ex.bounds):L.latLngBounds(ex.bounds); }catch(e){} } });
+  if(_cb){ try{S.map.fitBounds(_cb,{padding:[24,24]});}catch(e){} try{ if(S.compare.map2) S.compare.map2.fitBounds(_cb,{padding:[24,24]}); }catch(e){} }
+  else { if(S.layer) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]}); if(S.layer2) S.compare.map2.fitBounds(S.layer2.getBounds(),{padding:[24,24]}); }
   document.getElementById('empty-msg').style.display='none';
   document.body.classList.add('has-data');
   document.getElementById('sec-leg').style.display='';
