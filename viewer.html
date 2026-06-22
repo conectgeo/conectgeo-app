@@ -2190,7 +2190,17 @@ function popularInsumos(){
   if(cols.length){ S.rec.col=(S.rec.col&&cols.indexOf(S.rec.col)>=0)?S.rec.col:(cols.find(isInsumoConvertivel)||cols[0]); sel.value=S.rec.col; sel.style.display=''; if(emp) emp.style.display='none'; }
   else { S.rec.col=null; sel.style.display='none'; if(emp) emp.style.display=''; }
 }
+function recGeo(){ return (S.rec && S.rec.geo && S.rec.geo.features && S.rec.geo.features.length) ? S.rec.geo : S.geoData; }
+async function _loadRecGeo(){
+  if(S.rec.geo) return;
+  try{
+    let gu=(S.linkData && S.linkData.recomendacao_zonas_url)||null;
+    if(!gu && sb && S.tokenAtual){ const { data:gz }=await sb.rpc('get_recomendacao_zonas_url',{p_token:S.tokenAtual}); if(gz && gz.recomendacao_zonas_url) gu=gz.recomendacao_zonas_url; }
+    if(gu){ const gr=await fetch(gu); const gj=await gr.json(); if(gj && gj.features && gj.features.length) S.rec.geo=gj; }
+  }catch(e){}
+}
 async function loadRecData(){
+  await _loadRecGeo();
   if(S.rec.loaded) return;
   let url=S.rec.url || (S.linkData && S.linkData.recomendacao_url);
   if(!url && sb && S.tokenAtual){
@@ -2210,7 +2220,7 @@ function clearRecLabels(){ if(!S.rec) return; S.rec.labels.forEach(l=>{ try{S.ma
 function drawRecLabels(){
   clearRecLabels();
   if(!S.rec.showLabels) return;
-  const joinGeo=S.joinGeo||(S.geoData&&S.geoData.features[0]?_zoneField(S.geoData.features[0].properties):null);
+  const joinGeo=S.joinGeo||(recGeo()&&recGeo().features[0]?_zoneField(recGeo().features[0].properties):null);
   const zoneF=S.rec.fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||S.rec.fields[0];
   const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
   const drawOn=(map, layer, insumoCol)=>{
@@ -2232,11 +2242,11 @@ function renderRecomendacao(){
   if(S.rec.layer){ try{S.map.removeLayer(S.rec.layer);}catch(e){} S.rec.layer=null; }
   clearRecLabels();
   const legEl=document.getElementById('rec-leg'), statEl=document.getElementById('rec-stat');
-  if(!S.geoData){ if(legEl) legEl.innerHTML=''; if(statEl) statEl.innerHTML=''; return; }
+  if(!recGeo()){ if(legEl) legEl.innerHTML=''; if(statEl) statEl.innerHTML=''; return; }
   // sem recomendação → zonas vazias (igual nutrientes/coleta)
   if(!S.rec.rows.length || !S.rec.col){
-    const joinGeo0=S.joinGeo||_zoneField(S.geoData.features[0].properties);
-    S.rec.layer=L.geoJSON(S.geoData,{ style:{color:'#333',weight:1.2,fillColor:'#cfd3cb',fillOpacity:0.25},
+    const joinGeo0=S.joinGeo||_zoneField(recGeo().features[0].properties);
+    S.rec.layer=L.geoJSON(recGeo(),{ style:{color:'#333',weight:1.2,fillColor:'#cfd3cb',fillOpacity:0.25},
       onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo0]??'').trim(); l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">Sem recomendação</div>',{sticky:true,opacity:1}); }
     }).addTo(S.map);
     if(!S.pdfMode){ try{ S.map.fitBounds(S.rec.layer.getBounds(),{padding:[24,24]}); }catch(e){} }
@@ -2247,14 +2257,14 @@ function renderRecomendacao(){
   const col=S.rec.col, fator=recFatorColuna(col);
   const zoneF=S.rec.fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||S.rec.fields[0];
   const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
-  const joinGeo=S.joinGeo||_zoneField(S.geoData.features[0].properties);
+  const joinGeo=S.joinGeo||_zoneField(recGeo().features[0].properties);
   const doseDe=(f)=>{ const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k]; let d=row?recNum(row[col]):NaN; return isNaN(d)?null:d*fator; };
   let totalHa=0,totalIns=0,mn=Infinity,mx=-Infinity; const recs=[];
-  S.geoData.features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); recs.push({d,ha}); if(d!=null){ totalHa+=ha; totalIns+=d*ha; if(d<mn)mn=d; if(d>mx)mx=d; } });
+  recGeo().features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); recs.push({d,ha}); if(d!=null){ totalHa+=ha; totalIns+=d*ha; if(d<mn)mn=d; if(d>mx)mx=d; } });
   if(!isFinite(mn)){ mn=0; mx=0; }
   const palRev=[...PALS.rdylgn.c].reverse(); // dose alta = vermelho (independente do invert)
   const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const t=mx===mn?0:(d-mn)/(mx-mn); return lerpColor(palRev, Math.max(0,Math.min(1,t))); };
-  S.rec.layer=L.geoJSON(S.geoData,{
+  S.rec.layer=L.geoJSON(recGeo(),{
     style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
     onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo]??'').trim(); const d=doseDe(f); const ha=zoneHa(f);
       l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+col+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div><div style="font-size:10px;opacity:.85">'+ha.toFixed(2)+' ha</div>',{sticky:true,opacity:1});
@@ -2287,17 +2297,17 @@ function renderRecomendacao(){
 
 S.recCompare={on:false,left:null,right:null};
 function _renderRecSide(targetMap, insumoCol){
-  if(!S.geoData || !insumoCol || !S.rec.rows.length) return {layer:null,mn:0,mx:0};
+  if(!recGeo() || !insumoCol || !S.rec.rows.length) return {layer:null,mn:0,mx:0};
   const fator=recFatorColuna(insumoCol);
   const zoneF=S.rec.fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||S.rec.fields[0];
   const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
-  const joinGeo=S.joinGeo||_zoneField(S.geoData.features[0].properties);
+  const joinGeo=S.joinGeo||_zoneField(recGeo().features[0].properties);
   const doseDe=(f)=>{ const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k]; let d=row?recNum(row[insumoCol]):NaN; return isNaN(d)?null:d*fator; };
-  let mn=Infinity,mx=-Infinity; S.geoData.features.forEach(f=>{ const d=doseDe(f); if(d!=null){ if(d<mn)mn=d; if(d>mx)mx=d; } });
+  let mn=Infinity,mx=-Infinity; recGeo().features.forEach(f=>{ const d=doseDe(f); if(d!=null){ if(d<mn)mn=d; if(d>mx)mx=d; } });
   if(!isFinite(mn)){ mn=0; mx=0; }
   const palRev=[...PALS.rdylgn.c].reverse();
   const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const t=mx===mn?0:(d-mn)/(mx-mn); return lerpColor(palRev,Math.max(0,Math.min(1,t))); };
-  const layer=L.geoJSON(S.geoData,{
+  const layer=L.geoJSON(recGeo(),{
     style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
     onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo]??'').trim(); const d=doseDe(f);
       l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+insumoCol+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div>',{sticky:true,opacity:1});
@@ -2549,15 +2559,15 @@ function recComputeStats(col){
   const fator=recFatorColuna(col);
   const zoneF=S.rec.fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||S.rec.fields[0];
   const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
-  const joinGeo=S.joinGeo||_zoneField(S.geoData.features[0].properties);
+  const joinGeo=S.joinGeo||_zoneField(recGeo().features[0].properties);
   const doseDe=(f)=>{ const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k]; let d=row?recNum(row[col]):NaN; return isNaN(d)?null:d*fator; };
   let totalHa=0,totalIns=0,mn=Infinity,mx=-Infinity,areaTot=0;
-  S.geoData.features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); areaTot+=ha; if(d!=null){ totalHa+=ha; totalIns+=d*ha; if(d<mn)mn=d; if(d>mx)mx=d; } });
+  recGeo().features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); areaTot+=ha; if(d!=null){ totalHa+=ha; totalIns+=d*ha; if(d<mn)mn=d; if(d>mx)mx=d; } });
   if(!isFinite(mn)){ mn=0; mx=0; }
   const NB=5; const buckets=[];
   if(mx>mn){ const step=(mx-mn)/NB; for(let i=0;i<NB;i++) buckets.push({lo:mn+step*i,hi:mn+step*(i+1),ha:0}); }
   else buckets.push({lo:mn,hi:mx,ha:0});
-  S.geoData.features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); if(d==null) return; let idx=(mx>mn)?Math.floor((d-mn)/((mx-mn)/NB)):0; if(idx>=buckets.length)idx=buckets.length-1; if(idx<0)idx=0; buckets[idx].ha+=ha; });
+  recGeo().features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); if(d==null) return; let idx=(mx>mn)?Math.floor((d-mn)/((mx-mn)/NB)):0; if(idx>=buckets.length)idx=buckets.length-1; if(idx<0)idx=0; buckets[idx].ha+=ha; });
   const taxa=totalHa>0?totalIns/totalHa:0;
   const totBucketHa=buckets.reduce((s,b)=>s+b.ha,0)||1;
   return {col,mn,mx,taxa,totalIns,totalHa,areaTot,buckets,totBucketHa};
@@ -2808,9 +2818,9 @@ function _shapefileInsumo(insumoCol){
   const fator=recFatorColuna(insumoCol);
   const zoneF=S.rec.fields.find(f=>/^zg$/i.test(f)||/zona/i.test(f))||S.rec.fields[0];
   const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
-  const joinGeo=S.joinGeo||_zoneField(S.geoData.features[0].properties);
+  const joinGeo=S.joinGeo||_zoneField(recGeo().features[0].properties);
   const records=[], values=[];
-  S.geoData.features.forEach(f=>{ if(!f.geometry||(f.geometry.type!=='Polygon'&&f.geometry.type!=='MultiPolygon')) return;
+  recGeo().features.forEach(f=>{ if(!f.geometry||(f.geometry.type!=='Polygon'&&f.geometry.type!=='MultiPolygon')) return;
     const rec=_shpRecord(f.geometry); if(!rec) return;
     const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k];
     let dval=row?recNum(row[insumoCol]):NaN; if(!isNaN(dval)) dval*=fator;
@@ -2847,7 +2857,7 @@ function recExpPreview(){
   pre.textContent=txt.trim();
 }
 function openRecExport(){
-  if(!S.geoData){ toast('Carregue as zonas do talhão primeiro','wrn'); return; }
+  if(!recGeo()){ toast('Carregue as zonas do talhão primeiro','wrn'); return; }
   if(!S.rec.rows.length || !(S.rec.insumoCols||[]).length){ toast('Envie a planilha de recomendação primeiro','wrn'); return; }
   recExpRenderInsumos(); recExpPreview();
   document.getElementById('rec-export-modal').classList.add('show');
@@ -3083,9 +3093,7 @@ async function carregarColeta(){
     }
     let gjZonas=null;
     if(S.coleta.zonas){
-      const buf=await fetchBufColeta(S.coleta.zonas);
-      gjZonas=await shp(buf);
-      if(Array.isArray(gjZonas)) gjZonas={type:'FeatureCollection',features:gjZonas.flatMap(l=>l.features||[])};
+      gjZonas=await _coletaParse(S.coleta.zonas);
     } else if(S.geoData && S.geoData.features && S.geoData.features.length){
       // sem shapefile de coleta próprio → usa o MESMO shapefile do Mapa de Nutrientes
       gjZonas=S.geoData;
@@ -3105,9 +3113,7 @@ async function carregarColeta(){
       popularCamposZona(gjZonas);
     }
     if(S.coleta.pontos){
-      const buf=await fetchBufColeta(S.coleta.pontos);
-      let gj=await shp(buf);
-      if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])};
+      let gj=await _coletaParse(S.coleta.pontos);
       S.coletaGeo.pontos=gj;
       S.coletaLayers.pontos=criarCamadaPontos(gj);
     } else if(S.geoDataPoints && S.geoDataPoints.features && S.geoDataPoints.features.length){
@@ -3539,13 +3545,21 @@ function _extraNutLayer(ex, colorCol, depthLabel){
     return lay;
   }catch(e){ return null; }
 }
+async function _coletaParse(url){
+  // aceita geometria de coleta como GeoJSON (cópia independente) ou shapefile (.zip)
+  if(/\.(geojson|json)(\?|$)/i.test(url)){ const r=await fetch(url); return await r.json(); }
+  const buf=await fetchBufColeta(url);
+  let g=await shp(buf);
+  if(Array.isArray(g)) g={type:'FeatureCollection',features:g.flatMap(l=>l.features||[])};
+  return g;
+}
 async function _buildColeta(data, geoPoly, geoPoints){
   const out={raster:null, zonas:null, pontos:null, zonasGeo:null, pontosGeo:null};
   try{
     if(data.coleta_raster_url) out.raster=await _buildRaster(data.coleta_raster_url);
     // lê o zip de zonas (pode conter polígonos E pontos)
     let gjAll=null;
-    if(data.coleta_zonas_url){ try{ const buf=await fetchBufColeta(data.coleta_zonas_url); gjAll=await shp(buf); if(Array.isArray(gjAll)) gjAll={type:'FeatureCollection',features:gjAll.flatMap(l=>l.features||[])}; }catch(e){} }
+    if(data.coleta_zonas_url){ try{ gjAll=await _coletaParse(data.coleta_zonas_url); }catch(e){} }
     const isPoly=f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon');
     const isPt=f=>f&&f.geometry&&(f.geometry.type==='Point'||f.geometry.type==='MultiPoint');
     // zonas = polígonos do zip; senão os polígonos do geojson de nutrientes
@@ -3559,7 +3573,7 @@ async function _buildColeta(data, geoPoly, geoPoints){
       } }); }
     // pontos: arquivo separado → pontos no zip de zonas → pontos embutidos no geojson
     let gjPts=null;
-    if(data.coleta_pontos_url){ try{ const buf=await fetchBufColeta(data.coleta_pontos_url); let g=await shp(buf); if(Array.isArray(g)) g={type:'FeatureCollection',features:g.flatMap(l=>l.features||[])}; if((g.features||[]).some(isPt)) gjPts=g; }catch(e){} }
+    if(data.coleta_pontos_url){ try{ const g=await _coletaParse(data.coleta_pontos_url); if((g.features||[]).some(isPt)) gjPts=g; }catch(e){} }
     if(!gjPts && gjAll){ const pts=(gjAll.features||[]).filter(isPt); if(pts.length) gjPts={type:'FeatureCollection',features:pts}; }
     if(!gjPts && geoPoints && (geoPoints.features||[]).length){ gjPts=geoPoints; }
     if(gjPts && (gjPts.features||[]).some(isPt)){ out.pontosGeo=gjPts; out.pontos=criarCamadaPontos(gjPts); }

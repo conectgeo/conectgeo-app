@@ -1126,6 +1126,17 @@ async function salvarTalhao(){
     const geoUrl=sb.storage.from('arquivos').getPublicUrl(`${base}/zonas.geojson`).data.publicUrl;
     await sb.from('talhoes').update({ zonas_geojson_url: geoUrl }).eq('id', tal.id);
 
+    // cópias INDEPENDENTES da geometria por setor (isolamento: cada tela edita só o seu arquivo)
+    const _copiaGeo=async(nome)=>{
+      const blob=new Blob([JSON.stringify(geoJson)],{type:'application/json'});
+      const { error }=await sb.storage.from('arquivos').upload(`${base}/${nome}`, blob, { upsert:true });
+      if(error) throw error;
+      return sb.storage.from('arquivos').getPublicUrl(`${base}/${nome}`).data.publicUrl + '?v=' + Date.now();
+    };
+    const coletaZonasUrl = await _copiaGeo('coleta_zonas.geojson');
+    const recZonasUrl    = await _copiaGeo('recomendacao_zonas.geojson');
+    await sb.from('talhoes').update({ coleta_zonas_url: coletaZonasUrl, recomendacao_zonas_url: recZonasUrl }).eq('id', tal.id);
+
     // 5. planilha de análises (OPCIONAL)
     if(csvFile){
       const ext=csvFile.name.split('.').pop().toLowerCase();
@@ -1147,13 +1158,7 @@ async function salvarTalhao(){
         return sb.storage.from('arquivos').getPublicUrl(`${base}/${nome}`).data.publicUrl;
       };
       const updates={ tem_coleta_solo:true };
-      // zonas de coleta = mesmo shapefile de zonas (reusa o .zip se foi shapefile, senão o geojson já salvo)
-      if(coletaFiles.cz){
-        const czExt=coletaFiles.cz.name.split('.').pop().toLowerCase();
-        updates.coleta_zonas_url=await up(coletaFiles.cz, `coleta_zonas.${czExt}`);
-      }else{
-        updates.coleta_zonas_url=geoUrl; // usa o geojson das zonas
-      }
+      // (a geometria de zonas da coleta já foi gravada como cópia independente acima)
       if(coletaFiles.cp){
         const cpExt=coletaFiles.cp.name.split('.').pop().toLowerCase();
         updates.coleta_pontos_url=await up(coletaFiles.cp, `coleta_pontos.${cpExt}`);
