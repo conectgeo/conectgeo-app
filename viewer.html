@@ -2046,7 +2046,7 @@ async function generatePDF(nutrients){
       const legCols = captures[0]?captures[0].cols:palColors();
 
       // ---- página ----
-      const titleTxt = 'MAPA DE NUTRIENTES — '+nut;
+      const titleTxt = nut;
       const logoHTML = logoSrc ? '<img src="'+logoSrc+'" style="height:60px;max-width:280px;object-fit:contain;display:block;">' : '';
       const headerHTML='<div style="position:absolute;left:0;top:0;width:'+pageW+'px;height:86px;">'
         +'<div style="position:absolute;left:36px;top:10px;">'+logoHTML+'</div>'
@@ -2082,7 +2082,7 @@ async function generatePDF(nutrients){
           const r=Math.floor(i/cols), col=i%cols;
           const x=col*(cw+GAP), y=r*(ch+GAP);
           cells+='<div style="position:absolute;left:'+x+'px;top:'+y+'px;width:'+cw+'px;height:'+ch+'px;border:1px solid #cfcabb;background:'+MAP_BG+';overflow:hidden;display:flex;align-items:center;justify-content:center;">'
-            +pill(c.depth)+(i===0?northHTML:'')
+            +pill(c.depth)+(i===captures.length-1?northHTML:'')
             +'<img src="'+c.img+'" style="max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block;"></div>';
         });
         mapCellHTML='<div style="position:absolute;left:'+MAP_X+'px;top:'+MAP_Y+'px;width:'+MAP_W+'px;height:'+MAP_H+'px;position:relative;">'
@@ -2098,6 +2098,7 @@ async function generatePDF(nutrients){
         +line('Cliente:',produtor)
         +line('Região:',fazenda)
         +(_talhoes.length?line(_talhoes.length>1?'Talhões:':'Talhão:', _talhoes.join(', ')):'')
+        +((S.linkData&&S.linkData.municipio)?line('Município:', S.linkData.municipio):'')
         +line(captures.length>1?'Profundidades:':'Profundidade:', depthLabelsAll)
         +(_areaTot>0?line('Área Total:', _areaTot.toFixed(2)+' ha'):'')
         +(resp?line('Responsável:',resp):'')+'</div>';
@@ -2134,12 +2135,12 @@ async function generatePDF(nutrients){
           +'<span style="flex:0 0 70px;text-align:center"><span style="display:inline-block;width:34px;height:12px;background:'+sw+';border:1px solid #999;"></span></span>'
           +'</div>';
       });
-      const legHTML='<div style="border-top:1px solid #e2e2e2;padding-top:11px;">'+lab('Legenda ('+nut+')')+legRows+'</div>';
+      const legHTML='<div style="border-top:1px solid #e2e2e2;padding-top:11px;">'+lab('Legenda (<span style="text-transform:none;">'+nut+'</span>)')+legRows+'</div>';
 
       const rightHTML='<div style="position:absolute;left:'+RX+'px;top:96px;width:'+RW+'px;height:580px;border:1px solid #444;border-radius:3px;padding:14px 16px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">'
         +dadosHTML+statHTML+legHTML+'</div>';
 
-      const footerLabel = (produtor!=='—'?produtor:'ConectGeo') + (fazenda!=='—'?' · '+fazenda:'');
+      const footerLabel = (produtor!=='—'?produtor:'ConectGeo') + (fazenda!=='—'?' · '+fazenda.split(/\s*—\s*/)[0].trim():'');
       const footerHTML='<div style="position:absolute;left:0;bottom:0;width:'+pageW+'px;height:30px;background:#4a4a4a;color:rgba(255,255,255,.82);font-size:10px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;box-sizing:border-box;">'
         +'<span>'+footerLabel+'</span><span>'+pageIdx+' / '+totalPages+'</span></div>';
 
