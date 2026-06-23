@@ -2014,6 +2014,11 @@ async function generatePDF(nutrients){
         mapEl2.style.width=o.w2; mapEl2.style.height=o.h2; mapEl2.style.flex=o.f2;
         if(wrapEl) wrapEl.style.width=o.wW;
       } else {
+        // proporção da célula deste chunk → captura nessa proporção MANTENDO o zoom (preenche com a continuação do mapa)
+        const _cnt=chunk.length;
+        const _cols=(_cnt<=1)?1:2, _rows=(_cnt<=2)?1:2;
+        const _cw=(MAP_W-GAP*(_cols-1))/_cols, _ch=(MAP_H-GAP*(_rows-1))/_rows;
+        const capH=Math.max(SLOT_H, Math.round(SLOT_W*(_ch/_cw)));
         for(let di=0; di<chunk.length; di++){
           const depthLabel = chunk[di];
           if(depthLabel && S.depthCol && normDepth(S.activeDepth)!==normDepth(depthLabel)){
@@ -2022,12 +2027,15 @@ async function generatePDF(nutrients){
           }
           setLoading(t('loadingMap',pageIdx,totalPages,nut+(depthLabel?(' · '+depthLabel):'')));
           if(wrapEl) wrapEl.style.width=SLOT_W+'px';
+          // 1) enquadra o talhão na referência → define zoom e centro
           mapEl.style.flex='none'; mapEl.style.width=SLOT_W+'px'; mapEl.style.height=SLOT_H+'px';
           try{ S.map.invalidateSize(true); }catch(e){}
           renderMap();
           let _bAll=S.layer?S.layer.getBounds():null;
           (S.extras||[]).forEach(ex=>{ if(ex.bounds){ try{ _bAll=_bAll?_bAll.extend(ex.bounds):L.latLngBounds(ex.bounds); }catch(e){} } });
           if(_bAll) S.map.fitBounds(_bAll,{padding:[18,18],animate:false});
+          // 2) estica a captura para a proporção da célula SEM mudar zoom/centro → mostra a continuação do mapa
+          if(capH!==SLOT_H){ mapEl.style.height=capH+'px'; try{ S.map.invalidateSize(false); }catch(e){} }
           await waitMap(S.map);
           captures.push({
             depth: depthLabel||baseDepth,
@@ -2084,7 +2092,7 @@ async function generatePDF(nutrients){
           const x=col*(cw+GAP), y=r*(ch+GAP);
           cells+='<div style="position:absolute;left:'+x+'px;top:'+y+'px;width:'+cw+'px;height:'+ch+'px;border:1px solid #cfcabb;background:'+MAP_BG+';overflow:hidden;display:flex;align-items:center;justify-content:center;">'
             +pill(c.depth)+(i===captures.length-1?northHTML:'')
-            +'<img src="'+c.img+'" style="max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block;"></div>';
+            +'<img src="'+c.img+'" style="width:100%;height:100%;object-fit:cover;display:block;"></div>';
         });
         mapCellHTML='<div style="position:absolute;left:'+MAP_X+'px;top:'+MAP_Y+'px;width:'+MAP_W+'px;height:'+MAP_H+'px;position:relative;">'
           +'<div style="position:relative;width:100%;height:100%;">'+cells+'</div></div>';
