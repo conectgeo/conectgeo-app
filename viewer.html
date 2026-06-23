@@ -525,7 +525,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       <div class="sec-label"><span class="txt"><span class="sec-num"></span><span>Exportar</span></span></div>
       <button class="pdf-btn" id="btn-rec-zip">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        <span>Exportar (.zip)</span>
+        <span>Exportar</span>
       </button>
     </div>
   </div>
@@ -759,7 +759,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 <div class="modal-bg" id="rec-export-modal">
   <div class="modal">
     <div class="modal-head">
-      <div class="modal-title">Exportar prescrição (.zip)</div>
+      <div class="modal-title">Exportar prescrição</div>
       <div class="modal-sub">Um shapefile por insumo, na estrutura de pastas do monitor</div>
     </div>
     <div class="modal-body">
@@ -781,10 +781,16 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
       <span class="mlabel" style="margin-top:14px">Estrutura de pastas</span>
       <pre id="rec-exp-preview" style="background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:10px;font-size:11px;color:var(--ink);white-space:pre;overflow:auto;margin:0;line-height:1.5;"></pre>
+
+      <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+        <span class="mlabel">Planilha do talhão</span>
+        <button class="mbtn go" id="rec-exp-xls" style="width:100%;justify-content:center;margin-top:6px;">⬇ Exportar tabela (Excel)</button>
+        <div style="font-size:11px;color:var(--muted);margin-top:6px;">Baixa a planilha de recomendação de cada talhão selecionado, individualmente (nomeada pelo talhão).</div>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="mbtn cancel" id="rec-exp-cancel">Cancelar</button>
-      <button class="mbtn go" id="rec-exp-go">Exportar .zip</button>
+      <button class="mbtn go" id="rec-exp-go">Exportar</button>
     </div>
   </div>
 </div>
@@ -2919,6 +2925,25 @@ function recExpPreview(){
   });
   pre.textContent=txt.trim();
 }
+async function exportarTabelasExcel(){
+  const alvos=[];
+  if(S.rec && S.rec.url) alvos.push({nome:(S.linkData&&S.linkData.talhao)||'talhao', url:S.rec.url});
+  (S.extras||[]).forEach(ex=>{ if(ex.rec && ex.rec.url) alvos.push({nome:ex.nome||'talhao', url:ex.rec.url}); });
+  if(!alvos.length){ toast('Nenhuma planilha de recomendação para exportar','wrn'); return; }
+  const btn=document.getElementById('rec-exp-xls'); const _txt=btn?btn.textContent:''; if(btn){ btn.disabled=true; btn.textContent='Baixando…'; }
+  for(const t of alvos){
+    try{
+      const resp=await fetch(t.url); const blob=await resp.blob();
+      const ext=(t.url.split('?')[0].split('.').pop()||'xlsx').toLowerCase();
+      const safe=((typeof _normNome==='function'?_normNome(t.nome):String(t.nome).replace(/[^\w\-]+/g,'_'))||'talhao');
+      const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=safe+'.'+ext; document.body.appendChild(a); a.click();
+      setTimeout(()=>{ try{URL.revokeObjectURL(a.href);}catch(e){} a.remove(); }, 1500);
+    }catch(e){ console.warn('export tabela', e); }
+    await new Promise(r=>setTimeout(r,450));
+  }
+  if(btn){ btn.disabled=false; btn.textContent=_txt; }
+  toast('Planilha(s) exportada(s)','ok');
+}
 function openRecExport(){
   if(!recGeo()){ toast('Carregue as zonas do talhão primeiro','wrn'); return; }
   if(!S.rec.rows.length || !(S.rec.insumoCols||[]).length){ toast('Envie a planilha de recomendação primeiro','wrn'); return; }
@@ -3503,6 +3528,7 @@ function wireColetaControls(){
   const bRecZip=document.getElementById('btn-rec-zip');
   if(bRecZip) bRecZip.addEventListener('click', openRecExport);
   const reCancel=document.getElementById('rec-exp-cancel'); if(reCancel) reCancel.addEventListener('click',()=>document.getElementById('rec-export-modal').classList.remove('show'));
+  const reXls=document.getElementById('rec-exp-xls'); if(reXls) reXls.addEventListener('click', exportarTabelasExcel);
   const reGo=document.getElementById('rec-exp-go'); if(reGo) reGo.addEventListener('click', doRecExport);
   const reAll=document.getElementById('rec-exp-all'); if(reAll) reAll.addEventListener('click',()=>{ document.querySelectorAll('#rec-exp-insumos .nut-chip').forEach(c=>c.classList.add('sel')); recExpPreview(); });
   const reNone=document.getElementById('rec-exp-none'); if(reNone) reNone.addEventListener('click',()=>{ document.querySelectorAll('#rec-exp-insumos .nut-chip').forEach(c=>c.classList.remove('sel')); recExpPreview(); });
@@ -3721,7 +3747,7 @@ async function buildExtras(allTokens){
           recInsumoCols=detectInsumoCols(recFields, recRows);
         }
       }catch(e){}
-      return { nome, ex:{ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,_layer:null} } };
+      return { nome, ex:{ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,url:recUrl,_layer:null} } };
     }catch(e){ return null; }
   }
   // carrega TODOS os talhões em paralelo (muito mais rápido que em série)
