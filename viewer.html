@@ -750,6 +750,20 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
         <img id="custom-logo-preview" style="display:none;">
       </div>
 
+      <span class="mlabel">Orientação da página</span>
+      <div class="logo-opts" id="orient-opts" style="grid-template-columns:repeat(2,1fr);">
+        <div class="logo-opt sel" data-orient="portrait">
+          <div class="logo-opt-radio"></div>
+          <div class="logo-opt-txt"><strong>Retrato</strong><span>Mapas empilhados (vertical)</span></div>
+        </div>
+        <div class="logo-opt" data-orient="landscape">
+          <div class="logo-opt-radio"></div>
+          <div class="logo-opt-txt"><strong>Paisagem</strong><span>Mapas lado a lado (horizontal)</span></div>
+        </div>
+      </div>
+
+
+
       <span class="mlabel" data-i18n="mNuts">Nutrientes a imprimir</span>
       <div class="modal-tools">
         <div class="mtool" id="mt-all" data-i18n="selAll">Selecionar todos</div>
@@ -1768,21 +1782,33 @@ document.getElementById('btn-pdf').addEventListener('click',()=>{
   });
   // reset logo choice each time the modal opens
   S.logoChoice=null; S.customLogo=null;
-  document.querySelectorAll('.logo-opt').forEach(o=>o.classList.remove('sel'));
+  document.querySelectorAll('#logo-opts .logo-opt').forEach(o=>o.classList.remove('sel'));
+  // mantém orientação atual selecionada (default = retrato)
+  document.querySelectorAll('#orient-opts .logo-opt').forEach(o=>o.classList.toggle('sel', (o.dataset.orient||'portrait')===(S.pdfOrient||'portrait')));
   document.getElementById('custom-logo-row').style.display='none';
   document.getElementById('custom-logo-preview').style.display='none';
   modalBg.classList.add('show');
 });
 
 // logo option selection
-document.querySelectorAll('.logo-opt').forEach(opt=>{
+document.querySelectorAll('#logo-opts .logo-opt').forEach(opt=>{
   opt.addEventListener('click',function(){
-    document.querySelectorAll('.logo-opt').forEach(o=>o.classList.remove('sel'));
+    document.querySelectorAll('#logo-opts .logo-opt').forEach(o=>o.classList.remove('sel'));
     this.classList.add('sel');
     S.logoChoice=this.dataset.logo;
     document.getElementById('custom-logo-row').style.display = (S.logoChoice==='custom') ? '' : 'none';
   });
 });
+// orientação da página (PDF padrão)
+S.pdfOrient='portrait';
+document.querySelectorAll('#orient-opts .logo-opt').forEach(opt=>{
+  opt.addEventListener('click',function(){
+    document.querySelectorAll('#orient-opts .logo-opt').forEach(o=>o.classList.remove('sel'));
+    this.classList.add('sel');
+    S.pdfOrient=this.dataset.orient||'portrait';
+  });
+});
+
 // custom logo upload
 document.getElementById('custom-logo-file').addEventListener('change',function(e){
   const file=e.target.files[0]; if(!file) return;
@@ -1853,240 +1879,166 @@ function _pdfBaseHide(){
   return function(){ restorers.forEach(fn=>{ try{fn();}catch(e){} }); };
 }
 
+// ── Captura de mapa para uma profundidade/nutriente específicos (estilo Recomendação) ──
+async function _nutCapture(nut, depth, slotW, slotH){
+  if(depth && S.depthCol && (S.availDepths||[]).length>1 && normDepth(S.activeDepth)!==normDepth(depth)){
+    const m=(S.availDepths||[]).find(d=>normDepth(d)===normDepth(depth));
+    if(m){ S.activeDepth=m; applyActiveDepth(); }
+  }
+  S.colorCol=nut;
+  const sel=document.getElementById('sel-col'); if(sel) sel.value=nut;
+  const auto=autoPalette(nut);
+  if(auto){ S.pal=auto.pal; S.invert=auto.invert; } else { S.pal='rdylgn'; S.invert=false; }
+  S.showLabels=true; S.pdfMode=true;
+  const mapEl=document.getElementById('map'), wrap=document.querySelector('.map-wrap');
+  const orig={w:mapEl.style.width,h:mapEl.style.height,f:mapEl.style.flex,ww:wrap?wrap.style.width:''};
+  mapEl.style.flex='none'; mapEl.style.width=slotW+'px'; mapEl.style.height=slotH+'px';
+  if(wrap) wrap.style.width=slotW+'px';
+  try{ S.map.invalidateSize(true); }catch(e){}
+  renderMap();
+  try{ if(S.layer) S.map.fitBounds(S.layer.getBounds(),{padding:[14,14],animate:false}); }catch(e){}
+  await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1200:520));
+  let img;
+  if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'}); }
+  else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); img=cv.toDataURL('image/jpeg',0.95); }
+  mapEl.style.width=orig.w; mapEl.style.height=orig.h; mapEl.style.flex=orig.f; if(wrap) wrap.style.width=orig.ww;
+  try{ S.map.invalidateSize(true); }catch(e){}
+  return img;
+}
+
+// ── Profundidades disponíveis para um nutriente (com dados numéricos na coluna) ──
+function _depthsForNut(nut){
+  if(!S.depthCol || !(S.availDepths||[]).length){
+    return [S.activeDepth || 'planilha'];
+  }
+  const list=[];
+  S.availDepths.forEach(d=>{
+    const has=S.csvData.some(r=>normDepth(r[S.depthCol])===normDepth(d) && typeof r[nut]==='number');
+    if(has) list.push(d);
+  });
+  return list.length ? list : [S.activeDepth || S.availDepths[0]];
+}
+
 async function generatePDF(nutrients){
   showLoading(t('loadingPrep'));
-  const savedCol=S.colorCol, savedPal=S.pal, savedInv=S.invert, savedLabels=S.showLabels, savedTouched=S.userTouchedPal;
-  S.showLabels=true;
-  S.pdfMode=true;
+  const savedCol=S.colorCol, savedPal=S.pal, savedInv=S.invert, savedLabels=S.showLabels, savedTouched=S.userTouchedPal, savedDepth=S.activeDepth;
+  const savedSnap=(S.map&&S.map.options)?S.map.options.zoomSnap:1;
+  S.showLabels=true; S.pdfMode=true;
+  try{ if(S.map&&S.map.options){ S.map.options.zoomSnap=0; S.map.options.zoomDelta=0.25; } }catch(e){}
   const _baseRestore=_pdfBaseHide();
+
   const fazenda=(document.getElementById('pdf-fazenda').value||'').trim()||'—';
   const produtor=(document.getElementById('pdf-produtor').value||'').trim()||'—';
-  const resp=(document.getElementById('pdf-resp').value||'').trim()||'—';
+  const resp=(document.getElementById('pdf-resp').value||'').trim()||'';
   const dataVal=new Date().toLocaleDateString('pt-BR');
-  const depth=S.activeDepth||'planilha';
-  const mapEl=document.getElementById('map');
+  const orient=(S.pdfOrient==='landscape')?'landscape':'portrait';
+
+  let logoSrc=null;
+  if(S.logoChoice==='custom' && S.customLogo) logoSrc=S.customLogo;
+  else if(S.logoChoice==='conectgeo') logoSrc=LOGO_DATA;
+  else if(S.logoChoice==='none') logoSrc=null;
+  else logoSrc=S.consultorLogo||LOGO_DATA;
+
+  const restore=()=>{
+    S.colorCol=savedCol; S.pal=savedPal; S.invert=savedInv; S.showLabels=savedLabels; S.userTouchedPal=savedTouched;
+    S.pdfMode=false;
+    try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnap; }catch(e){}
+    if(_baseRestore) _baseRestore();
+    const selC=document.getElementById('sel-col'); if(selC) selC.value=savedCol;
+    if(savedDepth && S.depthCol && normDepth(S.activeDepth)!==normDepth(savedDepth)){
+      S.activeDepth=savedDepth; applyActiveDepth();
+    } else {
+      try{ S.map.invalidateSize(false); renderMap(); }catch(e){}
+    }
+  };
 
   try{
     const {jsPDF}=window.jspdf;
-    const compareModePre = !!(S.compare && S.compare.on);
-    const doc=new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
-    const PW=210, PH=297;
-
-    // wait for the map to finish moving AND for base tiles to finish loading
-    function waitMapReady(){
-      return new Promise(resolve=>{
-        let moved=false, tiles=false, settled=false;
-        const tryDone=()=>{ if(settled) return; if(moved && tiles){ settled=true; cleanup(); resolve(); } };
-        const onMove=()=>{ moved=true; tryDone(); };
-        const onTiles=()=>{ tiles=true; tryDone(); };
-        const baseLayer=S.baseLayers[S.activeBase];
-        const cleanup=()=>{ S.map.off('moveend',onMove); baseLayer.off('load',onTiles); };
-        S.map.once('moveend',onMove);
-        baseLayer.once('load',onTiles);
-        setTimeout(()=>{ moved=true; tryDone(); }, 700);
-        setTimeout(()=>{ tiles=true; tryDone(); }, 900);
-        setTimeout(()=>{ if(!settled){ settled=true; cleanup(); resolve(); } }, 2500);
-      });
-    }
-
-    const compareMode = !!(S.compare && S.compare.on);
-
-    async function captureMap(mapInstance, mapDomEl){
-      // wait for tiles + move on a given map
-      await new Promise(resolve=>{
-        let moved=false, tiles=false, settled=false;
-        const tryDone=()=>{ if(settled) return; if(moved && tiles){ settled=true; cleanup(); resolve(); } };
-        const onMove=()=>{ moved=true; tryDone(); };
-        const onTiles=()=>{ tiles=true; tryDone(); };
-        const baseLayers = mapInstance===S.map ? S.baseLayers : (S.compare && S.compare.baseLayers2);
-        const baseLayer = baseLayers ? baseLayers[S.activeBase] : null;
-        const cleanup=()=>{ mapInstance.off('moveend',onMove); if(baseLayer) baseLayer.off('load',onTiles); };
-        mapInstance.once('moveend',onMove);
-        if(baseLayer) baseLayer.once('load',onTiles); else tiles=true;
-        setTimeout(()=>{ moved=true; tryDone(); }, 700);
-        setTimeout(()=>{ tiles=true; tryDone(); }, 900);
-        setTimeout(()=>{ if(!settled){ settled=true; cleanup(); resolve(); } }, 2500);
-      });
-      await new Promise(r=>setTimeout(r,400));
-      if(mapInstance===S.map && S.shooter){
-        return await S.shooter.takeScreen('image',{mimeType:'image/jpeg'});
-      }
-      if(S.compare && mapInstance===S.compare.map2 && S.compare.shooter2){
-        return await S.compare.shooter2.takeScreen('image',{mimeType:'image/jpeg'});
-      }
-      const c = await html2canvas(mapDomEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:'#e4e0d4'});
-      return c.toDataURL('image/jpeg',0.95);
-    }
+    const doc=new jsPDF({orientation:orient, unit:'mm', format:'a4'});
+    const PW = orient==='landscape' ? 297 : 210;
+    const PH = orient==='landscape' ? 210 : 297;
+    const pageW = orient==='landscape' ? 1123 : 794;
+    const pageH = orient==='landscape' ? 794  : 1123;
 
     for(let n=0;n<nutrients.length;n++){
       const nut=nutrients[n];
-      setLoading(t('loadingMap',n+1,nutrients.length,nut));
-      // set nutrient + auto palette
-      S.colorCol=nut;
-      document.getElementById('sel-col').value=nut;
-      const auto=autoPalette(nut);
-      if(auto){S.pal=auto.pal;S.invert=auto.invert;} else {S.pal='rdylgn';S.invert=false;}
+      setLoading('Gerando '+(n+1)+' de '+nutrients.length+' — '+nut);
 
-      S.pdfMode=true;
+      const depths=_depthsForNut(nut);
+      const nMaps=depths.length;
 
-      let mapImg, mapImg2=null, pageDepth=depth;
-      if(compareMode){
-        renderCompare();
-        const L1=S.compare.left, R1=S.compare.right;
-        pageDepth = `${L1}  vs  ${R1}`;
-
-        // Force capture at PDF-slot aspect ratio (portrait-friendly)
-        // so the farm fits naturally inside the compare cells without
-        // any post-stretch on the rendered image.
-        const mapEl1 = document.getElementById('map');
-        const mapEl2 = document.getElementById('map2');
-        const wrapEl = document.querySelector('.map-wrap');
-        const orig = {
-          w1:mapEl1.style.width, h1:mapEl1.style.height, f1:mapEl1.style.flex,
-          w2:mapEl2.style.width, h2:mapEl2.style.height, f2:mapEl2.style.flex,
-          wW:wrapEl.style.width, wH:wrapEl.style.height,
-        };
-        // PDF slot aspect ~ 740x430 (each of the two compare cells)
-        const SLOT_W=740, SLOT_H=430;
-        wrapEl.style.width=SLOT_W+'px';
-        mapEl1.style.flex='none'; mapEl1.style.width=SLOT_W+'px'; mapEl1.style.height=SLOT_H+'px';
-        mapEl2.style.flex='none'; mapEl2.style.width=SLOT_W+'px'; mapEl2.style.height=SLOT_H+'px';
-        S.map.invalidateSize(true);
-        S.compare.map2.invalidateSize(true);
-        if(S.layer)  S.map.fitBounds(S.layer.getBounds(),{padding:[30,30],animate:false});
-        if(S.layer2) S.compare.map2.fitBounds(S.layer2.getBounds(),{padding:[30,30],animate:false});
-        await new Promise(r=>setTimeout(r,600));
-
-        mapImg  = await captureMap(S.map,  mapEl1);
-        mapImg2 = await captureMap(S.compare.map2, mapEl2);
-
-        // restore live dashboard sizing
-        mapEl1.style.width=orig.w1; mapEl1.style.height=orig.h1; mapEl1.style.flex=orig.f1;
-        mapEl2.style.width=orig.w2; mapEl2.style.height=orig.h2; mapEl2.style.flex=orig.f2;
-        wrapEl.style.width=orig.wW; wrapEl.style.height=orig.wH;
-        S.map.invalidateSize(true);
-        S.compare.map2.invalidateSize(true);
-        if(S.layer)  S.map.fitBounds(S.layer.getBounds(),{padding:[24,24],animate:false});
-        if(S.layer2) S.compare.map2.fitBounds(S.layer2.getBounds(),{padding:[24,24],animate:false});
+      // slot de captura: aspecto ~ da célula final
+      let cellW, cellH, slotCapW, slotCapH;
+      const padX=28, padTopMap=110, padBottom=70, gap=14;
+      if(orient==='landscape'){
+        // mapas lado a lado (1 linha)
+        cellW=Math.floor((pageW-2*padX-(nMaps-1)*gap)/nMaps);
+        cellH=pageH-padTopMap-padBottom;
       } else {
-        renderMap();
-        const ready=waitMapReady();
-        S.map.fitBounds(S.layer.getBounds(),{padding:[30,30],animate:false});
-        await ready;
-        await new Promise(r=>setTimeout(r,450));
-        if(S.shooter){
-          mapImg=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'});
-        } else {
-          const mapCanvas=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:'#e4e0d4'});
-          mapImg=mapCanvas.toDataURL('image/jpeg',0.95);
+        // mapas empilhados (1 coluna)
+        cellW=pageW-2*padX;
+        cellH=Math.floor((pageH-padTopMap-padBottom-(nMaps-1)*gap)/nMaps);
+      }
+      // captura num slot maior pra qualidade
+      slotCapW=Math.max(420,Math.round(cellW*1.3));
+      slotCapH=Math.max(420,Math.round(cellH*1.3));
+
+      const imgs=[];
+      for(let i=0;i<nMaps;i++){
+        setLoading('Gerando '+nut+' — '+depths[i]+' ('+(i+1)+'/'+nMaps+')');
+        const img=await _nutCapture(nut, depths[i], slotCapW, slotCapH);
+        imgs.push({depth:depths[i], img});
+      }
+
+      // ── monta a página (estilo Recomendação: limpo, header branco com linha verde) ──
+      const logoHTML=logoSrc?'<img src="'+logoSrc+'" style="height:54px;max-width:240px;object-fit:contain;display:block;">':'';
+      const headerHTML='<div style="position:absolute;left:0;top:0;width:'+pageW+'px;height:86px;background:#fff;">'
+        +'<div style="position:absolute;left:'+padX+'px;top:14px;">'+logoHTML+'</div>'
+        +'<div style="position:absolute;left:240px;right:200px;top:24px;text-align:center;">'
+        +'<div style="font-size:22px;font-weight:800;color:#1f1f1f;letter-spacing:.02em;">'+nut+'</div>'
+        +'<div style="font-size:11px;color:#888;margin-top:4px;">'+fazenda+(produtor!=='—'?(' · '+produtor):'')+(resp?(' · Resp.: '+resp):'')+'</div>'
+        +'</div>'
+        +'<div style="position:absolute;right:'+padX+'px;top:30px;font-size:11px;color:#888;text-align:right;">'+dataVal+'</div>'
+        +'<div style="position:absolute;left:'+padX+'px;right:'+padX+'px;bottom:6px;height:2px;background:#6fae3f;"></div>'
+        +'</div>';
+
+      const cellHTML=(cap,x,y)=>{
+        return '<div style="position:absolute;left:'+x+'px;top:'+y+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #cfcabb;background:#fff;overflow:hidden;border-radius:4px;">'
+          +'<img src="'+cap.img+'" style="width:100%;height:100%;object-fit:contain;display:block;background:#fff;">'
+          +'<div style="position:absolute;left:10px;top:10px;background:#fff;border:1.5px solid #6fae3f;color:#4a7028;font-weight:700;font-size:12px;padding:4px 12px;border-radius:18px;box-shadow:0 1px 3px rgba(0,0,0,.08);">'+cap.depth+'</div>'
+          +'</div>';
+      };
+
+      let mapsHTML='';
+      if(orient==='landscape'){
+        for(let i=0;i<nMaps;i++){
+          const x=padX+i*(cellW+gap), y=padTopMap;
+          mapsHTML+=cellHTML(imgs[i],x,y);
+        }
+      } else {
+        for(let i=0;i<nMaps;i++){
+          const x=padX, y=padTopMap+i*(cellH+gap);
+          mapsHTML+=cellHTML(imgs[i],x,y);
         }
       }
 
-      const cols=palColors();
+      const footerHTML='<div style="position:absolute;left:0;bottom:0;width:'+pageW+'px;height:30px;background:#4a4a4a;color:rgba(255,255,255,.82);font-size:10px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;box-sizing:border-box;">'
+        +'<span>'+(fazenda!=='—'?fazenda:'ConectGeo')+(produtor!=='—'?' · '+produtor:'')+'</span>'
+        +'<span>'+(n+1)+' / '+nutrients.length+'</span></div>';
 
-      // build an offscreen A4 portrait page
-      const pageW = 794, pageH = 1123;
       const page=document.createElement('div');
-      page.style.cssText=`position:fixed;left:-99999px;top:0;width:${pageW}px;height:${pageH}px;background:#fff;font-family:Arial,sans-serif;display:flex;flex-direction:column;`;
-      const {mn,mx,mean,med,std}=S.stats;
-      let legSegs='';
-      for(let i=0;i<60;i++){legSegs+=`<div style="flex:1;background:${lerpColor(cols,i/59)}"></div>`;}
-      let ticks='';
-      for(let i=0;i<=S.classes;i++){const tv=(mn+(mx-mn)*(i/S.classes)).toFixed(1);const al=i===0?'left':i===S.classes?'right':'center';ticks+=`<span style="flex:1;text-align:${al};font-size:12px;color:#797566">${tv}</span>`;}
-      const statCells=[[t('stMin'),mn.toFixed(2)],[t('stMax'),mx.toFixed(2)],[t('stMean'),mean.toFixed(2)],[t('stMed'),med.toFixed(2)],[t('stStd'),std.toFixed(2)],[t('stZones'),S.stats.n]]
-        .map(([l,v])=>`<div style="flex:1;text-align:center"><div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:.05em">${l}</div><div style="font-size:26px;font-weight:700;color:#6fae3f;margin-top:5px">${v}</div></div>`).join('');
-      // ── HEADER varies by logo choice ──
-      let headerHTML;
-      if(S.logoChoice==='none'){
-        headerHTML=`
-        <div style="height:74px;background:#4a4a4a;display:flex;align-items:center;justify-content:flex-end;padding:0 40px;position:relative;flex-shrink:0;">
-          <div style="text-align:right">
-            <div style="font-size:14px;font-weight:700;color:#fff">${fazenda}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,.65);margin-top:3px">${pageDepth} &nbsp;·&nbsp; ${dataVal}</div>
-          </div>
-          <div style="position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#6fae3f,transparent 55%)"></div>
-        </div>`;
-      } else if(S.logoChoice==='custom' && S.customLogo){
-        headerHTML=`
-        <div style="height:96px;background:#4a4a4a;display:flex;align-items:center;justify-content:space-between;padding:0 40px;position:relative;flex-shrink:0;">
-          <div style="background:#fff;border-radius:8px;padding:8px 12px;display:flex;align-items:center;">
-            <img src="${S.customLogo}" style="height:54px;max-width:230px;object-fit:contain;display:block;">
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:15px;font-weight:700;color:#fff">${fazenda}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,.65);margin-top:3px">${pageDepth} &nbsp;·&nbsp; ${dataVal}</div>
-          </div>
-          <div style="position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#6fae3f,transparent 55%)"></div>
-        </div>`;
-      } else {
-        headerHTML=`
-        <div style="height:96px;background:#4a4a4a;display:flex;align-items:center;justify-content:space-between;padding:0 40px;position:relative;flex-shrink:0;">
-          <div style="display:flex;align-items:center;gap:14px;">
-            <img src="${LOGO_DATA}" style="height:56px;">
-            <div>
-              <div style="font-size:26px;font-weight:700;color:#fff;line-height:1">Conect<span style="color:#6fae3f">Geo</span></div>
-              <div style="font-size:11px;color:rgba(255,255,255,.6);letter-spacing:.16em;text-transform:uppercase;margin-top:3px">${t('pdfSubtitle')}</div>
-            </div>
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:15px;font-weight:700;color:#fff">${fazenda}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,.65);margin-top:3px">${pageDepth} &nbsp;·&nbsp; ${dataVal}</div>
-          </div>
-          <div style="position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#6fae3f,transparent 55%)"></div>
-        </div>`;
-      }
-      const footerLabel = (S.logoChoice==='conectgeo'||!S.logoChoice) ? ('ConectGeo · '+fazenda) : fazenda;
-
-      const pill = (txt)=>`<div style="position:absolute;top:10px;left:14px;background:#fff;border:2px solid #6fae3f;color:#6fae3f;font-weight:800;font-size:14px;padding:6px 16px;border-radius:22px;box-shadow:0 2px 6px rgba(0,0,0,.12);z-index:5;">${txt}</div>`;
-      const mapBlock = compareMode
-        ? `<div style="padding:10px 24px 0;flex:1;display:flex;flex-direction:column;gap:6px;min-height:0;">
-             <div style="position:relative;flex:1;min-height:0;border:1px solid #dcd8cc;border-radius:8px;overflow:hidden;background:#e4e0d4;">
-               ${pill(S.compare.left+'cm')}
-               <img src="${mapImg}" style="width:100%;height:100%;object-fit:contain;object-position:center;display:block;">
-             </div>
-             <div style="height:3px;background:#6fae3f;border-radius:2px;"></div>
-             <div style="position:relative;flex:1;min-height:0;border:1px solid #dcd8cc;border-radius:8px;overflow:hidden;background:#e4e0d4;">
-               ${pill(S.compare.right+'cm')}
-               <img src="${mapImg2}" style="width:100%;height:100%;object-fit:contain;object-position:center;display:block;">
-             </div>
-           </div>`
-        : `<div style="padding:28px 40px 0;flex:1;display:flex;align-items:center;justify-content:center;min-height:0;">
-             <img src="${mapImg}" style="max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;border:1px solid #dcd8cc;border-radius:8px;display:block">
-           </div>`;
-
-      page.innerHTML=`
-        ${headerHTML}
-        <div style="padding:34px 40px 0;flex-shrink:0;">
-          <div style="font-size:28px;font-weight:700;color:#4a4a4a">${nut}</div>
-          <div style="font-size:13px;color:#797566;margin-top:6px">${t('produtorLbl')}: ${produtor} &nbsp;|&nbsp; ${t('respLbl')}: ${resp}</div>
-        </div>
-        ${mapBlock}
-        <div style="padding:24px 40px 0;flex-shrink:0;">
-          <div style="display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid #c4bfb0">${legSegs}</div>
-          <div style="display:flex;margin-top:6px">${ticks}</div>
-        </div>
-        <div style="padding:34px 40px;display:flex;gap:0;flex-shrink:0;">${statCells}</div>
-        <div style="height:38px;background:#4a4a4a;display:flex;align-items:center;justify-content:space-between;padding:0 40px;color:rgba(255,255,255,.7);font-size:11px;flex-shrink:0;">
-          <span>${footerLabel} · ${pageDepth}</span>
-          <span>${n+1} / ${nutrients.length}</span>
-        </div>`;
+      page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
+      page.innerHTML=headerHTML+mapsHTML+footerHTML;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      const pageCanvas=await html2canvas(page,{scale:2.5,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
+      const pageCanvas=await html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
       document.body.removeChild(page);
 
       if(n>0) doc.addPage();
       doc.addImage(pageCanvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
     }
 
-    // restore
-    S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;S.userTouchedPal=savedTouched;
-    S.pdfMode=false;
-    if(_baseRestore) _baseRestore();
-    document.getElementById('sel-col').value=savedCol;
-    S.map.invalidateSize(false);
-    renderMap();
-
+    restore();
     hideLoading();
     const cleanF=(s)=>(s&&s!=='—'?s:'').replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
     const fileCliente=cleanF(produtor)||'Cliente';
@@ -2094,14 +2046,12 @@ async function generatePDF(nutrients){
     doc.save(`${t('filePrefix')}_${fileCliente}_${fileFazenda}.pdf`);
     toast(t('tPdfOk',nutrients.length),'ok');
   }catch(err){
-    S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;
-    S.pdfMode=false;
-    if(_baseRestore) _baseRestore();
-    S.map.invalidateSize(false);
-    renderMap();
-    hideLoading();toast('Erro ao gerar PDF: '+err.message,'err');console.error(err);
+    restore();
+    hideLoading();
+    toast('Erro ao gerar PDF: '+(err.message||err),'err'); console.error(err);
   }
 }
+
 
 // ══ MODO LINK (visualização por URL) ══
 async function fetchBuf(url){
@@ -2259,6 +2209,7 @@ function drawRecLabels(){
   };
   if(S.recCompare.on){ drawOn(S.map, S.rec.layer, S.recCompare.left); drawOn(S.compare&&S.compare.map2, S.rec.layer2, S.recCompare.right); }
   else { drawOn(S.map, S.rec.layer, S.rec.col); }
+  try{ multiRefreshExtraRecLabels(); }catch(e){}
 }
 function renderRecomendacao(){
   if(S.rec.layer){ try{S.map.removeLayer(S.rec.layer);}catch(e){} S.rec.layer=null; }
@@ -3096,6 +3047,9 @@ function setMapMode(mode){
     const _ml=document.getElementById('mleg-left'), _mr=document.getElementById('mleg-right'); if(_ml)_ml.style.display='none'; if(_mr)_mr.style.display='none';
   }
   if(S.rec){ S.rec.labels.forEach(l=>{try{S.map.removeLayer(l);}catch(e){}}); S.rec.labels=[]; }
+  if(mode!=='recomendacao' && S.extras && S.extras.length){
+    S.extras.forEach(ex=>{ try{ if(typeof _clearExtraRecLabels==='function') _clearExtraRecLabels(ex); }catch(e){} if(ex && ex.rec && ex.rec._layer){ try{ S.map.removeLayer(ex.rec._layer); }catch(e){} ex.rec._layer=null; } });
+  }
 
   if(mode==='coleta'){
     // se o modo comparação estiver ligado, colapsa o split antes de entrar na coleta
@@ -3880,17 +3834,29 @@ function multiExtrasColeta(kind,on){
   S.extras.forEach(ex=>{ if(!ex.hasColeta) return; const lay=ex.coleta[kind]; if(lay){ on?lay.addTo(S.map):S.map.removeLayer(lay); } });
 }
 // recomendação: colore as zonas de cada talhão extra pelo insumo selecionado (escala própria de cada talhão)
+function _normName(x){ try{ return String(x==null?'':x).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase().replace(/\s+/g,' '); }catch(e){ return String(x==null?'':x).trim().toLowerCase(); } }
+function _matchInsumoCol(rec, col){
+  if(!rec || !col) return null;
+  const fields = rec.fields || [];
+  if(fields.indexOf(col) >= 0) return col;
+  const target = _normName(col);
+  for(let i=0;i<fields.length;i++){ if(_normName(fields[i]) === target) return fields[i]; }
+  const insumos = rec.insumoCols || [];
+  for(let i=0;i<insumos.length;i++){ if(_normName(insumos[i]) === target) return insumos[i]; }
+  return insumos[0] || null;
+}
 function _extraRecData(ex, col){
   const out={vals:[], recs:[]};
-  const rec=ex.rec; if(!rec || !col || (rec.fields||[]).indexOf(col)<0 || !rec.rows.length) return out;
-  const fator=recFatorColuna(col);
+  const rec=ex.rec; const recCol=_matchInsumoCol(rec, col); if(!rec || !recCol || !rec.rows.length) return out;
+  const fator=recFatorColuna(recCol);
   const joined={}; rec.rows.forEach(r=>{ joined[_zkey(r[rec.zone])]=r; });
   const jg=ex.joinGeo||_zoneField(ex.geo.features[0].properties);
-  (ex.geo.features||[]).forEach(f=>{ if(!_isPoly(f)) return; const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[col]):NaN; d=isNaN(d)?null:d*fator; const ha=zoneHa(f); out.recs.push({d,ha}); if(d!=null) out.vals.push(d); });
+  (ex.geo.features||[]).forEach(f=>{ if(!_isPoly(f)) return; const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[recCol]):NaN; d=isNaN(d)?null:d*fator; const ha=zoneHa(f); out.recs.push({d,ha}); if(d!=null) out.vals.push(d); });
   return out;
 }
 function multiRenderExtrasRec(){
   if(!S.extras||!S.extras.length||S.mapMode!=='recomendacao') return;
+  S.extras.forEach(ex=>{ try{ _clearExtraRecLabels(ex); }catch(e){} if(ex && ex.rec && ex.rec._layer){ try{ S.map.removeLayer(ex.rec._layer); }catch(e){} ex.rec._layer=null; } });
   const palRev=[...PALS.rdylgn.c].reverse();
   const col=S.rec.col;
   const sc=S.recScale||{mn:0,mx:0};
@@ -3902,7 +3868,7 @@ function multiRenderExtrasRec(){
     if(ex._nut){ try{S.map.removeLayer(ex._nut);}catch(e){} ex._nut=null; }
     if(ex._empty){ try{S.map.removeLayer(ex._empty);}catch(e){} ex._empty=null; }
     const rec=ex.rec;
-    const recCol=(rec && col && (rec.fields||[]).indexOf(col)>=0)?col:null;
+    const recCol=_matchInsumoCol(rec, col);
     if(!rec || !recCol || !rec.rows.length){ ex._empty=_emptyZonesLayer(ex.geo); ex._empty.addTo(S.map); return; }
     const fator=recFatorColuna(recCol);
     const joined={}; rec.rows.forEach(r=>{ joined[_zkey(r[rec.zone])]=r; });
@@ -3934,7 +3900,7 @@ function multiRefreshExtraRecLabels(){
     _clearExtraRecLabels(ex);
     if(!S.rec.showLabels) return;
     const rec=ex.rec;
-    const recCol=(rec && col && (rec.fields||[]).indexOf(col)>=0)?col:null;
+    const recCol=_matchInsumoCol(rec, col);
     if(!rec || !recCol || !rec.rows.length) return;
     const fator=recFatorColuna(recCol);
     const joined={}; rec.rows.forEach(r=>{ joined[_zkey(r[rec.zone])]=r; });
