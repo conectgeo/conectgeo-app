@@ -1937,43 +1937,42 @@ async function generatePDF(nutrients){
       return c.toDataURL('image/jpeg',0.95);
     }
 
-    // Lista de profundidades a renderizar: TODAS as disponíveis na planilha
-    // (uma página por nutriente × profundidade). Em modo comparação, mantém apenas
-    // a página única (esquerda vs direita).
-    const depthsToRender = (!compareMode && S.depthCol && Array.isArray(S.availDepths) && S.availDepths.length)
+    // Profundidades a renderizar (todas) — agrupadas em chunks de até 4 por página
+    const depthsAll = (!compareMode && S.depthCol && Array.isArray(S.availDepths) && S.availDepths.length)
       ? S.availDepths.slice()
       : [null];
-    const totalPages = nutrients.length * depthsToRender.length;
+    const PER_PAGE = 4;
+    const chunks = [];
+    if(compareMode){
+      chunks.push([null]); // página única lado a lado
+    } else {
+      for(let i=0;i<depthsAll.length;i+=PER_PAGE) chunks.push(depthsAll.slice(i,i+PER_PAGE));
+    }
+    const totalPages = nutrients.length * chunks.length;
     let pageIdx = 0;
+    const fmt=(v)=> (v==null||isNaN(v))?'—' : (Math.abs(v)>=100?v.toFixed(0):v.toFixed(2));
 
     for(let n=0;n<nutrients.length;n++){
       const nut=nutrients[n];
 
-    for(let di=0; di<depthsToRender.length; di++){
-      const depthLabel = depthsToRender[di];
-      if(!compareMode && depthLabel && S.depthCol && normDepth(S.activeDepth)!==normDepth(depthLabel)){
-        S.activeDepth = depthLabel;
-        try{ applyActiveDepth(); }catch(e){}
-      }
-      pageIdx++;
-      setLoading(t('loadingMap',pageIdx,totalPages,nut+(depthLabel?(' · '+depthLabel):'')));
-
-      // paleta automática para o nutriente
+      // paleta automática para o nutriente (uma vez por nutriente)
       S.colorCol=nut;
       try{ document.getElementById('sel-col').value=nut; }catch(e){}
       const auto=autoPalette(nut);
       if(auto){ S.pal=auto.pal; S.invert=auto.invert; } else { S.pal='rdylgn'; S.invert=false; }
 
-      let mapImg, mapImg2=null, pageDepth = compareMode ? baseDepth : (depthLabel||baseDepth);
+    for(let ci=0; ci<chunks.length; ci++){
+      const chunk = chunks[ci];
+      pageIdx++;
 
+      // captura/renderiza cada profundidade do chunk
+      const captures = []; // {depth, img, img2, stats, cols}
       if(compareMode){
-        // duas profundidades lado-a-lado
         renderCompare();
         const L1=S.compare.left, R1=S.compare.right;
-        pageDepth = L1+'  vs  '+R1;
         const mapEl1=document.getElementById('map');
         const mapEl2=document.getElementById('map2');
-        const SW=420, SH=580; // cada slot lado-a-lado
+        const SW=420, SH=580;
         const o={w1:mapEl1.style.width,h1:mapEl1.style.height,f1:mapEl1.style.flex,
                  w2:mapEl2.style.width,h2:mapEl2.style.height,f2:mapEl2.style.flex,
                  wW: wrapEl?wrapEl.style.width:''};
@@ -1981,43 +1980,56 @@ async function generatePDF(nutrients){
         mapEl1.style.flex='none'; mapEl1.style.width=SW+'px'; mapEl1.style.height=SH+'px';
         mapEl2.style.flex='none'; mapEl2.style.width=SW+'px'; mapEl2.style.height=SH+'px';
         try{ S.map.invalidateSize(true); S.compare.map2.invalidateSize(true); }catch(e){}
-
         let _bL=S.layer?S.layer.getBounds():null, _bR=S.layer2?S.layer2.getBounds():null;
         (S.extras||[]).forEach(ex=>{ const bA=ex.bounds, bB=ex.bounds2||ex.bounds;
           if(bA){ try{ _bL=_bL?_bL.extend(bA):L.latLngBounds(bA); }catch(e){} }
           if(bB){ try{ _bR=_bR?_bR.extend(bB):L.latLngBounds(bB); }catch(e){} } });
         if(_bL) S.map.fitBounds(_bL,{padding:[18,18],animate:false});
         if(_bR) S.compare.map2.fitBounds(_bR,{padding:[18,18],animate:false});
-
         await waitMap(S.map); await waitMap(S.compare.map2);
-        mapImg  = await snapMap(S.map, mapEl1);
-        mapImg2 = await snapMap(S.compare.map2, mapEl2);
-
+        captures.push({
+          depth: S.compare.left+'cm  vs  '+S.compare.right+'cm',
+          img: await snapMap(S.map, mapEl1),
+          img2: await snapMap(S.compare.map2, mapEl2),
+          stats: Object.assign({},S.stats), cols: palColors()
+        });
         mapEl1.style.width=o.w1; mapEl1.style.height=o.h1; mapEl1.style.flex=o.f1;
         mapEl2.style.width=o.w2; mapEl2.style.height=o.h2; mapEl2.style.flex=o.f2;
         if(wrapEl) wrapEl.style.width=o.wW;
       } else {
-        // único mapa — força slot grande e enquadra TODOS os talhões
-        if(wrapEl) wrapEl.style.width=SLOT_W+'px';
-        mapEl.style.flex='none'; mapEl.style.width=SLOT_W+'px'; mapEl.style.height=SLOT_H+'px';
-        try{ S.map.invalidateSize(true); }catch(e){}
-        renderMap();
-        let _bAll=S.layer?S.layer.getBounds():null;
-        (S.extras||[]).forEach(ex=>{ if(ex.bounds){ try{ _bAll=_bAll?_bAll.extend(ex.bounds):L.latLngBounds(ex.bounds); }catch(e){} } });
-        if(_bAll) S.map.fitBounds(_bAll,{padding:[18,18],animate:false});
-        await waitMap(S.map);
-        mapImg = await snapMap(S.map, mapEl);
+        for(let di=0; di<chunk.length; di++){
+          const depthLabel = chunk[di];
+          if(depthLabel && S.depthCol && normDepth(S.activeDepth)!==normDepth(depthLabel)){
+            S.activeDepth = depthLabel;
+            try{ applyActiveDepth(); }catch(e){}
+          }
+          setLoading(t('loadingMap',pageIdx,totalPages,nut+(depthLabel?(' · '+depthLabel):'')));
+          if(wrapEl) wrapEl.style.width=SLOT_W+'px';
+          mapEl.style.flex='none'; mapEl.style.width=SLOT_W+'px'; mapEl.style.height=SLOT_H+'px';
+          try{ S.map.invalidateSize(true); }catch(e){}
+          renderMap();
+          let _bAll=S.layer?S.layer.getBounds():null;
+          (S.extras||[]).forEach(ex=>{ if(ex.bounds){ try{ _bAll=_bAll?_bAll.extend(ex.bounds):L.latLngBounds(ex.bounds); }catch(e){} } });
+          if(_bAll) S.map.fitBounds(_bAll,{padding:[18,18],animate:false});
+          await waitMap(S.map);
+          captures.push({
+            depth: depthLabel||baseDepth,
+            img: await snapMap(S.map, mapEl),
+            stats: Object.assign({},S.stats), cols: palColors()
+          });
+        }
       }
 
-      // ---- página (paisagem, estilo Recomendação) ----
-      const {mn,mx,mean,med,std,n:nz}=S.stats;
-      const cols=palColors();
-      // legenda: 5 faixas iguais entre mn e mx
+      // range global do chunk (para legenda compartilhada)
+      let gMn=Infinity, gMx=-Infinity;
+      captures.forEach(c=>{ if(isFinite(c.stats.mn)) gMn=Math.min(gMn,c.stats.mn); if(isFinite(c.stats.mx)) gMx=Math.max(gMx,c.stats.mx); });
+      if(!isFinite(gMn)||!isFinite(gMx)){ gMn=0; gMx=1; }
       const NB=5; const buckets=[];
-      if(mx>mn){ const step=(mx-mn)/NB; for(let i=0;i<NB;i++) buckets.push({lo:mn+step*i,hi:mn+step*(i+1)}); }
-      else buckets.push({lo:mn,hi:mx});
-      const fmt=(v)=> (v==null||isNaN(v))?'—' : (Math.abs(v)>=100?v.toFixed(0):v.toFixed(2));
+      if(gMx>gMn){ const step=(gMx-gMn)/NB; for(let i=0;i<NB;i++) buckets.push({lo:gMn+step*i,hi:gMn+step*(i+1)}); }
+      else buckets.push({lo:gMn,hi:gMx});
+      const legCols = captures[0]?captures[0].cols:palColors();
 
+      // ---- página ----
       const titleTxt = 'MAPA DE NUTRIENTES — '+nut;
       const logoHTML = logoSrc ? '<img src="'+logoSrc+'" style="height:60px;max-width:280px;object-fit:contain;display:block;">' : '';
       const headerHTML='<div style="position:absolute;left:0;top:0;width:'+pageW+'px;height:86px;">'
@@ -2026,52 +2038,89 @@ async function generatePDF(nutrients){
         +'<div style="position:absolute;right:36px;top:18px;font-size:11px;color:#888;text-align:right;">'+dataVal+'</div>'
         +'<div style="position:absolute;left:28px;right:28px;bottom:6px;height:2px;background:#6fae3f;"></div></div>';
 
-      // bloco do mapa (com ou sem comparação)
+      // grid de mapas dinâmico
+      const pill=(tx)=>'<div style="position:absolute;top:8px;left:10px;background:#fff;border:2px solid #6fae3f;color:#6fae3f;font-weight:800;font-size:12px;padding:4px 10px;border-radius:18px;box-shadow:0 2px 6px rgba(0,0,0,.12);z-index:5;">'+tx+'</div>';
+      const northHTML='<div style="position:absolute;right:10px;top:8px;text-align:center;color:#222;z-index:4;">'
+        +'<svg width="18" height="24" viewBox="0 0 20 28"><polygon points="10,0 16,15 10,11 4,15" fill="#222"/><line x1="10" y1="11" x2="10" y2="26" stroke="#222" stroke-width="1.4"/></svg>'
+        +'<div style="font-size:10px;font-weight:700;line-height:1">N</div></div>';
+
+      const MAP_X=28, MAP_Y=96, MAP_W=660, MAP_H=580, GAP=8;
       let mapCellHTML;
       if(compareMode){
-        const pill=(tx)=>'<div style="position:absolute;top:8px;left:10px;background:#fff;border:2px solid #6fae3f;color:#6fae3f;font-weight:800;font-size:12px;padding:4px 10px;border-radius:18px;box-shadow:0 2px 6px rgba(0,0,0,.12);z-index:5;">'+tx+'</div>';
-        mapCellHTML='<div style="position:absolute;left:28px;top:96px;width:660px;height:580px;display:flex;gap:6px;">'
-          +'<div style="position:relative;flex:1;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'+pill(S.compare.left+'cm')+'<img src="'+mapImg+'" style="width:100%;height:100%;object-fit:cover;display:block;"></div>'
-          +'<div style="position:relative;flex:1;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'+pill(S.compare.right+'cm')+'<img src="'+mapImg2+'" style="width:100%;height:100%;object-fit:cover;display:block;"></div>'
+        const c=captures[0];
+        mapCellHTML='<div style="position:absolute;left:'+MAP_X+'px;top:'+MAP_Y+'px;width:'+MAP_W+'px;height:'+MAP_H+'px;display:flex;gap:'+GAP+'px;">'
+          +'<div style="position:relative;flex:1;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'+pill(S.compare.left+'cm')+'<img src="'+c.img+'" style="width:100%;height:100%;object-fit:cover;display:block;"></div>'
+          +'<div style="position:relative;flex:1;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'+pill(S.compare.right+'cm')+'<img src="'+c.img2+'" style="width:100%;height:100%;object-fit:cover;display:block;"></div>'
           +'</div>';
       } else {
-        const northHTML='<div style="position:absolute;right:12px;top:10px;text-align:center;color:#222;">'
-          +'<svg width="20" height="28" viewBox="0 0 20 28"><polygon points="10,0 16,15 10,11 4,15" fill="#222"/><line x1="10" y1="11" x2="10" y2="26" stroke="#222" stroke-width="1.4"/></svg>'
-          +'<div style="font-size:11px;font-weight:700;line-height:1">N</div></div>';
-        mapCellHTML='<div style="position:absolute;left:28px;top:96px;width:660px;height:580px;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'
-          +'<img src="'+mapImg+'" style="width:100%;height:100%;object-fit:cover;display:block;">'+northHTML+'</div>';
+        const cnt=captures.length;
+        // layout grid: 1→1x1, 2→2x1, 3-4→2x2
+        let cols, rows;
+        if(cnt<=1){ cols=1; rows=1; }
+        else if(cnt===2){ cols=2; rows=1; }
+        else { cols=2; rows=2; }
+        const cw=(MAP_W-GAP*(cols-1))/cols;
+        const ch=(MAP_H-GAP*(rows-1))/rows;
+        let cells='';
+        captures.forEach((c,i)=>{
+          const r=Math.floor(i/cols), col=i%cols;
+          const x=col*(cw+GAP), y=r*(ch+GAP);
+          cells+='<div style="position:absolute;left:'+x+'px;top:'+y+'px;width:'+cw+'px;height:'+ch+'px;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'
+            +pill(c.depth)+(i===0?northHTML:'')
+            +'<img src="'+c.img+'" style="width:100%;height:100%;object-fit:cover;display:block;"></div>';
+        });
+        mapCellHTML='<div style="position:absolute;left:'+MAP_X+'px;top:'+MAP_Y+'px;width:'+MAP_W+'px;height:'+MAP_H+'px;position:relative;">'
+          +'<div style="position:relative;width:100%;height:100%;">'+cells+'</div></div>';
       }
 
       // sidebar direita
       const RX=712, RW=383;
-      const lab=(tx)=>'<div style="font-size:10px;letter-spacing:.12em;color:#8a8a8a;text-transform:uppercase;font-weight:700;margin-bottom:9px;">'+tx+'</div>';
-      const line=(l,v)=>'<div style="margin:5px 0;font-size:13px;color:#222;line-height:1.35;"><b>'+l+'</b> '+v+'</div>';
+      const lab=(tx)=>'<div style="font-size:10px;letter-spacing:.12em;color:#8a8a8a;text-transform:uppercase;font-weight:700;margin-bottom:8px;">'+tx+'</div>';
+      const line=(l,v)=>'<div style="margin:4px 0;font-size:12px;color:#222;line-height:1.35;"><b>'+l+'</b> '+v+'</div>';
+      const depthLabelsAll = captures.map(c=>c.depth).join(', ');
       const dadosHTML='<div>'+lab('Dados')
         +line('Cliente:',produtor)
         +line('Região:',fazenda)
         +(_talhoes.length?line(_talhoes.length>1?'Talhões:':'Talhão:', _talhoes.join(', ')):'')
-        +line('Profundidade:', pageDepth)
+        +line(captures.length>1?'Profundidades:':'Profundidade:', depthLabelsAll)
         +(_areaTot>0?line('Área Total:', _areaTot.toFixed(2)+' ha'):'')
         +(resp?line('Responsável:',resp):'')+'</div>';
-      const statHTML='<div style="border-top:1px solid #e2e2e2;padding-top:13px;">'+lab('Estatísticas')
-        +line('Mínimo:',fmt(mn))+line('Máximo:',fmt(mx))
-        +line('Média:',fmt(mean))+line('Mediana:',fmt(med))
-        +line('Desvio Padrão:',fmt(std))+line('Nº de Zonas:',nz)+'</div>';
 
-      let legRows='<div style="display:flex;font-size:11px;font-weight:700;color:#222;margin-bottom:7px;">'
+      // estatísticas: por profundidade (compacto) se houver mais de uma
+      let statHTML;
+      if(captures.length===1 && !compareMode){
+        const s=captures[0].stats;
+        statHTML='<div style="border-top:1px solid #e2e2e2;padding-top:11px;">'+lab('Estatísticas')
+          +line('Mínimo:',fmt(s.mn))+line('Máximo:',fmt(s.mx))
+          +line('Média:',fmt(s.mean))+line('Mediana:',fmt(s.med))
+          +line('Desvio Padrão:',fmt(s.std))+line('Nº de Zonas:',s.n)+'</div>';
+      } else {
+        let rowsHTML='';
+        captures.forEach(c=>{
+          const s=c.stats;
+          rowsHTML+='<div style="margin:6px 0 8px 0;font-size:11px;color:#222;line-height:1.35;">'
+            +'<div style="font-weight:800;color:#6fae3f;margin-bottom:3px;">'+c.depth+'</div>'
+            +'<div>Mín <b>'+fmt(s.mn)+'</b> · Máx <b>'+fmt(s.mx)+'</b> · Média <b>'+fmt(s.mean)+'</b></div>'
+            +'<div>Mediana <b>'+fmt(s.med)+'</b> · DP <b>'+fmt(s.std)+'</b> · Zonas <b>'+s.n+'</b></div>'
+            +'</div>';
+        });
+        statHTML='<div style="border-top:1px solid #e2e2e2;padding-top:11px;">'+lab('Estatísticas por profundidade')+rowsHTML+'</div>';
+      }
+
+      let legRows='<div style="display:flex;font-size:11px;font-weight:700;color:#222;margin-bottom:6px;">'
         +'<span style="flex:1;text-align:left;padding-left:6px">Faixa</span><span style="flex:0 0 70px;text-align:center">Cor</span></div>';
       buckets.forEach(b=>{
         const mid=(b.lo+b.hi)/2;
-        const tt=(mx===mn)?0:(mid-mn)/(mx-mn);
-        const sw=lerpColor(cols, Math.max(0,Math.min(1,tt)));
-        legRows+='<div style="display:flex;align-items:center;font-size:11px;color:#222;margin:5px 0;">'
+        const tt=(gMx===gMn)?0:(mid-gMn)/(gMx-gMn);
+        const sw=lerpColor(legCols, Math.max(0,Math.min(1,tt)));
+        legRows+='<div style="display:flex;align-items:center;font-size:11px;color:#222;margin:4px 0;">'
           +'<span style="flex:1;padding-left:6px;white-space:nowrap;">'+fmt(b.lo)+' — '+fmt(b.hi)+'</span>'
           +'<span style="flex:0 0 70px;text-align:center"><span style="display:inline-block;width:34px;height:12px;background:'+sw+';border:1px solid #999;"></span></span>'
           +'</div>';
       });
-      const legHTML='<div style="border-top:1px solid #e2e2e2;padding-top:13px;">'+lab('Legenda ('+nut+')')+legRows+'</div>';
+      const legHTML='<div style="border-top:1px solid #e2e2e2;padding-top:11px;">'+lab('Legenda ('+nut+')')+legRows+'</div>';
 
-      const rightHTML='<div style="position:absolute;left:'+RX+'px;top:96px;width:'+RW+'px;height:580px;border:1px solid #444;border-radius:3px;padding:16px 18px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;">'
+      const rightHTML='<div style="position:absolute;left:'+RX+'px;top:96px;width:'+RW+'px;height:580px;border:1px solid #444;border-radius:3px;padding:14px 16px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">'
         +dadosHTML+statHTML+legHTML+'</div>';
 
       const footerLabel = (produtor!=='—'?produtor:'ConectGeo') + (fazenda!=='—'?' · '+fazenda:'');
@@ -2088,7 +2137,7 @@ async function generatePDF(nutrients){
 
       if(pageIdx>1) doc.addPage();
       doc.addImage(pageCanvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
-    } // fim do loop de profundidades
+    } // fim do loop de chunks
     } // fim do loop de nutrientes
 
     restoreAll();
