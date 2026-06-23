@@ -2618,16 +2618,17 @@ S.recPdf = { logo:'cadastrada', custom:null };
 function recComputeStats(col){
   const fator=recFatorColuna(col);
   const zoneF=_pickZoneField(S.rec.fields)||S.rec.fields[0];
-  const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
+  const joined={}; S.rec.rows.forEach(r=>{ joined[_zkey(r[zoneF])]=r; });
   const joinGeo=S.joinGeo||_zoneField(recGeo().features[0].properties);
-  const doseDe=(f)=>{ const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k]; let d=row?recNum(row[col]):NaN; return isNaN(d)?null:d*fator; };
-  let totalHa=0,totalIns=0,mn=Infinity,mx=-Infinity,areaTot=0;
-  recGeo().features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); areaTot+=ha; if(d!=null){ totalHa+=ha; totalIns+=d*ha; if(d<mn)mn=d; if(d>mx)mx=d; } });
+  const doseDe=(f)=>{ const row=joined[_zkey(f.properties[joinGeo])]; let d=row?recNum(row[col]):NaN; return isNaN(d)?null:d*fator; };
+  let totalHa=0,totalIns=0,mn=Infinity,mx=-Infinity,areaTot=0; const allRecs=[];
+  recGeo().features.forEach(f=>{ if(!_isPoly(f)) return; const d=doseDe(f), ha=zoneHa(f); areaTot+=ha; allRecs.push({d,ha}); if(d!=null){ totalHa+=ha; totalIns+=d*ha; if(d<mn)mn=d; if(d>mx)mx=d; } });
+  if(S.extras && S.extras.length){ S.extras.forEach(ex=>{ const ed=_extraRecData(ex,col); ed.recs.forEach(rc=>{ areaTot+=rc.ha; allRecs.push(rc); if(rc.d!=null){ totalHa+=rc.ha; totalIns+=rc.d*rc.ha; if(rc.d<mn)mn=rc.d; if(rc.d>mx)mx=rc.d; } }); }); }
   if(!isFinite(mn)){ mn=0; mx=0; }
   const NB=5; const buckets=[];
   if(mx>mn){ const step=(mx-mn)/NB; for(let i=0;i<NB;i++) buckets.push({lo:mn+step*i,hi:mn+step*(i+1),ha:0}); }
   else buckets.push({lo:mn,hi:mx,ha:0});
-  recGeo().features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); if(d==null) return; let idx=(mx>mn)?Math.floor((d-mn)/((mx-mn)/NB)):0; if(idx>=buckets.length)idx=buckets.length-1; if(idx<0)idx=0; buckets[idx].ha+=ha; });
+  allRecs.forEach(rc=>{ const d=rc.d, ha=rc.ha; if(d==null) return; let idx=(mx>mn)?Math.floor((d-mn)/((mx-mn)/NB)):0; if(idx>=buckets.length)idx=buckets.length-1; if(idx<0)idx=0; buckets[idx].ha+=ha; });
   const taxa=totalHa>0?totalIns/totalHa:0;
   const totBucketHa=buckets.reduce((s,b)=>s+b.ha,0)||1;
   return {col,mn,mx,taxa,totalIns,totalHa,areaTot,buckets,totBucketHa};
@@ -3678,15 +3679,14 @@ async function buildExtras(allTokens){
   document.querySelector('.map-wrap').appendChild(legend);
   const addLeg=(nome)=>{ const it=document.createElement('div'); it.className='ml-it';
     it.innerHTML='<span class="ml-sw" style="background:#6cb32d"></span><span>'+nome+'</span>'; legend.appendChild(it); };
-  for(let i=0;i<allTokens.length;i++){
+  async function carregar(tok, i){
     try{
-      const { data } = await sb.rpc('get_link_data',{ p_token: allTokens[i] });
-      if(!data || data.erro) continue;
+      const { data } = await sb.rpc('get_link_data',{ p_token: tok });
+      if(!data || data.erro) return null;
       const nome=data.talhao||'Talhão';
-      if(i===0){ addLeg(nome); continue; } // primário já renderizado pelo viewer
-      if(!data.geojson_url) continue;
-      let geoRaw=null; try{ const r=await fetch(data.geojson_url); geoRaw=await r.json(); }catch(e){ continue; }
-      // separa polígonos (zonas/nutrientes) e pontos (vão para a coleta) — como o principal faz
+      if(i===0) return { primary:true, nome };
+      if(!data.geojson_url) return null;
+      let geoRaw=null; try{ const r=await fetch(data.geojson_url); geoRaw=await r.json(); }catch(e){ return null; }
       const _isPoly=f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon');
       const _isPt=f=>f&&f.geometry&&(f.geometry.type==='Point'||f.geometry.type==='MultiPoint');
       const allF=(geoRaw&&geoRaw.features)||[];
@@ -3694,7 +3694,6 @@ async function buildExtras(allTokens){
       const geo={type:'FeatureCollection',features: polys.length?polys:allF};
       const geoPts=allF.filter(_isPt);
       const geoPoints = geoPts.length ? {type:'FeatureCollection',features:geoPts} : null;
-      // planilha de nutrientes (guardada para seguir o nutriente/profundidade do painel)
       let rows=[], fields=[], sheetZone=null, depthCol=null;
       if(data.planilha_url){
         try{
@@ -3706,15 +3705,13 @@ async function buildExtras(allTokens){
           depthCol=detectDepthColumn(fields);
         }catch(e){}
       }
-      // coleta (prébuilt) — passa os pontos embutidos do geojson como fallback
       const temColeta = !!(data.tem_coleta_solo || data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url || geoPoints);
       const coleta = temColeta ? await _buildColeta(data, geo, geoPoints) : {raster:null,zonas:null,pontos:null};
       let bounds=null; try{ bounds=L.geoJSON(geo).getBounds(); }catch(e){}
-      // planilha de recomendação do talhão (para o modo Recomendação no multi)
       let recRows=[], recFields=[], recZone=null, recInsumoCols=[];
       try{
         let recUrl=data.recomendacao_url;
-        if(!recUrl){ const { data:ru } = await sb.rpc('get_recomendacao_url',{ p_token: allTokens[i] }); if(ru && ru.recomendacao_url) recUrl=ru.recomendacao_url; }
+        if(!recUrl){ const { data:ru } = await sb.rpc('get_recomendacao_url',{ p_token: tok }); if(ru && ru.recomendacao_url) recUrl=ru.recomendacao_url; }
         if(recUrl){
           const respR=await fetch(recUrl); const bufR=await respR.arrayBuffer();
           const extR=(recUrl.split('?')[0].split('.').pop()||'').toLowerCase();
@@ -3724,10 +3721,16 @@ async function buildExtras(allTokens){
           recInsumoCols=detectInsumoCols(recFields, recRows);
         }
       }catch(e){}
-      S.extras.push({ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,_layer:null} });
-      addLeg(nome);
-    }catch(e){}
+      return { nome, ex:{ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,_layer:null} } };
+    }catch(e){ return null; }
   }
+  // carrega TODOS os talhões em paralelo (muito mais rápido que em série)
+  const results = await Promise.all(allTokens.map((tok,i)=>carregar(tok,i)));
+  results.forEach(res=>{
+    if(!res) return;
+    if(res.primary){ addLeg(res.nome); return; }
+    if(res.ex){ addLeg(res.nome); S.extras.push(res.ex); }
+  });
   multiApplyMode(S.mapMode||'nutrientes');
   setTimeout(()=>{ try{ S.map.invalidateSize(true); multiFitAll(); }catch(e){} }, 350);
 }
