@@ -1889,6 +1889,7 @@ async function generatePDF(nutrients){
   _baseRestore=_pdfBaseHide();
 
   const fazenda=(document.getElementById('pdf-fazenda').value||'').trim()||'—';
+  const fazendaClean=(fazenda==='—')?'—':(fazenda.split(/\s*—\s*/)[0].trim()||fazenda);
   const produtor=(document.getElementById('pdf-produtor').value||'').trim()||'—';
   const resp=(document.getElementById('pdf-resp').value||'').trim();
   const dataVal=new Date().toLocaleDateString('pt-BR');
@@ -2096,7 +2097,7 @@ async function generatePDF(nutrients){
       const depthLabelsAll = captures.map(c=>c.depth).join(', ');
       const dadosHTML='<div>'+lab('Dados')
         +line('Cliente:',produtor)
-        +line('Região:',fazenda)
+        +line('Região:',fazendaClean)
         +(_talhoes.length?line(_talhoes.length>1?'Talhões:':'Talhão:', _talhoes.join(', ')):'')
         +((S.linkData&&S.linkData.municipio)?line('Município:', S.linkData.municipio):'')
         +line(captures.length>1?'Profundidades:':'Profundidade:', depthLabelsAll)
@@ -2140,7 +2141,7 @@ async function generatePDF(nutrients){
       const rightHTML='<div style="position:absolute;left:'+RX+'px;top:96px;width:'+RW+'px;height:580px;border:1px solid #444;border-radius:3px;padding:14px 16px;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden;">'
         +dadosHTML+statHTML+legHTML+'</div>';
 
-      const footerLabel = (produtor!=='—'?produtor:'ConectGeo') + (fazenda!=='—'?' · '+fazenda.split(/\s*—\s*/)[0].trim():'');
+      const footerLabel = (produtor!=='—'?produtor:'ConectGeo') + (fazendaClean!=='—'?' · '+fazendaClean:'');
       const footerHTML='<div style="position:absolute;left:0;bottom:0;width:'+pageW+'px;height:30px;background:#4a4a4a;color:rgba(255,255,255,.82);font-size:10px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;box-sizing:border-box;">'
         +'<span>'+footerLabel+'</span><span>'+pageIdx+' / '+totalPages+'</span></div>';
 
