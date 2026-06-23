@@ -1873,6 +1873,7 @@ async function generatePDF(nutrients){
     S.colorCol=savedCol; S.pal=savedPal; S.invert=savedInv; S.showLabels=savedLabels; S.userTouchedPal=savedTouched;
     S.pdfMode=false;
     try{ document.getElementById('sel-col').value=savedCol; }catch(e){}
+    try{ if(S.depthCol && savedActiveDepth && normDepth(S.activeDepth)!==normDepth(savedActiveDepth)){ S.activeDepth=savedActiveDepth; applyActiveDepth(); } }catch(e){}
     try{ S.map.invalidateSize(true); }catch(e){}
     try{ renderMap(); }catch(e){}
   };
@@ -1887,6 +1888,7 @@ async function generatePDF(nutrients){
   const resp=(document.getElementById('pdf-resp').value||'').trim();
   const dataVal=new Date().toLocaleDateString('pt-BR');
   const baseDepth=S.activeDepth||'planilha';
+  const savedActiveDepth=S.activeDepth;
   const _talhoes=[(S.linkData&&S.linkData.talhao)].concat((S.extras||[]).map(ex=>ex.nome)).filter(Boolean);
 
   // logo do cabeçalho (mesma lógica visual da Recomendação)
@@ -1935,9 +1937,26 @@ async function generatePDF(nutrients){
       return c.toDataURL('image/jpeg',0.95);
     }
 
+    // Lista de profundidades a renderizar: TODAS as disponíveis na planilha
+    // (uma página por nutriente × profundidade). Em modo comparação, mantém apenas
+    // a página única (esquerda vs direita).
+    const depthsToRender = (!compareMode && S.depthCol && Array.isArray(S.availDepths) && S.availDepths.length)
+      ? S.availDepths.slice()
+      : [null];
+    const totalPages = nutrients.length * depthsToRender.length;
+    let pageIdx = 0;
+
     for(let n=0;n<nutrients.length;n++){
       const nut=nutrients[n];
-      setLoading(t('loadingMap',n+1,nutrients.length,nut));
+
+    for(let di=0; di<depthsToRender.length; di++){
+      const depthLabel = depthsToRender[di];
+      if(!compareMode && depthLabel && S.depthCol && normDepth(S.activeDepth)!==normDepth(depthLabel)){
+        S.activeDepth = depthLabel;
+        try{ applyActiveDepth(); }catch(e){}
+      }
+      pageIdx++;
+      setLoading(t('loadingMap',pageIdx,totalPages,nut+(depthLabel?(' · '+depthLabel):'')));
 
       // paleta automática para o nutriente
       S.colorCol=nut;
@@ -1945,7 +1964,7 @@ async function generatePDF(nutrients){
       const auto=autoPalette(nut);
       if(auto){ S.pal=auto.pal; S.invert=auto.invert; } else { S.pal='rdylgn'; S.invert=false; }
 
-      let mapImg, mapImg2=null, pageDepth=baseDepth;
+      let mapImg, mapImg2=null, pageDepth = compareMode ? baseDepth : (depthLabel||baseDepth);
 
       if(compareMode){
         // duas profundidades lado-a-lado
@@ -2057,7 +2076,7 @@ async function generatePDF(nutrients){
 
       const footerLabel = (produtor!=='—'?produtor:'ConectGeo') + (fazenda!=='—'?' · '+fazenda:'');
       const footerHTML='<div style="position:absolute;left:0;bottom:0;width:'+pageW+'px;height:30px;background:#4a4a4a;color:rgba(255,255,255,.82);font-size:10px;display:flex;align-items:center;justify-content:space-between;padding:0 36px;box-sizing:border-box;">'
-        +'<span>'+footerLabel+'</span><span>'+(n+1)+' / '+nutrients.length+'</span></div>';
+        +'<span>'+footerLabel+'</span><span>'+pageIdx+' / '+totalPages+'</span></div>';
 
       const page=document.createElement('div');
       page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
@@ -2067,9 +2086,10 @@ async function generatePDF(nutrients){
       const pageCanvas=await html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
       document.body.removeChild(page);
 
-      if(n>0) doc.addPage();
+      if(pageIdx>1) doc.addPage();
       doc.addImage(pageCanvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
-    }
+    } // fim do loop de profundidades
+    } // fim do loop de nutrientes
 
     restoreAll();
     hideLoading();
