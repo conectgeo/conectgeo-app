@@ -2049,8 +2049,8 @@ async function generatePDF(nutrients){
       if(compareMode){
         const c=captures[0];
         mapCellHTML='<div style="position:absolute;left:'+MAP_X+'px;top:'+MAP_Y+'px;width:'+MAP_W+'px;height:'+MAP_H+'px;display:flex;gap:'+GAP+'px;">'
-          +'<div style="position:relative;flex:1;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'+pill(S.compare.left+'cm')+'<img src="'+c.img+'" style="width:100%;height:100%;object-fit:cover;display:block;"></div>'
-          +'<div style="position:relative;flex:1;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'+pill(S.compare.right+'cm')+'<img src="'+c.img2+'" style="width:100%;height:100%;object-fit:cover;display:block;"></div>'
+          +'<div style="position:relative;flex:1;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'+pill(S.compare.left+'cm')+'<img src="'+c.img+'" style="width:100%;height:100%;object-fit:contain;display:block;"></div>'
+          +'<div style="position:relative;flex:1;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'+pill(S.compare.right+'cm')+'<img src="'+c.img2+'" style="width:100%;height:100%;object-fit:contain;display:block;"></div>'
           +'</div>';
       } else {
         const cnt=captures.length;
@@ -2065,9 +2065,9 @@ async function generatePDF(nutrients){
         captures.forEach((c,i)=>{
           const r=Math.floor(i/cols), col=i%cols;
           const x=col*(cw+GAP), y=r*(ch+GAP);
-          cells+='<div style="position:absolute;left:'+x+'px;top:'+y+'px;width:'+cw+'px;height:'+ch+'px;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;">'
+          cells+='<div style="position:absolute;left:'+x+'px;top:'+y+'px;width:'+cw+'px;height:'+ch+'px;border:1px solid #cfcabb;background:#e4e0d4;overflow:hidden;display:flex;align-items:center;justify-content:center;">'
             +pill(c.depth)+(i===0?northHTML:'')
-            +'<img src="'+c.img+'" style="width:100%;height:100%;object-fit:cover;display:block;"></div>';
+            +'<img src="'+c.img+'" style="max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block;"></div>';
         });
         mapCellHTML='<div style="position:absolute;left:'+MAP_X+'px;top:'+MAP_Y+'px;width:'+MAP_W+'px;height:'+MAP_H+'px;position:relative;">'
           +'<div style="position:relative;width:100%;height:100%;">'+cells+'</div></div>';
