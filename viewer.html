@@ -1870,7 +1870,7 @@ async function generatePDF(nutrients){
   const resp=(document.getElementById('pdf-resp').value||'').trim()||'';
   const dataVal=new Date().toLocaleDateString('pt-BR');
   const ld=S.linkData||{};
-  const talhoes=ld.talhao||'';
+  const talhoes=[ld.talhao].concat((S.extras||[]).map(ex=>ex.nome)).filter(Boolean).join(', ');
   const municipio=[ld.municipio,ld.uf].filter(Boolean).join(' - ') || (ld.cidade||'') || '';
   const regiaoTxt=ld.regiao||ld.fazenda||fazenda;
 
@@ -1896,23 +1896,56 @@ async function generatePDF(nutrients){
     return {name:name||s.trim(), unit};
   }
 
+  // compute combined stats (primary + extras) for current nutrient/depth
+  function computeCombinedStats(){
+    const vals=[];
+    try{
+      if(S.geoData && S.colorCol){
+        const rowsByKey=S.joined||{};
+        S.geoData.features.forEach(f=>{
+          const key=String(f.properties[S.joinGeo]??'').trim();
+          const row=rowsByKey[key];
+          const v=row?parseFloat(row[S.colorCol]):NaN;
+          if(!isNaN(v)) vals.push(v);
+        });
+      }
+    }catch(e){}
+    if(S.extras && S.extras.length){
+      S.extras.forEach(ex=>{ try{ _extraNutVals(ex, S.colorCol, S.activeDepth).forEach(v=>{ if(!isNaN(v)) vals.push(v); }); }catch(e){} });
+    }
+    if(!vals.length) return {mn:0,mx:0,mean:0,med:0,std:0,n:0};
+    const mn=Math.min(...vals), mx=Math.max(...vals);
+    const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+    const sorted=[...vals].sort((a,b)=>a-b);
+    const med=sorted[Math.floor(sorted.length/2)];
+    const std=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)**2,0)/vals.length);
+    return {mn,mx,mean,med,std,n:vals.length};
+  }
+
   // capture map at slot size for a given depth
   async function captureDepthMap(depth, slotW, slotH){
     if(depth && S.depthCol && normDepth(S.activeDepth)!==normDepth(depth)){
       S.activeDepth=depth; try{ applyActiveDepth(); }catch(e){}
     } else { try{ renderMap(); }catch(e){} }
+    // ensure extras layers are (re)drawn for this depth
+    try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); }catch(e){}
     mapEl.style.flex='none'; mapEl.style.width=slotW+'px'; mapEl.style.height=slotH+'px';
     if(wrapEl) wrapEl.style.width=slotW+'px';
     try{ S.map.invalidateSize(true); }catch(e){}
     let b=null; try{ if(S.layer) b=S.layer.getBounds(); }catch(e){}
-    if(S.extras) S.extras.forEach(ex=>{ try{ if(ex.layer){ const eb=ex.layer.getBounds(); b=b?b.extend(eb):eb; } }catch(e){} });
+    if(S.extras) S.extras.forEach(ex=>{
+      try{
+        if(ex.bounds){ b = b ? b.extend(ex.bounds) : L.latLngBounds(ex.bounds.getSouthWest(), ex.bounds.getNorthEast()); }
+        else if(ex._nut){ const eb=ex._nut.getBounds(); b = b ? b.extend(eb) : eb; }
+      }catch(e){}
+    });
     try{ if(b) S.map.fitBounds(b,{padding:[20,20],animate:false}); }catch(e){}
     await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1100:550));
     let img;
     if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'}); }
     else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:'#ffffff'}); img=cv.toDataURL('image/jpeg',0.95); }
-    // snapshot stats now (renderMap fills S.stats based on current colorCol+depth)
-    const st=S.stats?{mn:+S.stats.mn,mx:+S.stats.mx,mean:+S.stats.mean,med:+S.stats.med,std:+S.stats.std,n:S.stats.n}:null;
+    // combined stats across primary + extras for this depth
+    const st=computeCombinedStats();
     return {img, st};
   }
 
