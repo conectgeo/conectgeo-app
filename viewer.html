@@ -2627,7 +2627,7 @@ async function generateModeloB(idealMap){
       const topY=trio?(18+headerH+12):18;
       const titleH=78;
       const mapTop=topY+titleH+8;
-      const cellH=(pageH-40)-mapTop-58; // faixa reservada p/ a janela da logo
+      const cellH=(pageH-40)-mapTop;
       let cellW, leftOf;
       if(trio){ cellW=(pageW-2*marg-(nCell-1)*gap)/nCell; leftOf=i=>marg+i*(cellW+gap); }
       else if(nCell===2){ cellW=(pageW-2*marg-gap)/2; leftOf=i=>marg+i*(cellW+gap); }
@@ -2654,9 +2654,9 @@ async function generateModeloB(idealMap){
         html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;">'
           +'<img src="'+cap.img+'" style="width:100%;height:100%;object-fit:cover;display:block;">'
           +'<div style="position:absolute;left:10px;top:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:11px;">Nível Ideal: '+(cap.valor!==''?cap.valor:'—')+(cap.unidade?(' '+cap.unidade):'')+'</div>'
+          +(i===caps.length-1?'<img src="'+logoSrc+'" style="position:absolute;right:14px;bottom:12px;height:66px;max-width:250px;object-fit:contain;z-index:5;">':'')
           +'</div>';
       });
-      html+='<div style="position:absolute;right:'+marg+'px;top:'+(mapTop+cellH+10)+'px;width:188px;height:46px;border:1px solid #444;border-radius:3px;background:#fff;display:flex;align-items:center;justify-content:center;padding:5px;box-sizing:border-box;"><img src="'+logoSrc+'" style="max-width:100%;max-height:100%;object-fit:contain;display:block;"></div>';
       page.innerHTML=html;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
@@ -2670,7 +2670,7 @@ async function generateModeloB(idealMap){
     const zonasItens=(layout.zonas||[]).map(k=>({key:k, nome:({biomassa:'Biomassa',umidade:'Umidade na Planta',textura:'Textura do Solo'})[k]||k, url:zonasUrls[k]||''})).filter(z=>z.url);
     if(zonasItens.length){
       const marg=24, gap=14, headerH=54, topY=18+headerH+12, titleH=58, mapTop=topY+titleH+8;
-      const cellH=(pageH-40)-mapTop-58; // faixa reservada p/ a janela da logo
+      const cellH=(pageH-40)-mapTop;
       const n=zonasItens.length;
       const cellW=(pageW-2*marg-(n-1)*gap)/n;
       const leftOf=i=>marg+i*(cellW+gap);
@@ -2687,9 +2687,8 @@ async function generateModeloB(idealMap){
           +'<div style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:10px;">'
           +'<div style="font-weight:700;margin-bottom:3px;">'+(tituloLeg[z.key]||'')+'</div>'
           +(legend[z.key]||[]).map(L=>'<div style="display:flex;align-items:center;gap:6px;margin:1px 0;"><span style="display:inline-block;width:12px;height:10px;background:'+L[1]+';border:1px solid #333;"></span>'+L[0]+'</div>').join('')
-          +'</div></div>';
+          +'</div>'+(i===zonasItens.length-1?'<img src="'+logoSrc+'" style="position:absolute;right:14px;bottom:12px;height:66px;max-width:250px;object-fit:contain;z-index:5;">':'')+'</div>';
       });
-      html+='<div style="position:absolute;right:'+marg+'px;top:'+(mapTop+cellH+10)+'px;width:188px;height:46px;border:1px solid #444;border-radius:3px;background:#fff;display:flex;align-items:center;justify-content:center;padding:5px;box-sizing:border-box;"><img src="'+logoSrc+'" style="max-width:100%;max-height:100%;object-fit:contain;display:block;"></div>';
       page.innerHTML=html;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
