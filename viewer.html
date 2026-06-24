@@ -2419,7 +2419,7 @@ function renderRecCompare(){
 }
 function setRecCompareMode(on){
   if(on && (!S.rec.rows.length || (S.rec.insumoCols||[]).length<2)){ toast('Comparação requer ao menos 2 insumos na planilha','wrn'); return; }
-  if(on && S.rec.editing){ if(S.rec._backup){ S.rec.rows=S.rec._backup; S.rec._backup=null; } S.rec.editing=false; document.body.classList.remove('rec-editing'); const _be=document.getElementById('btn-rec-editar'); if(_be){_be.classList.remove('active');_be.style.display='';} const _ra=document.getElementById('rec-edit-actions'); if(_ra)_ra.style.display='none'; }
+  if(on && S.rec.editing){ if(S.rec._backup){ S.rec.rows=S.rec._backup; S.rec._backup=null; } (S.extras||[]).forEach(ex=>{ if(ex.rec && ex.rec._backup){ ex.rec.rows=ex.rec._backup; ex.rec._backup=null; ex.rec._dirty=false; } }); S.rec._dirty=false; S.rec.editing=false; document.body.classList.remove('rec-editing'); const _be=document.getElementById('btn-rec-editar'); if(_be){_be.classList.remove('active');_be.style.display='';} const _ra=document.getElementById('rec-edit-actions'); if(_ra)_ra.style.display='none'; }
   document.body.classList.toggle('rec-cmp-on', on);
   S.recCompare.on=on;
   document.getElementById('rec-compare-row').classList.toggle('on',on);
@@ -2994,29 +2994,40 @@ async function doRecExport(){
 // ═══════════ EDIÇÃO DE DOSES (consultor) ═══════════
 function setRecEditMode(on){
   if(on && S.recCompare.on){ toast('Saia do modo comparação para editar','wrn'); return; }
-  if(on && (!S.rec.rows.length || !S.rec.col)){ toast('Sem recomendação para editar','wrn'); return; }
+  const temExtra=(S.extras||[]).some(ex=>ex.rec && ex.rec.rows && ex.rec.rows.length);
+  if(on && (!S.rec.col || (!S.rec.rows.length && !temExtra))){ toast('Sem recomendação para editar','wrn'); return; }
   S.rec.editing=on;
   document.body.classList.toggle('rec-editing', on);
   document.getElementById('btn-rec-editar').classList.toggle('active', on);
   document.getElementById('btn-rec-editar').style.display=on?'none':'';
   document.getElementById('rec-edit-actions').style.display=on?'flex':'none';
-  if(on){ S.rec._backup=JSON.parse(JSON.stringify(S.rec.rows)); toast('Clique numa zona para editar a dose de '+S.rec.col,'ok'); }
+  if(on){
+    S.rec._backup=JSON.parse(JSON.stringify(S.rec.rows));
+    S.rec._dirty=false;
+    (S.extras||[]).forEach(ex=>{ if(ex.rec){ ex.rec._backup=JSON.parse(JSON.stringify(ex.rec.rows||[])); ex.rec._dirty=false; } });
+    toast('Clique em qualquer zona (de qualquer talhão) para editar a dose de '+S.rec.col,'ok');
+  }
   else { try{ S.map.closePopup(); }catch(e){} }
 }
-function openZoneEdit(zoneKey, latlng){
+function openZoneEdit(zoneKey, latlng, target){
   if(!S.rec.editing || !S.rec.col) return;
   const insumo=S.rec.col, fator=recFatorColuna(insumo);
-  const zoneF=_pickZoneField(S.rec.fields)||S.rec.fields[0];
-  let row=S.rec.rows.find(r=>String(r[zoneF]??'').trim()===zoneKey);
+  const isExtra = !!(target && target.ex);
+  const rows   = (target && target.rows)   || S.rec.rows;
+  const fields = (target && target.fields) || S.rec.fields;
+  const zoneF  = (target && target.zoneF)  || _pickZoneField(fields) || fields[0];
+  const titulo = isExtra ? ((target.ex.nome||'Talhão')+' · Zona '+(zoneKey||'—')) : ('Zona '+(zoneKey||'—'));
+  let row=rows.find(r=>String(r[zoneF]??'').trim()===zoneKey);
   let cur=row?recNum(row[insumo]):NaN; if(!isNaN(cur)) cur*=fator;
-  const html='<div class="rzedit-pop"><div style="font-size:12px;font-weight:700;margin-bottom:6px;color:#3a3a3a">Zona '+(zoneKey||'—')+' · '+insumo+'</div>'
+  const html='<div class="rzedit-pop"><div style="font-size:12px;font-weight:700;margin-bottom:6px;color:#3a3a3a">'+titulo+' · '+insumo+'</div>'
     +'<div style="display:flex;align-items:center;gap:6px"><input id="rzedit" type="number" step="any" value="'+(isNaN(cur)?'':cur)+'" style="width:110px;padding:6px 8px;border:1.5px solid #ccc;border-radius:7px;font-size:13px"><span style="font-size:11px;color:#777">kg/ha</span></div>'
     +'<div style="margin-top:9px;display:flex;gap:6px;justify-content:flex-end"><button id="rzok" style="background:#15a800;color:#fff;border:0;border-radius:7px;padding:6px 14px;font-weight:700;cursor:pointer;font-size:12px">Aplicar</button></div></div>';
   const pop=L.popup({closeButton:true,minWidth:160}).setLatLng(latlng).setContent(html).openOn(S.map);
   setTimeout(()=>{ const inp=document.getElementById('rzedit'); if(inp){ inp.focus(); inp.select(); }
     const apply=()=>{ const raw=document.getElementById('rzedit').value; const val=parseFloat(raw);
-      if(!row){ row={}; row[zoneF]=zoneKey; S.rec.fields.forEach(f=>{ if(!(f in row)) row[f]=''; }); S.rec.rows.push(row); }
+      if(!row){ row={}; row[zoneF]=zoneKey; fields.forEach(f=>{ if(!(f in row)) row[f]=''; }); rows.push(row); }
       if(raw===''||isNaN(val)) row[insumo]=''; else row[insumo]=(fator!==1 ? val/fator : val);
+      if(isExtra) target.ex.rec._dirty=true; else S.rec._dirty=true;
       try{ S.map.closePopup(pop); }catch(e){}
       renderRecomendacao();
     };
@@ -3033,6 +3044,8 @@ function buildRecCSV(){
 }
 function recEditCancelar(){
   if(S.rec._backup){ S.rec.rows=S.rec._backup; S.rec._backup=null; }
+  (S.extras||[]).forEach(ex=>{ if(ex.rec && ex.rec._backup){ ex.rec.rows=ex.rec._backup; ex.rec._backup=null; ex.rec._dirty=false; } });
+  S.rec._dirty=false;
   S.rec.editing=false;
   document.body.classList.remove('rec-editing');
   document.getElementById('btn-rec-editar').classList.remove('active');
@@ -3042,8 +3055,18 @@ function recEditCancelar(){
   renderRecomendacao();
   toast('Edição cancelada','ok');
 }
+function _buildRecCSVFrom(fields, rows){
+  const esc=(v)=>{ v=(v==null?'':String(v)); return /[",\n;]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
+  let csv=(fields||[]).map(esc).join(',')+'\n';
+  (rows||[]).forEach(r=>{ csv+=(fields||[]).map(f=>esc(r[f])).join(',')+'\n'; });
+  return csv;
+}
 async function recEditSalvar(){
-  S.rec._backup=null; S.rec.editing=false;
+  const dirtyPrim = !!S.rec._dirty;
+  const dirtyExtras = (S.extras||[]).filter(ex=>ex.rec && ex.rec._dirty && ex.token);
+  S.rec._backup=null; S.rec._dirty=false;
+  (S.extras||[]).forEach(ex=>{ if(ex.rec){ ex.rec._backup=null; } });
+  S.rec.editing=false;
   document.body.classList.remove('rec-editing');
   document.getElementById('btn-rec-editar').classList.remove('active');
   document.getElementById('btn-rec-editar').style.display='';
@@ -3051,23 +3074,43 @@ async function recEditSalvar(){
   try{ S.map.closePopup(); }catch(e){}
   renderRecomendacao();
   const saveBtn=document.getElementById('btn-rec-save');
-  if(sb && S.tokenAtual){
-    if(saveBtn) saveBtn.disabled=true;
-    try{
-      const csv=buildRecCSV(); const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
-      const path='recomendacao/'+S.tokenAtual+'/planilha.csv';
-      const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv'});
-      if(up && up.error){ toast('Aplicado na tela; falha ao salvar na planilha: '+up.error.message,'wrn'); }
-      else {
+  if(!sb){ toast('Alterações aplicadas','ok'); return; }
+  if(saveBtn) saveBtn.disabled=true;
+  let okCount=0, errCount=0;
+  try{
+    if(dirtyPrim && S.tokenAtual){
+      try{
+        const csv=buildRecCSV(); const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+        const path='recomendacao/'+S.tokenAtual+'/planilha.csv';
+        const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv'});
+        if(up && up.error){ errCount++; }
+        else {
+          const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
+          S.rec.url=url;
+          await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
+          okCount++;
+        }
+      }catch(e){ errCount++; }
+    }
+    for(const ex of dirtyExtras){
+      try{
+        const csv=_buildRecCSVFrom(ex.rec.fields, ex.rec.rows);
+        const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+        const path='recomendacao/'+ex.token+'/planilha.csv';
+        const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv'});
+        if(up && up.error){ errCount++; continue; }
         const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
-        S.rec.url=url;
-        await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
-        toast('Alterações salvas na planilha de entrada','ok');
-      }
-    }catch(e){ toast('Aplicado na tela; erro ao salvar: '+e.message,'wrn'); }
+        ex.rec.url=url;
+        await sb.rpc('atualizar_recomendacao',{p_token:ex.token,p_url:url});
+        ex.rec._dirty=false;
+        okCount++;
+      }catch(e){ errCount++; }
+    }
+    if(okCount===0 && errCount===0){ toast('Nada para salvar','ok'); }
+    else if(errCount===0){ toast('Alterações salvas ('+okCount+' talhão/ões)','ok'); }
+    else { toast('Salvo: '+okCount+' · Falhas: '+errCount,'wrn'); }
+  } finally {
     if(saveBtn) saveBtn.disabled=false;
-  } else {
-    toast('Alterações aplicadas','ok');
   }
 }
 
@@ -3778,7 +3821,7 @@ async function buildExtras(allTokens){
           recInsumoCols=detectInsumoCols(recFields, recRows);
         }
       }catch(e){}
-      return { nome, ex:{ nome, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,url:recUrl,_layer:null} } };
+      return { nome, ex:{ nome, token:tok, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,url:recUrl,_layer:null,_dirty:false} } };
     }catch(e){ return null; }
   }
   // carrega TODOS os talhões em paralelo (muito mais rápido que em série)
@@ -3934,7 +3977,11 @@ function multiRenderExtrasRec(){
     const layer=L.geoJSON(ex.geo,{ filter:_isPoly,
       style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
       onEachFeature:(f,l)=>{ const k=String(f.properties[jg]??'').trim(); const d=doseDe(f);
-        l.bindTooltip('<div class="tt-head">'+(ex.nome||'Talhão')+' — Zona '+(k||'—')+'</div><div class="tt-col">'+recCol+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div>',{sticky:true,opacity:1}); }
+        l.bindTooltip('<div class="tt-head">'+(ex.nome||'Talhão')+' — Zona '+(k||'—')+'</div><div class="tt-col">'+recCol+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div>',{sticky:true,opacity:1});
+        l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
+        l.on('mouseout',function(){ if(ex.rec && ex.rec._layer) ex.rec._layer.resetStyle(this); });
+        l.on('click',function(e){ if(S.rec.editing){ L.DomEvent.stop(e); openZoneEdit(k, e.latlng, {rows:ex.rec.rows, fields:ex.rec.fields, zoneF:ex.rec.zone, ex:ex}); } });
+      }
     }).addTo(S.map);
     ex.rec._layer=layer;
     if(S.rec.showLabels){
