@@ -3571,24 +3571,43 @@ async function baixarShpColeta(){
     }
     const out=new JSZip();
     const usados={};
+    const addFile=(nome,data,tag)=>{
+      if(!nome) return;
+      if(usados[nome.toLowerCase()]){
+        const dot=nome.lastIndexOf('.');
+        const raiz=dot>=0?nome.slice(0,dot):nome, ext=dot>=0?nome.slice(dot):'';
+        nome=raiz+'_'+tag+ext;
+      }
+      usados[nome.toLowerCase()]=1;
+      out.file(nome,data);
+    };
     for(const p of partes){
       const r=await fetch(p.url); if(!r.ok) throw new Error('Falha ao baixar '+p.nome);
       const b=await r.arrayBuffer();
-      const inner=await JSZip.loadAsync(b);
-      const arquivos=Object.values(inner.files).filter(f=>!f.dir);
-      for(const f of arquivos){
-        // descarta qualquer pasta interna: fica só o nome do arquivo
-        let nome=f.name.split('/').pop().split('\\').pop();
-        if(!nome) continue;
-        // se já existir um arquivo com o mesmo nome (zonas e pontos), prefixa para não sobrescrever
-        if(usados[nome.toLowerCase()]){
-          const dot=nome.lastIndexOf('.');
-          const raiz=dot>=0?nome.slice(0,dot):nome, ext=dot>=0?nome.slice(dot):'';
-          nome=raiz+'_'+p.nome+ext;
-        }
-        usados[nome.toLowerCase()]=1;
-        out.file(nome, await f.async('uint8array'));
+      // detecta se é zip de verdade (assinatura PK\x03\x04) ou geojson/json
+      const head=new Uint8Array(b.slice(0,4));
+      const ehZip = head[0]===0x50 && head[1]===0x4B && (head[2]===0x03||head[2]===0x05||head[2]===0x07);
+      if(ehZip){
+        try{
+          const inner=await JSZip.loadAsync(b);
+          const arquivos=Object.values(inner.files).filter(f=>!f.dir);
+          for(const f of arquivos){
+            const nome=f.name.split('/').pop().split('\\').pop();
+            addFile(nome, await f.async('uint8array'), p.nome);
+          }
+          continue;
+        }catch(e){ /* cai pro fallback abaixo */ }
       }
+      // fallback: trata como geojson/json e empacota com o nome de origem
+      let ext='.geojson';
+      try{
+        const txt=new TextDecoder('utf-8').decode(b);
+        JSON.parse(txt);
+      }catch(e){ ext=''; }
+      // tenta preservar a extensão da URL se houver
+      const urlExt=(p.url.split('?')[0].match(/\.([a-z0-9]+)$/i)||[])[1];
+      if(urlExt) ext='.'+urlExt.toLowerCase();
+      addFile(p.nome+ext, new Uint8Array(b), p.nome);
     }
     const blob=await out.generateAsync({type:'blob'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=base+'.zip'; a.click();
