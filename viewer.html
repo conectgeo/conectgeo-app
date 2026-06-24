@@ -280,6 +280,8 @@ body.mode-rec #painel-rec{display:block!important;}
 body.consultor-mode .consultor-only{display:block!important;}
 .zona-rot-wrap{background:none;border:none;}
 .zona-rot{font-size:11px;font-weight:700;color:#1a1a1a;background:rgba(255,255,255,.8);padding:1px 5px;border-radius:6px;white-space:nowrap;text-align:center;transform:translate(-50%,-50%);}
+body.pdf-no-id .zone-label-id{display:none !important;}
+body.pdf-no-id .leaflet-container{background:#ffffff !important;}
 body.has-data .basemap-float{display:flex;}
 .base-btn{padding:7px 12px;background:transparent;border:1.5px solid transparent;border-radius:7px;font-size:11px;color:var(--muted);cursor:pointer;transition:.15s;font-family:var(--f);white-space:nowrap;}
 .base-btn:hover{color:var(--accent2);}
@@ -1862,6 +1864,7 @@ async function generatePDF(nutrients){
   const origMap={w:mapEl.style.width,h:mapEl.style.height,f:mapEl.style.flex};
   const origWrapW=wrapEl?wrapEl.style.width:'';
   S.showLabels=true; S.pdfMode=true;
+  document.body.classList.add('pdf-no-id');
   const _baseRestore=_pdfBaseHide();
   try{ if(S.map&&S.map.options){ S.map.options.zoomSnap=0; S.map.options.zoomDelta=0.25; } }catch(e){}
 
@@ -1881,6 +1884,7 @@ async function generatePDF(nutrients){
     if(_baseRestore) _baseRestore();
     S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;S.userTouchedPal=savedTouched;
     S.pdfMode=false;
+    document.body.classList.remove('pdf-no-id');
     try{ document.getElementById('sel-col').value=savedCol; }catch(e){}
     if(savedDepth && S.depthCol && normDepth(S.activeDepth)!==normDepth(savedDepth)){ S.activeDepth=savedDepth; try{ applyActiveDepth(); }catch(e){} }
     try{ S.map.invalidateSize(false); }catch(e){}
@@ -1891,7 +1895,7 @@ async function generatePDF(nutrients){
   function parseNutUnit(n){
     const s=String(n||''); const m=s.match(/[\(\[]([^)\]]+)[\)\]]\s*$/) || s.match(/\s+([a-zA-Zµ%°\.]+\s*\/?\s*[a-zA-Z0-9³²]*)\s*$/);
     if(!m) return {name:s.trim(), unit:''};
-    const unit=m[1].trim();
+    const unit=m[1].trim().toLowerCase();
     const name=s.slice(0,s.length-m[0].length).trim();
     return {name:name||s.trim(), unit};
   }
@@ -2060,12 +2064,13 @@ async function generatePDF(nutrients){
       });
       statHTML+='</div>';
 
-      let legHTML='<div style="border-top:1px solid #e2e2e2;padding-top:11px;margin-top:11px;">'+lab('Legenda'+(nutUnit?(' ('+nutUnit+')'):''))
-        +'<div style="display:flex;font-size:11px;font-weight:700;color:#222;margin-bottom:5px;"><span style="flex:1">Faixa</span><span style="width:46px;text-align:right">Cor</span></div>';
+      const legLabel='<div style="font-size:10px;letter-spacing:.14em;color:#8a8a8a;font-weight:700;margin-bottom:8px;"><span style="text-transform:uppercase;">Legenda</span>'+(nutUnit?(' <span style="text-transform:none;">('+nutUnit+')</span>'):'')+'</div>';
+      let legHTML='<div style="border-top:1px solid #e2e2e2;padding-top:11px;margin-top:11px;">'+legLabel
+        +'<div style="display:flex;font-size:11px;font-weight:700;color:#222;margin-bottom:5px;"><span style="flex:1">Faixa</span><span style="width:46px;text-align:center">Cor</span></div>';
       legRows.forEach(r=>{
         legHTML+='<div style="display:flex;align-items:center;font-size:11px;color:#222;margin:4px 0;">'
           +'<span style="flex:1">'+r.lo.toFixed(2)+' — '+r.hi.toFixed(2)+'</span>'
-          +'<span style="width:46px;display:flex;justify-content:flex-end"><span style="width:38px;height:11px;background:'+r.c+';border:1px solid #888;display:inline-block"></span></span>'
+          +'<span style="width:46px;display:flex;justify-content:center"><span style="width:38px;height:11px;background:'+r.c+';border:1px solid #888;display:inline-block"></span></span>'
           +'</div>';
       });
       legHTML+='</div>';
