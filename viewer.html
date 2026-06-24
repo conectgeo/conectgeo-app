@@ -851,6 +851,14 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       <div class="modal-sub">Confira o Nível Ideal de cada nutriente (salvo por cliente)</div>
     </div>
     <div class="modal-body">
+      <div id="mb-variant-row" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px;background:#f7f7f8;border:1px solid var(--border);border-radius:8px;">
+        <label for="mb-variant" style="font-size:13px;font-weight:600;color:var(--ink);">Modelo do relatório:</label>
+        <select id="mb-variant" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;background:#fff;flex:1;">
+          <option value="1">Modelo 1 — Nutrientes 00-20 (Ca/Mg, K/V, Al/pH, P-Meh/P-res, B/MO, S)</option>
+          <option value="2">Modelo 2 — Subsolo (Ca/Al 20-40, Ca%t/m%) + Trio Ca/Al/m% 20-40</option>
+          <option value="3">Modelo 3 — Conjunto completo + Trio Ca/Al/m% 20-40 + Textura</option>
+        </select>
+      </div>
       <div id="mb-grid"></div>
     </div>
     <div class="modal-foot">
@@ -2461,7 +2469,34 @@ const MB_DEFS=[
   {key:'calcio2040',re:/c[aá]lc/i,                 depth:'20-40', nome:'Cálcio',     uni:'cmol/dm³',  uid:'cmolc/dm³', inv:false, l3:true,  pair:6, slot:0},
   {key:'satal2040', re:/satura.*alum/i,            depth:'20-40', nome:'Saturação de Alumínio', uni:'(m%)', uid:'%', inv:true, l3:true, pair:6, slot:2},
   {key:'al2040',    re:/alum[ií]n/i,               depth:'20-40', nome:'Alumínio',   uni:'cmol/dm³',  uid:'cmolc/dm³', inv:true,  l3:true,  pair:6, slot:1},
+  {key:'cat2040',   re:/ca\s*%\s*t|sat.*c[aá]lcio/i,depth:'20-40',nome:'Ca%t',       uni:'',          uid:'%',         inv:false, l3:false, pair:7, slot:0},
 ];
+
+// layouts fixos por variante de relatório (escolhidos pelo cliente na modal)
+const MB_LAYOUTS={
+  '1':{ pages:[
+    {type:'pair',keys:['calcio','magnesio']},
+    {type:'pair',keys:['potassio','v']},
+    {type:'pair',keys:['al','ph']},
+    {type:'pair',keys:['pmehlich','presina']},
+    {type:'pair',keys:['boro','mo']},
+    {type:'pair',keys:['s0020']},
+  ], zonas:['biomassa','umidade'] },
+  '2':{ pages:[
+    {type:'pair',keys:['calcio2040','al2040']},
+    {type:'pair',keys:['cat2040','satal2040']},
+    {type:'trio',keys:['calcio2040','al2040','satal2040'],header:'Potencial Químico para o Crescimento de Raiz em Profundidade (20-40cm)'},
+  ], zonas:['biomassa','umidade'] },
+  '3':{ pages:[
+    {type:'pair',keys:['calcio','magnesio']},
+    {type:'pair',keys:['potassio','v']},
+    {type:'pair',keys:['al','ph']},
+    {type:'pair',keys:['boro','mo']},
+    {type:'pair',keys:['pmehlich','presina']},
+    {type:'pair',keys:['s0020','s2040']},
+    {type:'trio',keys:['calcio2040','al2040','satal2040'],header:'Potencial Químico para o Crescimento de Raiz em Profundidade (20-40cm)'},
+  ], zonas:['biomassa','umidade','textura'] },
+};
 
 // casa as colunas numéricas de nutriente com o dicionário (respeitando profundidade)
 function modeloBMatch(){
@@ -2530,6 +2565,12 @@ function openMbModal(){
     });
     grid.innerHTML=h;
   }
+  // restaura variante escolhida anteriormente (persistida junto com os níveis)
+  const sel=document.getElementById('mb-variant');
+  if(sel){
+    const v=(S.modeloB.niveis&&S.modeloB.niveis._variant)||'1';
+    sel.value=(MB_LAYOUTS[v]?v:'1');
+  }
   document.getElementById('mb-modal').classList.add('show');
 }
 function _mbCollect(){
@@ -2537,6 +2578,8 @@ function _mbCollect(){
   document.querySelectorAll('#mb-grid .mb-row').forEach(r=>{
     map[r.dataset.key]={ valor:(r.querySelector('.mb-val').value||'').trim(), unidade:(r.querySelector('.mb-uni').value||'').trim() };
   });
+  const sel=document.getElementById('mb-variant');
+  map._variant=(sel&&MB_LAYOUTS[sel.value])?sel.value:'1';
   return map;
 }
 async function _mbSalvarNiveis(map){
@@ -2565,12 +2608,16 @@ async function generateModeloB(idealMap){
     const {jsPDF}=window.jspdf;
     const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
     const PW=297,PH=210,pageW=1123,pageH=794;
-    const pares={}; matched.forEach(m=>{ (pares[m.def.pair]=pares[m.def.pair]||[]).push(m); });
-    const ordem=Object.keys(pares).map(Number).sort((a,b)=>a-b);
+    // resolve variante (1/2/3) e layout fixo de páginas
+    const variant=(idealMap&&MB_LAYOUTS[idealMap._variant])?idealMap._variant
+                 :((S.modeloB.niveis&&MB_LAYOUTS[S.modeloB.niveis._variant])?S.modeloB.niveis._variant:'1');
+    const layout=MB_LAYOUTS[variant]||MB_LAYOUTS['1'];
+    const byKey={}; matched.forEach(m=>{ byKey[m.def.key]=m; });
     let first=true;
-    for(const p of ordem){
-      const itens=pares[p].sort((a,b)=>a.def.slot-b.def.slot);
-      const trio=itens.some(i=>i.def.l3);
+    for(const pg of layout.pages){
+      const itens=pg.keys.map(k=>byKey[k]).filter(Boolean);
+      if(!itens.length) continue;
+      const trio=(pg.type==='trio');
       const nCell=trio?3:itens.length;
       const marg=24, gap=14;
       const headerH=trio?54:0;
@@ -2594,7 +2641,8 @@ async function generateModeloB(idealMap){
       page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
       let html='';
       if(trio){
-        html+='<div style="position:absolute;left:'+marg+'px;right:'+marg+'px;top:18px;height:'+headerH+'px;border:1px solid #444;border-radius:3px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:17px;font-weight:700;padding:0 18px;">Potencial Químico para o Crescimento de Raiz em Profundidade (20-40cm)</div>';
+        const hd=pg.header||'Potencial Químico para o Crescimento de Raiz em Profundidade (20-40cm)';
+        html+='<div style="position:absolute;left:'+marg+'px;right:'+marg+'px;top:18px;height:'+headerH+'px;border:1px solid #444;border-radius:3px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:17px;font-weight:700;padding:0 18px;">'+hd+'</div>';
       }
       caps.forEach((cap,i)=>{
         const cx=leftOf(i), d=cap.it.def;
@@ -2604,6 +2652,39 @@ async function generateModeloB(idealMap){
           +'<img src="'+cap.img+'" style="width:100%;height:100%;object-fit:cover;display:block;">'
           +'<div style="position:absolute;left:10px;top:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:11px;">Nível Ideal: '+(cap.valor!==''?cap.valor:'—')+(cap.unidade?(' '+cap.unidade):'')+'</div>'
           +'</div>';
+      });
+      html+='<img src="'+logoSrc+'" style="position:absolute;right:26px;bottom:14px;height:54px;max-width:200px;object-fit:contain;">';
+      page.innerHTML=html;
+      document.body.appendChild(page);
+      await new Promise(r=>setTimeout(r,150));
+      const cv=await html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
+      document.body.removeChild(page);
+      if(!first) doc.addPage(); first=false;
+      doc.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
+    }
+    // página final "Zonas de Manejo" (Biomassa/Umidade/Textura) — só renderiza se houver URLs configuradas
+    const zonasUrls=(S.modeloB&&S.modeloB.zonas)||{};
+    const zonasItens=(layout.zonas||[]).map(k=>({key:k, nome:({biomassa:'Biomassa',umidade:'Umidade na Planta',textura:'Textura do Solo'})[k]||k, url:zonasUrls[k]||''})).filter(z=>z.url);
+    if(zonasItens.length){
+      const marg=24, gap=14, headerH=54, topY=18+headerH+12, titleH=58, mapTop=topY+titleH+8;
+      const cellH=(pageH-40)-mapTop;
+      const n=zonasItens.length;
+      const cellW=(pageW-2*marg-(n-1)*gap)/n;
+      const leftOf=i=>marg+i*(cellW+gap);
+      const page=document.createElement('div');
+      page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
+      let html='<div style="position:absolute;left:'+marg+'px;right:'+marg+'px;top:18px;height:'+headerH+'px;border:1px solid #444;border-radius:3px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:17px;font-weight:700;padding:0 18px;">Levantamento Médio de Várias Safras para Elaboração das Zonas de Manejo</div>';
+      const legend={biomassa:[['Ótimo','#2ecc71'],['Médio','#f1c40f'],['Ruim','#e74c3c']],umidade:[['Ótimo','#3498db'],['Médio','#f1c40f'],['Ruim','#e74c3c']],textura:[['Mais Argilosa','#8b4513'],['Mais Arenosa','#f5deb3']]};
+      const tituloLeg={biomassa:'Índice de Biomassa',umidade:'Índice de Água',textura:'Índice de Textura'};
+      zonasItens.forEach((z,i)=>{
+        const cx=leftOf(i);
+        html+='<div style="position:absolute;left:'+(cx+cellW/2-90)+'px;top:'+topY+'px;width:180px;border:1px solid #444;border-radius:3px;padding:8px 6px;text-align:center;font-size:14px;font-weight:600;line-height:1.3;">'+z.nome+'</div>';
+        html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;">'
+          +'<img src="'+z.url+'" style="width:100%;height:100%;object-fit:contain;display:block;background:#fff;">'
+          +'<div style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:10px;">'
+          +'<div style="font-weight:700;margin-bottom:3px;">'+(tituloLeg[z.key]||'')+'</div>'
+          +(legend[z.key]||[]).map(L=>'<div style="display:flex;align-items:center;gap:6px;margin:1px 0;"><span style="display:inline-block;width:12px;height:10px;background:'+L[1]+';border:1px solid #333;"></span>'+L[0]+'</div>').join('')
+          +'</div></div>';
       });
       html+='<img src="'+logoSrc+'" style="position:absolute;right:26px;bottom:14px;height:54px;max-width:200px;object-fit:contain;">';
       page.innerHTML=html;
