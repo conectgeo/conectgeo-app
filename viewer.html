@@ -1856,65 +1856,78 @@ function _pdfBaseHide(){
 async function generatePDF(nutrients){
   showLoading(t('loadingPrep'));
   const savedCol=S.colorCol, savedPal=S.pal, savedInv=S.invert, savedLabels=S.showLabels, savedTouched=S.userTouchedPal;
-  S.showLabels=true;
-  S.pdfMode=true;
+  const savedDepth=S.activeDepth;
+  const savedSnap=(S.map&&S.map.options)?S.map.options.zoomSnap:1;
+  const mapEl=document.getElementById('map'), wrapEl=document.querySelector('.map-wrap');
+  const origMap={w:mapEl.style.width,h:mapEl.style.height,f:mapEl.style.flex};
+  const origWrapW=wrapEl?wrapEl.style.width:'';
+  S.showLabels=true; S.pdfMode=true;
   const _baseRestore=_pdfBaseHide();
+  try{ if(S.map&&S.map.options){ S.map.options.zoomSnap=0; S.map.options.zoomDelta=0.25; } }catch(e){}
+
   const fazenda=(document.getElementById('pdf-fazenda').value||'').trim()||(S.linkData&&S.linkData.fazenda)||'—';
   const produtor=(document.getElementById('pdf-produtor').value||'').trim()||(S.linkData&&S.linkData.cliente)||'—';
-  const resp=(document.getElementById('pdf-resp').value||'').trim()||'—';
+  const resp=(document.getElementById('pdf-resp').value||'').trim()||'';
   const dataVal=new Date().toLocaleDateString('pt-BR');
-  const depth=S.activeDepth||'planilha';
-  const mapEl=document.getElementById('map');
+  const ld=S.linkData||{};
+  const talhoes=ld.talhao||'';
+  const municipio=[ld.municipio,ld.uf].filter(Boolean).join(' - ') || (ld.cidade||'') || '';
+  const regiaoTxt=ld.regiao||ld.fazenda||fazenda;
+
+  const restore=()=>{
+    mapEl.style.width=origMap.w; mapEl.style.height=origMap.h; mapEl.style.flex=origMap.f;
+    if(wrapEl) wrapEl.style.width=origWrapW;
+    try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnap; }catch(e){}
+    if(_baseRestore) _baseRestore();
+    S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;S.userTouchedPal=savedTouched;
+    S.pdfMode=false;
+    try{ document.getElementById('sel-col').value=savedCol; }catch(e){}
+    if(savedDepth && S.depthCol && normDepth(S.activeDepth)!==normDepth(savedDepth)){ S.activeDepth=savedDepth; try{ applyActiveDepth(); }catch(e){} }
+    try{ S.map.invalidateSize(false); }catch(e){}
+    try{ renderMap(); }catch(e){}
+  };
+
+  // helper: parse unit from nutrient column name like "M.O mg/dm³" or "P (mg/dm³)"
+  function parseNutUnit(n){
+    const s=String(n||''); const m=s.match(/[\(\[]([^)\]]+)[\)\]]\s*$/) || s.match(/\s+([a-zA-Zµ%°\.]+\s*\/?\s*[a-zA-Z0-9³²]*)\s*$/);
+    if(!m) return {name:s.trim(), unit:''};
+    const unit=m[1].trim();
+    const name=s.slice(0,s.length-m[0].length).trim();
+    return {name:name||s.trim(), unit};
+  }
+
+  // capture map at slot size for a given depth
+  async function captureDepthMap(depth, slotW, slotH){
+    if(depth && S.depthCol && normDepth(S.activeDepth)!==normDepth(depth)){
+      S.activeDepth=depth; try{ applyActiveDepth(); }catch(e){}
+    } else { try{ renderMap(); }catch(e){} }
+    mapEl.style.flex='none'; mapEl.style.width=slotW+'px'; mapEl.style.height=slotH+'px';
+    if(wrapEl) wrapEl.style.width=slotW+'px';
+    try{ S.map.invalidateSize(true); }catch(e){}
+    let b=null; try{ if(S.layer) b=S.layer.getBounds(); }catch(e){}
+    if(S.extras) S.extras.forEach(ex=>{ try{ if(ex.layer){ const eb=ex.layer.getBounds(); b=b?b.extend(eb):eb; } }catch(e){} });
+    try{ if(b) S.map.fitBounds(b,{padding:[20,20],animate:false}); }catch(e){}
+    await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1100:550));
+    let img;
+    if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'}); }
+    else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:'#ffffff'}); img=cv.toDataURL('image/jpeg',0.95); }
+    // snapshot stats now (renderMap fills S.stats based on current colorCol+depth)
+    const st=S.stats?{mn:+S.stats.mn,mx:+S.stats.mx,mean:+S.stats.mean,med:+S.stats.med,std:+S.stats.std,n:S.stats.n}:null;
+    return {img, st};
+  }
 
   try{
     const {jsPDF}=window.jspdf;
-    const compareModePre = !!(S.compare && S.compare.on);
-    const doc=new jsPDF({orientation:'portrait', unit:'mm', format:'a4'});
-    const PW=210, PH=297;
+    const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+    const PW=297, PH=210, pageW=1123, pageH=794;
 
-    function waitMapReady(){
-      return new Promise(resolve=>{
-        let moved=false, tiles=false, settled=false;
-        const tryDone=()=>{ if(settled) return; if(moved && tiles){ settled=true; cleanup(); resolve(); } };
-        const onMove=()=>{ moved=true; tryDone(); };
-        const onTiles=()=>{ tiles=true; tryDone(); };
-        const baseLayer=S.baseLayers[S.activeBase];
-        const cleanup=()=>{ S.map.off('moveend',onMove); baseLayer.off('load',onTiles); };
-        S.map.once('moveend',onMove);
-        baseLayer.once('load',onTiles);
-        setTimeout(()=>{ moved=true; tryDone(); }, 700);
-        setTimeout(()=>{ tiles=true; tryDone(); }, 900);
-        setTimeout(()=>{ if(!settled){ settled=true; cleanup(); resolve(); } }, 2500);
-      });
-    }
-
-    const compareMode = !!(S.compare && S.compare.on);
-
-    async function captureMap(mapInstance, mapDomEl){
-      await new Promise(resolve=>{
-        let moved=false, tiles=false, settled=false;
-        const tryDone=()=>{ if(settled) return; if(moved && tiles){ settled=true; cleanup(); resolve(); } };
-        const onMove=()=>{ moved=true; tryDone(); };
-        const onTiles=()=>{ tiles=true; tryDone(); };
-        const baseLayers = mapInstance===S.map ? S.baseLayers : (S.compare && S.compare.baseLayers2);
-        const baseLayer = baseLayers ? baseLayers[S.activeBase] : null;
-        const cleanup=()=>{ mapInstance.off('moveend',onMove); if(baseLayer) baseLayer.off('load',onTiles); };
-        mapInstance.once('moveend',onMove);
-        if(baseLayer) baseLayer.once('load',onTiles); else tiles=true;
-        setTimeout(()=>{ moved=true; tryDone(); }, 700);
-        setTimeout(()=>{ tiles=true; tryDone(); }, 900);
-        setTimeout(()=>{ if(!settled){ settled=true; cleanup(); resolve(); } }, 2500);
-      });
-      await new Promise(r=>setTimeout(r,400));
-      if(mapInstance===S.map && S.shooter){
-        return await S.shooter.takeScreen('image',{mimeType:'image/jpeg'});
-      }
-      if(S.compare && mapInstance===S.compare.map2 && S.compare.shooter2){
-        return await S.compare.shooter2.takeScreen('image',{mimeType:'image/jpeg'});
-      }
-      const c = await html2canvas(mapDomEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:'#e4e0d4'});
-      return c.toDataURL('image/jpeg',0.95);
-    }
+    // logo source
+    let logoSrc=null;
+    if(S.logoChoice==='custom' && S.customLogo) logoSrc=S.customLogo;
+    else if(S.logoChoice==='conectgeo') logoSrc=LOGO_DATA;
+    else if(S.logoChoice==='none') logoSrc=null;
+    else if(S.consultorLogo) logoSrc=S.consultorLogo;
+    else logoSrc=LOGO_DATA;
 
     for(let n=0;n<nutrients.length;n++){
       const nut=nutrients[n];
@@ -1924,183 +1937,135 @@ async function generatePDF(nutrients){
       const auto=autoPalette(nut);
       if(auto){S.pal=auto.pal;S.invert=auto.invert;} else {S.pal='rdylgn';S.invert=false;}
 
-      S.pdfMode=true;
+      // list of depths to render (max 2 side-by-side)
+      const depths=(S.depthCol && (S.availDepths||[]).length) ? S.availDepths.slice(0,2) : [S.activeDepth||''];
 
-      let mapImg, mapImg2=null, pageDepth=depth;
-      if(compareMode){
-        renderCompare();
-        const L1=S.compare.left, R1=S.compare.right;
-        pageDepth = `${L1}  vs  ${R1}`;
+      // layout cells
+      const RX=760, RW=336, marg=24, gap=14, topY=90;
+      const mapAreaW=RX-marg-12;
+      const nCells=depths.length;
+      const cellW=Math.floor((mapAreaW - (nCells-1)*gap)/nCells);
+      const cellH=pageH-topY-60;
 
-        const mapEl1 = document.getElementById('map');
-        const mapEl2 = document.getElementById('map2');
-        const wrapEl = document.querySelector('.map-wrap');
-        const orig = {
-          w1:mapEl1.style.width, h1:mapEl1.style.height, f1:mapEl1.style.flex,
-          w2:mapEl2.style.width, h2:mapEl2.style.height, f2:mapEl2.style.flex,
-          wW:wrapEl.style.width, wH:wrapEl.style.height,
-        };
-        const SLOT_W=740, SLOT_H=430;
-        wrapEl.style.width=SLOT_W+'px';
-        mapEl1.style.flex='none'; mapEl1.style.width=SLOT_W+'px'; mapEl1.style.height=SLOT_H+'px';
-        mapEl2.style.flex='none'; mapEl2.style.width=SLOT_W+'px'; mapEl2.style.height=SLOT_H+'px';
-        S.map.invalidateSize(true);
-        S.compare.map2.invalidateSize(true);
-        if(S.layer)  S.map.fitBounds(S.layer.getBounds(),{padding:[30,30],animate:false});
-        if(S.layer2) S.compare.map2.fitBounds(S.layer2.getBounds(),{padding:[30,30],animate:false});
-        await new Promise(r=>setTimeout(r,600));
-
-        mapImg  = await captureMap(S.map,  mapEl1);
-        mapImg2 = await captureMap(S.compare.map2, mapEl2);
-
-        mapEl1.style.width=orig.w1; mapEl1.style.height=orig.h1; mapEl1.style.flex=orig.f1;
-        mapEl2.style.width=orig.w2; mapEl2.style.height=orig.h2; mapEl2.style.flex=orig.f2;
-        wrapEl.style.width=orig.wW; wrapEl.style.height=orig.wH;
-        S.map.invalidateSize(true);
-        S.compare.map2.invalidateSize(true);
-        if(S.layer)  S.map.fitBounds(S.layer.getBounds(),{padding:[24,24],animate:false});
-        if(S.layer2) S.compare.map2.fitBounds(S.layer2.getBounds(),{padding:[24,24],animate:false});
-      } else {
-        renderMap();
-        const ready=waitMapReady();
-        let b=null; try{ if(S.layer) b=S.layer.getBounds(); }catch(e){}
-        if(S.extras) S.extras.forEach(ex=>{ try{ if(ex.layer){ const eb=ex.layer.getBounds(); b=b?b.extend(eb):eb; } }catch(e){} });
-        try{ if(b) S.map.fitBounds(b,{padding:[30,30],animate:false}); }catch(e){}
-        await ready;
-        await new Promise(r=>setTimeout(r,450));
-        if(S.shooter){
-          mapImg=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'});
-        } else {
-          const mapCanvas=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:'#e4e0d4'});
-          mapImg=mapCanvas.toDataURL('image/jpeg',0.95);
-        }
+      const caps=[];
+      for(let i=0;i<depths.length;i++){
+        setLoading('Gerando '+nut+(depths[i]?(' · '+depths[i]):'')+'…');
+        const r=await captureDepthMap(depths[i], Math.round(cellW*1.3), Math.round(cellH*1.3));
+        caps.push({depth:depths[i], img:r.img, st:r.st});
       }
 
+      // global stats range for legend (union of depths)
+      let gmn=Infinity, gmx=-Infinity;
+      caps.forEach(c=>{ if(c.st){ if(c.st.mn<gmn) gmn=c.st.mn; if(c.st.mx>gmx) gmx=c.st.mx; } });
+      if(!isFinite(gmn)){ gmn=0; gmx=0; }
       const cols=palColors();
-
-      const pageW = 794, pageH = 1123;
-      const page=document.createElement('div');
-      page.style.cssText=`position:fixed;left:-99999px;top:0;width:${pageW}px;height:${pageH}px;background:#fff;font-family:Arial,sans-serif;display:flex;flex-direction:column;`;
-      const {mn,mx,mean,med,std}=S.stats;
-      let legSegs='';
-      for(let i=0;i<60;i++){legSegs+=`<div style="flex:1;background:${lerpColor(cols,i/59)}"></div>`;}
-      let ticks='';
-      for(let i=0;i<=S.classes;i++){const tv=(mn+(mx-mn)*(i/S.classes)).toFixed(1);const al=i===0?'left':i===S.classes?'right':'center';ticks+=`<span style="flex:1;text-align:${al};font-size:12px;color:#797566">${tv}</span>`;}
-      const statCells=[[t('stMin'),(+mn).toFixed(2)],[t('stMax'),(+mx).toFixed(2)],[t('stMean'),(+mean).toFixed(2)],[t('stMed'),(+med).toFixed(2)],[t('stStd'),(+std).toFixed(2)],[t('stZones'),S.stats.n]]
-        .map(([l,v])=>`<div style="flex:1;text-align:center"><div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:.05em">${l}</div><div style="font-size:26px;font-weight:700;color:#6fae3f;margin-top:5px">${v}</div></div>`).join('');
-
-      // ── HEADER varia conforme escolha de logo ──
-      let logoForHeader=null;
-      if(S.logoChoice==='custom' && S.customLogo) logoForHeader=S.customLogo;
-      else if(S.logoChoice==='conectgeo') logoForHeader=LOGO_DATA;
-      else if(S.logoChoice==='none') logoForHeader=null;
-      else if(S.consultorLogo) logoForHeader=S.consultorLogo;
-      else logoForHeader=LOGO_DATA;
-
-      let headerHTML;
-      if(!logoForHeader){
-        headerHTML=`
-        <div style="height:74px;background:#4a4a4a;display:flex;align-items:center;justify-content:flex-end;padding:0 40px;position:relative;flex-shrink:0;">
-          <div style="text-align:right">
-            <div style="font-size:14px;font-weight:700;color:#fff">${fazenda}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,.65);margin-top:3px">${pageDepth} &nbsp;·&nbsp; ${dataVal}</div>
-          </div>
-          <div style="position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#6fae3f,transparent 55%)"></div>
-        </div>`;
-      } else if(logoForHeader===LOGO_DATA){
-        headerHTML=`
-        <div style="height:96px;background:#4a4a4a;display:flex;align-items:center;justify-content:space-between;padding:0 40px;position:relative;flex-shrink:0;">
-          <div style="display:flex;align-items:center;gap:14px;">
-            <img src="${LOGO_DATA}" style="height:56px;">
-            <div>
-              <div style="font-size:26px;font-weight:700;color:#fff;line-height:1">Conect<span style="color:#6fae3f">Geo</span></div>
-              <div style="font-size:11px;color:rgba(255,255,255,.6);letter-spacing:.16em;text-transform:uppercase;margin-top:3px">${t('pdfSubtitle')}</div>
-            </div>
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:15px;font-weight:700;color:#fff">${fazenda}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,.65);margin-top:3px">${pageDepth} &nbsp;·&nbsp; ${dataVal}</div>
-          </div>
-          <div style="position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#6fae3f,transparent 55%)"></div>
-        </div>`;
-      } else {
-        headerHTML=`
-        <div style="height:96px;background:#4a4a4a;display:flex;align-items:center;justify-content:space-between;padding:0 40px;position:relative;flex-shrink:0;">
-          <div style="background:#fff;border-radius:8px;padding:8px 12px;display:flex;align-items:center;">
-            <img src="${logoForHeader}" style="height:54px;max-width:230px;object-fit:contain;display:block;">
-          </div>
-          <div style="text-align:right">
-            <div style="font-size:15px;font-weight:700;color:#fff">${fazenda}</div>
-            <div style="font-size:11px;color:rgba(255,255,255,.65);margin-top:3px">${pageDepth} &nbsp;·&nbsp; ${dataVal}</div>
-          </div>
-          <div style="position:absolute;bottom:0;left:0;right:0;height:4px;background:linear-gradient(90deg,#6fae3f,transparent 55%)"></div>
-        </div>`;
+      const NC=5;
+      const legRows=[];
+      for(let i=0;i<NC;i++){
+        const lo=gmn+(gmx-gmn)*(i/NC), hi=gmn+(gmx-gmn)*((i+1)/NC);
+        const c=lerpColor(cols,(i+0.5)/NC);
+        legRows.push({lo,hi,c});
       }
-      const footerLabel = logoForHeader===LOGO_DATA ? ('ConectGeo · '+fazenda) : fazenda;
 
-      const pill = (txt)=>`<div style="position:absolute;top:10px;left:14px;background:#fff;border:2px solid #6fae3f;color:#6fae3f;font-weight:800;font-size:14px;padding:6px 16px;border-radius:22px;box-shadow:0 2px 6px rgba(0,0,0,.12);z-index:5;">${txt}</div>`;
-      const mapBlock = compareMode
-        ? `<div style="padding:10px 24px 0;flex:1;display:flex;flex-direction:column;gap:6px;min-height:0;">
-             <div style="position:relative;flex:1;min-height:0;border:1px solid #dcd8cc;border-radius:8px;overflow:hidden;background:#e4e0d4;">
-               ${pill(S.compare.left+'cm')}
-               <img src="${mapImg}" style="width:100%;height:100%;object-fit:contain;object-position:center;display:block;">
-             </div>
-             <div style="height:3px;background:#6fae3f;border-radius:2px;"></div>
-             <div style="position:relative;flex:1;min-height:0;border:1px solid #dcd8cc;border-radius:8px;overflow:hidden;background:#e4e0d4;">
-               ${pill(S.compare.right+'cm')}
-               <img src="${mapImg2}" style="width:100%;height:100%;object-fit:contain;object-position:center;display:block;">
-             </div>
-           </div>`
-        : `<div style="padding:28px 40px 0;flex:1;display:flex;align-items:center;justify-content:center;min-height:0;">
-             <img src="${mapImg}" style="max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;border:1px solid #dcd8cc;border-radius:8px;display:block">
-           </div>`;
+      const {name:nutName, unit:nutUnit}=parseNutUnit(nut);
+      const titleTxt=nutName+(nutUnit?(' '+nutUnit):'');
 
-      page.innerHTML=`
-        ${headerHTML}
-        <div style="padding:34px 40px 0;flex-shrink:0;">
-          <div style="font-size:28px;font-weight:700;color:#4a4a4a">${nut}</div>
-          <div style="font-size:13px;color:#797566;margin-top:6px">${t('produtorLbl')}: ${produtor} &nbsp;|&nbsp; ${t('respLbl')}: ${resp}</div>
-        </div>
-        ${mapBlock}
-        <div style="padding:24px 40px 0;flex-shrink:0;">
-          <div style="display:flex;height:22px;border-radius:6px;overflow:hidden;border:1px solid #c4bfb0">${legSegs}</div>
-          <div style="display:flex;margin-top:6px">${ticks}</div>
-        </div>
-        <div style="padding:34px 40px;display:flex;gap:0;flex-shrink:0;">${statCells}</div>
-        <div style="height:38px;background:#4a4a4a;display:flex;align-items:center;justify-content:space-between;padding:0 40px;color:rgba(255,255,255,.7);font-size:11px;flex-shrink:0;">
-          <span>${footerLabel} · ${pageDepth}</span>
-          <span>${n+1} / ${nutrients.length}</span>
-        </div>`;
+      // depth pill colors
+      const pill=(txt)=>'<div style="position:absolute;left:14px;top:12px;background:#fff;border:2px solid #2d8a2d;color:#2d8a2d;font-weight:800;font-size:13px;padding:5px 14px;border-radius:18px;z-index:5;">'+(txt||'').toUpperCase().replace(/CM/i,'CM')+'</div>';
+      const northHTML='<div style="position:absolute;right:14px;top:10px;text-align:center;color:#222;z-index:5;">'
+        +'<svg width="18" height="22" viewBox="0 0 20 28"><polygon points="10,0 16,15 10,11 4,15" fill="#222"/><line x1="10" y1="11" x2="10" y2="26" stroke="#222" stroke-width="1.4"/></svg>'
+        +'<div style="font-size:11px;font-weight:700;line-height:1">N</div></div>';
+
+      // header
+      const logoHTML=logoSrc?'<img src="'+logoSrc+'" style="max-height:54px;max-width:170px;object-fit:contain;display:block;">':'';
+      const headerHTML='<div style="position:absolute;left:0;top:0;width:'+pageW+'px;height:78px;background:#fff;">'
+        +'<div style="position:absolute;left:30px;top:12px;">'+logoHTML+'</div>'
+        +'<div style="position:absolute;left:220px;right:160px;top:24px;text-align:center;font-size:22px;font-weight:700;color:#222;">'+titleTxt+'</div>'
+        +'<div style="position:absolute;right:30px;top:26px;font-size:12px;color:#777;text-align:right;">'+dataVal+'</div>'
+        +'<div style="position:absolute;left:24px;right:24px;bottom:6px;height:2px;background:#7cc242;"></div></div>';
+
+      // map cells
+      let mapsHTML='';
+      caps.forEach((cap,i)=>{
+        const cx=marg+i*(cellW+gap);
+        mapsHTML+='<div style="position:absolute;left:'+cx+'px;top:'+topY+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #cfcabb;background:#fff;overflow:hidden;border-radius:4px;">'
+          +'<img src="'+cap.img+'" style="width:100%;height:100%;object-fit:cover;display:block;">'
+          +pill(cap.depth)
+          +(i===caps.length-1?northHTML:'')
+          +'</div>';
+      });
+
+      // right panel
+      const lab=(tx)=>'<div style="font-size:10px;letter-spacing:.14em;color:#8a8a8a;text-transform:uppercase;font-weight:700;margin-bottom:8px;">'+tx+'</div>';
+      const line=(l,v)=>'<div style="margin:4px 0;font-size:12px;color:#222;line-height:1.35;"><b>'+l+'</b> '+v+'</div>';
+      const areaTot=(function(){
+        let a=0;
+        try{ if(S.layer){ S.layer.eachLayer(L=>{ try{ if(L.feature) a+=zoneHa(L.feature); }catch(e){} }); } }catch(e){}
+        if(S.extras) S.extras.forEach(ex=>{ try{ if(ex.geo && ex.geo.features) ex.geo.features.forEach(f=>{ a+=zoneHa(f); }); }catch(e){} });
+        return a;
+      })();
+      const dadosHTML='<div>'+lab('Dados')
+        +line('Cliente:',produtor)
+        +line('Região:',regiaoTxt)
+        +(talhoes?line('Talhões:',talhoes):'')
+        +(municipio?line('Município:',municipio):'')
+        +line('Profundidades:',depths.filter(Boolean).join(', ')||'—')
+        +(areaTot>0?line('Área Total:',areaTot.toFixed(2)+' ha'):'')
+        +(resp?line('Responsável:',resp):'')
+        +'</div>';
+
+      let statHTML='<div style="border-top:1px solid #e2e2e2;padding-top:11px;margin-top:11px;">'+lab('Estatísticas por Profundidade');
+      caps.forEach(cap=>{
+        const st=cap.st||{mn:0,mx:0,mean:0,med:0,std:0,n:0};
+        const dlabel=(cap.depth||'').toUpperCase();
+        statHTML+='<div style="margin:6px 0 10px;">'
+          +'<div style="font-size:12px;font-weight:700;color:#2d8a2d;">'+dlabel+'</div>'
+          +'<div style="font-size:11px;color:#222;line-height:1.45;margin-top:2px;">'
+            +'Mín <b>'+(+st.mn).toFixed(2)+'</b> · Máx <b>'+(+st.mx).toFixed(2)+'</b> · Média <b>'+(+st.mean).toFixed(2)+'</b><br>'
+            +'Mediana <b>'+(+st.med).toFixed(2)+'</b> · DP <b>'+(+st.std).toFixed(2)+'</b> · Zonas <b>'+st.n+'</b>'
+          +'</div></div>';
+      });
+      statHTML+='</div>';
+
+      let legHTML='<div style="border-top:1px solid #e2e2e2;padding-top:11px;margin-top:11px;">'+lab('Legenda'+(nutUnit?(' ('+nutUnit+')'):''))
+        +'<div style="display:flex;font-size:11px;font-weight:700;color:#222;margin-bottom:5px;"><span style="flex:1">Faixa</span><span style="width:46px;text-align:right">Cor</span></div>';
+      legRows.forEach(r=>{
+        legHTML+='<div style="display:flex;align-items:center;font-size:11px;color:#222;margin:4px 0;">'
+          +'<span style="flex:1">'+r.lo.toFixed(2)+' — '+r.hi.toFixed(2)+'</span>'
+          +'<span style="width:46px;display:flex;justify-content:flex-end"><span style="width:38px;height:11px;background:'+r.c+';border:1px solid #888;display:inline-block"></span></span>'
+          +'</div>';
+      });
+      legHTML+='</div>';
+
+      const rightHTML='<div style="position:absolute;left:'+RX+'px;top:'+topY+'px;width:'+RW+'px;height:'+cellH+'px;border:1px solid #444;border-radius:3px;padding:14px 16px;box-sizing:border-box;overflow:hidden;">'
+        +dadosHTML+statHTML+legHTML+'</div>';
+
+      const footerHTML='<div style="position:absolute;left:0;bottom:0;width:'+pageW+'px;height:30px;background:#4a4a4a;color:rgba(255,255,255,.82);font-size:11px;display:flex;align-items:center;justify-content:space-between;padding:0 30px;box-sizing:border-box;">'
+        +'<span>'+produtor+(regiaoTxt&&regiaoTxt!=='—'?' · '+regiaoTxt:'')+'</span>'
+        +'<span>'+(n+1)+' / '+nutrients.length+'</span></div>';
+
+      const page=document.createElement('div');
+      page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
+      page.innerHTML=headerHTML+mapsHTML+rightHTML+footerHTML;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      const pageCanvas=await html2canvas(page,{scale:2.5,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
+      const pageCanvas=await html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
       document.body.removeChild(page);
-
       if(n>0) doc.addPage();
       doc.addImage(pageCanvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
     }
 
-    S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;S.userTouchedPal=savedTouched;
-    S.pdfMode=false;
-    if(_baseRestore) _baseRestore();
-    try{ document.getElementById('sel-col').value=savedCol; }catch(e){}
-    try{ S.map.invalidateSize(false); }catch(e){}
-    try{ renderMap(); }catch(e){}
-
+    restore();
     hideLoading();
     const cleanF=(s)=>(s&&s!=='—'?s:'').replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
     const fileCliente=cleanF(produtor)||'Cliente';
     const fileFazenda=cleanF(fazenda)||'Fazenda';
     const prefix=(typeof t==='function' && t('filePrefix'))||'Relatorio_Fertilidade';
-    doc.save(`${prefix}_${fileCliente}_${fileFazenda}.pdf`);
+    doc.save(prefix+'_'+fileCliente+'_'+fileFazenda+'.pdf');
     toast(t('tPdfOk',nutrients.length),'ok');
   }catch(err){
-    S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;
-    S.pdfMode=false;
-    if(_baseRestore) _baseRestore();
-    try{ S.map.invalidateSize(false); }catch(e){}
-    try{ renderMap(); }catch(e){}
-    hideLoading();toast('Erro ao gerar PDF: '+(err.message||err),'err');console.error(err);
+    restore(); hideLoading();
+    toast('Erro ao gerar PDF: '+(err.message||err),'err'); console.error(err);
   }
 }
 
