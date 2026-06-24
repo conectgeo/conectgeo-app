@@ -3595,65 +3595,153 @@ function wireColetaControls(){
   const bCanc=document.getElementById('btn-rec-cancel'); if(bCanc) bCanc.addEventListener('click', recEditCancelar);
 }
 
-// baixa zonas+pontos num único ZIP, com os shapefiles SOLTOS (sem zips/pastas internas)
+// ===== helpers para conversão GeoJSON → Shapefile (zones polígonos + pontos) =====
+function _dbfFieldGeneric(name){
+  const nf=String(name||'').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').toUpperCase().replace(/[^A-Z0-9_]/g,'_');
+  let s=nf.replace(/^_+/,''); if(!/^[A-Z]/.test(s)) s='F_'+s; return s.substring(0,10)||'FIELD';
+}
+function _buildShpPoints(coords){
+  const n=coords.length; if(!n) return null;
+  let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
+  coords.forEach(c=>{ const x=+c[0],y=+c[1]; if(x<xmin)xmin=x; if(x>xmax)xmax=x; if(y<ymin)ymin=y; if(y>ymax)ymax=y; });
+  const recContent=20; // shape(4) + x(8) + y(8)
+  const shpLen=100 + n*(8+recContent);
+  const shxLen=100 + n*8;
+  const shp=new DataView(new ArrayBuffer(shpLen)), shx=new DataView(new ArrayBuffer(shxLen));
+  const hdr=(dv,len)=>{ dv.setInt32(0,9994,false); dv.setInt32(24,len/2,false); dv.setInt32(28,1000,true); dv.setInt32(32,1,true);
+    dv.setFloat64(36,xmin,true);dv.setFloat64(44,ymin,true);dv.setFloat64(52,xmax,true);dv.setFloat64(60,ymax,true);
+    dv.setFloat64(68,0,true);dv.setFloat64(76,0,true);dv.setFloat64(84,0,true);dv.setFloat64(92,0,true); };
+  hdr(shp,shpLen); hdr(shx,shxLen);
+  let off=100, sx=100;
+  coords.forEach((c,i)=>{ shp.setInt32(off,i+1,false); shp.setInt32(off+4,recContent/2,false);
+    let p=off+8; shp.setInt32(p,1,true); p+=4; shp.setFloat64(p,+c[0],true); p+=8; shp.setFloat64(p,+c[1],true); p+=8;
+    shx.setInt32(sx,off/2,false); shx.setInt32(sx+4,recContent/2,false); sx+=8; off+=8+recContent; });
+  return {shp:new Uint8Array(shp.buffer), shx:new Uint8Array(shx.buffer)};
+}
+function _buildDbfMulti(rows, fields){
+  // fields: [{name(<=10), srcKey, len}]
+  if(!fields.length){ fields=[{name:'ID',srcKey:'__id',len:6}]; rows=rows.map((_,i)=>({ID:String(i+1)})); }
+  const recSize=1+fields.reduce((a,f)=>a+f.len,0);
+  const headerSize=32+32*fields.length+1;
+  const n=rows.length, total=headerSize+n*recSize+1;
+  const buf=new Uint8Array(total), dv=new DataView(buf.buffer);
+  buf[0]=0x03; const d=new Date(); buf[1]=d.getFullYear()-1900; buf[2]=d.getMonth()+1; buf[3]=d.getDate();
+  dv.setUint32(4,n,true); dv.setUint16(8,headerSize,true); dv.setUint16(10,recSize,true);
+  fields.forEach((f,fi)=>{ const o=32+32*fi;
+    for(let i=0;i<f.name.length&&i<10;i++) buf[o+i]=f.name.charCodeAt(i)&0x7F;
+    buf[o+11]='C'.charCodeAt(0); buf[o+16]=f.len; buf[o+17]=0; });
+  buf[headerSize-1]=0x0D;
+  let off=headerSize;
+  rows.forEach(row=>{ buf[off]=0x20; let p=off+1;
+    fields.forEach(f=>{ let s=String(row[f.name]==null?'':row[f.name]).substring(0,f.len); s=s.padEnd(f.len,' ');
+      for(let i=0;i<f.len;i++) buf[p+i]=s.charCodeAt(i)&0xFF; p+=f.len; });
+    off+=recSize; });
+  buf[off]=0x1A; return buf;
+}
+function _geojsonToShp(geo, kind){
+  const feats=(geo&&geo.features)||[]; if(!feats.length) return null;
+  const isPoly=g=>g&&(g.type==='Polygon'||g.type==='MultiPolygon');
+  const isPt=g=>g&&(g.type==='Point'||g.type==='MultiPoint');
+  // descobre campos a exportar (até 12), normalizando nomes p/ DBF
+  const keys=[]; const seenK={};
+  feats.forEach(f=>Object.keys(f.properties||{}).forEach(k=>{ if(!seenK[k]){ seenK[k]=1; keys.push(k); } }));
+  const fieldList=[]; const seenName={};
+  keys.slice(0,12).forEach(k=>{
+    let n=_dbfFieldGeneric(k), i=1; const base=n;
+    while(seenName[n]){ n=base.substring(0,8)+i; i++; }
+    seenName[n]=1;
+    let maxLen=1; feats.forEach(f=>{ const v=(f.properties||{})[k]; const s=v==null?'':String(v); if(s.length>maxLen) maxLen=s.length; });
+    fieldList.push({name:n, srcKey:k, len: Math.min(Math.max(maxLen,1),80)});
+  });
+  if(kind==='poly'){
+    const recs=[], rows=[];
+    feats.forEach(f=>{ if(!isPoly(f.geometry)) return; const rec=_shpRecord(f.geometry); if(!rec) return;
+      recs.push(rec); const row={}; fieldList.forEach(fd=>row[fd.name]=(f.properties||{})[fd.srcKey]); rows.push(row); });
+    if(!recs.length) return null;
+    const {shp,shx}=_buildShp(recs);
+    return {shp,shx,dbf:_buildDbfMulti(rows,fieldList),prj:PRJ_WGS84};
+  } else {
+    const pts=[], rows=[];
+    feats.forEach(f=>{ const g=f.geometry; if(!isPt(g)) return;
+      const cs=g.type==='Point'?[g.coordinates]:g.coordinates;
+      cs.forEach(c=>{ pts.push([+c[0],+c[1]]); const row={}; fieldList.forEach(fd=>row[fd.name]=(f.properties||{})[fd.srcKey]); rows.push(row); });
+    });
+    if(!pts.length) return null;
+    const {shp,shx}=_buildShpPoints(pts);
+    return {shp,shx,dbf:_buildDbfMulti(rows,fieldList),prj:PRJ_WGS84};
+  }
+}
+
+// baixa, por talhão selecionado, um .zip contendo os shapefiles (zonas + pontos).
+// quando há múltiplos talhões selecionados, agrupa todos os .zip num .zip externo.
 async function baixarShpColeta(){
   try{
-    const partes=[];
-    if(S.coleta&&S.coleta.zonas) partes.push({url:S.coleta.zonas,nome:'zonas'});
-    if(S.coleta&&S.coleta.pontos) partes.push({url:S.coleta.pontos,nome:'pontos'});
-    if(!partes.length){ alert('Sem arquivos de coleta para baixar.'); return; }
+    if(!window.JSZip){ alert('Biblioteca JSZip indisponível.'); return; }
     const meta=S.coletaMeta||{cliente:'cliente',fazenda:'fazenda',talhao:'talhao'};
-    const base='Arquivos SHP para Amostragem de Solo_'+meta.cliente+'_'+meta.fazenda+'_'+meta.talhao;
-    if(!window.JSZip){
-      // fallback: baixa os zips originais separados
-      for(const p of partes){
-        const a=document.createElement('a'); a.href=p.url; a.download=base+'_'+p.nome+'.zip'; a.click();
-        await new Promise(r=>setTimeout(r,400));
-      }
-      return;
+    const talhoes=[];
+    if(S.coleta && (S.coleta.zonas||S.coleta.pontos||(S.coletaGeo&&(S.coletaGeo.zonas||S.coletaGeo.pontos)))){
+      talhoes.push({ nome: meta.talhao||'talhao',
+        zonasUrl:(S.coleta&&S.coleta.zonas)||'', pontosUrl:(S.coleta&&S.coleta.pontos)||'',
+        zonasGeo:(S.coletaGeo&&S.coletaGeo.zonas)||null, pontosGeo:(S.coletaGeo&&S.coletaGeo.pontos)||null });
     }
-    const out=new JSZip();
-    const usados={};
-    const addFile=(nome,data,tag)=>{
-      if(!nome) return;
-      if(usados[nome.toLowerCase()]){
-        const dot=nome.lastIndexOf('.');
-        const raiz=dot>=0?nome.slice(0,dot):nome, ext=dot>=0?nome.slice(dot):'';
-        nome=raiz+'_'+tag+ext;
-      }
-      usados[nome.toLowerCase()]=1;
-      out.file(nome,data);
-    };
-    for(const p of partes){
-      const r=await fetch(p.url); if(!r.ok) throw new Error('Falha ao baixar '+p.nome);
-      const b=await r.arrayBuffer();
-      // detecta se é zip de verdade (assinatura PK\x03\x04) ou geojson/json
-      const head=new Uint8Array(b.slice(0,4));
-      const ehZip = head[0]===0x50 && head[1]===0x4B && (head[2]===0x03||head[2]===0x05||head[2]===0x07);
-      if(ehZip){
-        try{
-          const inner=await JSZip.loadAsync(b);
-          const arquivos=Object.values(inner.files).filter(f=>!f.dir);
-          for(const f of arquivos){
-            const nome=f.name.split('/').pop().split('\\').pop();
-            addFile(nome, await f.async('uint8array'), p.nome);
-          }
-          continue;
-        }catch(e){ /* cai pro fallback abaixo */ }
-      }
-      // fallback: trata como geojson/json e empacota com o nome de origem
-      let ext='.geojson';
+    (S.extras||[]).forEach(ex=>{ if(!ex.hasColeta||!ex.coleta) return;
+      talhoes.push({ nome: ex.nome||'talhao',
+        zonasUrl: ex.coleta.zonasUrl||'', pontosUrl: ex.coleta.pontosUrl||'',
+        zonasGeo: ex.coleta.zonasGeo||null, pontosGeo: ex.coleta.pontosGeo||null });
+    });
+    if(!talhoes.length){ alert('Sem arquivos de coleta para baixar.'); return; }
+
+    async function tryExtractShp(url, baseName, zipOut){
+      if(!url) return false;
       try{
-        const txt=new TextDecoder('utf-8').decode(b);
-        JSON.parse(txt);
-      }catch(e){ ext=''; }
-      // tenta preservar a extensão da URL se houver
-      const urlExt=(p.url.split('?')[0].match(/\.([a-z0-9]+)$/i)||[])[1];
-      if(urlExt) ext='.'+urlExt.toLowerCase();
-      addFile(p.nome+ext, new Uint8Array(b), p.nome);
+        const r=await fetch(url); if(!r.ok) return false;
+        const buf=await r.arrayBuffer();
+        const h=new Uint8Array(buf.slice(0,4));
+        const ehZip=h[0]===0x50&&h[1]===0x4B&&(h[2]===0x03||h[2]===0x05||h[2]===0x07);
+        if(!ehZip) return false;
+        const inZip=await JSZip.loadAsync(buf);
+        const files=Object.values(inZip.files).filter(f=>!f.dir);
+        let temShp=false;
+        for(const f of files){
+          const n=f.name.split(/[\\/]/).pop().toLowerCase();
+          const m=n.match(/\.(shp|shx|dbf|prj|cpg|qmd|qpj|sbn|sbx)$/);
+          if(!m) continue;
+          zipOut.file(baseName+'.'+m[1], await f.async('uint8array'));
+          if(m[1]==='shp') temShp=true;
+        }
+        return temShp;
+      }catch(e){ return false; }
     }
-    const blob=await out.generateAsync({type:'blob'});
-    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=base+'.zip'; a.click();
+    async function buildTalhaoZip(t){
+      const inner=new JSZip();
+      const safe=_normNome(t.nome);
+      let okZ=await tryExtractShp(t.zonasUrl, safe+'_zonas', inner);
+      if(!okZ && t.zonasGeo){
+        const sf=_geojsonToShp(t.zonasGeo,'poly');
+        if(sf){ inner.file(safe+'_zonas.shp',sf.shp); inner.file(safe+'_zonas.shx',sf.shx); inner.file(safe+'_zonas.dbf',sf.dbf); inner.file(safe+'_zonas.prj',sf.prj); okZ=true; }
+      }
+      let okP=await tryExtractShp(t.pontosUrl, safe+'_pontos', inner);
+      if(!okP && t.pontosGeo){
+        const sf=_geojsonToShp(t.pontosGeo,'point');
+        if(sf){ inner.file(safe+'_pontos.shp',sf.shp); inner.file(safe+'_pontos.shx',sf.shx); inner.file(safe+'_pontos.dbf',sf.dbf); inner.file(safe+'_pontos.prj',sf.prj); okP=true; }
+      }
+      if(!okZ && !okP) return null;
+      const blob=await inner.generateAsync({type:'blob'});
+      const nome='Arquivos SHP para Amostragem de Solo_'+_normNome(meta.cliente)+'_'+_normNome(meta.fazenda)+'_'+safe+'.zip';
+      return {nome, blob};
+    }
+    const dl=(blob,name)=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ try{URL.revokeObjectURL(a.href);}catch(e){} a.remove(); },1500); };
+
+    if(talhoes.length===1){
+      const z=await buildTalhaoZip(talhoes[0]);
+      if(!z){ alert('Não foi possível gerar o shapefile.'); return; }
+      dl(z.blob, z.nome); return;
+    }
+    const outer=new JSZip(); let ok=0;
+    for(const t of talhoes){ const z=await buildTalhaoZip(t); if(z){ outer.file(z.nome, z.blob); ok++; } }
+    if(!ok){ alert('Não foi possível gerar nenhum shapefile.'); return; }
+    const blob=await outer.generateAsync({type:'blob'});
+    dl(blob, 'Arquivos SHP para Amostragem de Solo_'+_normNome(meta.cliente)+'_'+_normNome(meta.fazenda)+'.zip');
   }catch(err){ alert('Erro ao baixar: '+err.message); }
 }
 
@@ -3746,7 +3834,8 @@ async function _coletaParse(url){
   return g;
 }
 async function _buildColeta(data, geoPoly, geoPoints){
-  const out={raster:null, zonas:null, pontos:null, zonasGeo:null, pontosGeo:null};
+  const out={raster:null, zonas:null, pontos:null, zonasGeo:null, pontosGeo:null,
+    rasterUrl:(data&&data.coleta_raster_url)||'', zonasUrl:(data&&data.coleta_zonas_url)||'', pontosUrl:(data&&data.coleta_pontos_url)||''};
   try{
     if(data.coleta_raster_url) out.raster=await _buildRaster(data.coleta_raster_url);
     // lê o zip de zonas (pode conter polígonos E pontos)
