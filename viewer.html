@@ -2075,7 +2075,7 @@ async function generatePDF(nutrients){
       });
       legHTML+='</div>';
 
-      const rightHTML='<div style="position:absolute;left:'+RX+'px;top:'+topY+'px;width:'+RW+'px;height:'+cellH+'px;border:1px solid #444;border-radius:3px;padding:14px 16px;box-sizing:border-box;overflow:hidden;">'
+      const rightHTML='<div style="position:absolute;left:'+RX+'px;top:'+topY+'px;width:'+RW+'px;height:'+cellH+'px;border:1px solid #444;border-radius:3px;padding:14px 16px;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;">'
         +dadosHTML+statHTML+legHTML+'</div>';
 
       const footerHTML='<div style="position:absolute;left:0;bottom:0;width:'+pageW+'px;height:30px;background:#4a4a4a;color:rgba(255,255,255,.82);font-size:11px;display:flex;align-items:center;justify-content:space-between;padding:0 30px;box-sizing:border-box;">'
