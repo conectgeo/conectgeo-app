@@ -553,12 +553,12 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       <div class="up-text"><div class="up-title" data-i18n="nutAddCsv">Planilha (Excel / CSV)</div><div class="up-sub">.csv / .xlsx / .xls</div></div>
     </div>
     <div id="nut-up-status" style="font-size:11px;color:var(--leaf2);margin-top:6px;"></div>
-    <div class="up-zone" id="uz-nut-rel" style="margin-top:8px;">
+    <div class="up-zone" id="uz-nut-rel" style="margin-top:8px;display:none;">
       <input type="file" id="f-nut-rel" accept=".tif,.tiff,.zip" multiple>
       <div class="up-icon">🛰</div>
       <div class="up-text"><div class="up-title">Imagens / perímetro relatório</div><div class="up-sub">.tif (EVI / NDMI / Textura — nomeie o arquivo) · .zip = perímetro</div></div>
     </div>
-    <div id="nut-rel-status" style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;"></div>
+    <div id="nut-rel-status" style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;display:none;"></div>
   </div>
 
   <div class="sec" id="sec-upload-geo">
@@ -2597,6 +2597,12 @@ async function _mbSalvarNiveis(map){
 }
 
 // mostra quais imagens (EVI/NDMI/Textura) já estão salvas neste talhão, com opção de remover
+function _aplicarVisibilidadeRel(){
+  const mostra = !!(S.consultorMode && S.modeloB && S.modeloB.on);
+  const uz=document.getElementById('uz-nut-rel'), stt=document.getElementById('nut-rel-status');
+  if(uz) uz.style.display = mostra?'':'none';
+  if(stt) stt.style.display = mostra?'':'none';
+}
 function _relChip(label,onclick){
   return '<span style="display:inline-block;background:var(--leaf-bg);color:var(--leaf2);border-radius:6px;padding:1px 7px;margin:2px 3px 2px 0;font-weight:600;">'+label+' ✓ <a onclick="'+onclick+'" style="cursor:pointer;color:#c0392b;text-decoration:none;font-weight:700;" title="remover">×</a></span>';
 }
@@ -2611,6 +2617,7 @@ function _renderRelStatus(){
 }
 async function _removerPerimetro(){
   if(!sb||!S.tokenAtual) return;
+  if(!confirm('⚠ Excluir o perímetro (contorno) deste talhão?\n\nEsta ação é permanente e não pode ser desfeita.')) return;
   const el=document.getElementById('nut-rel-status');
   try{
     const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:null});
@@ -2621,6 +2628,8 @@ async function _removerPerimetro(){
 }
 async function _removerRaster(tipo){
   if(!sb||!S.tokenAtual) return;
+  const nomes={evi:'Biomassa (EVI)',ndmi:'Umidade na Planta (NDMI)',textura:'Textura do Solo'};
+  if(!confirm('⚠ Excluir a imagem de '+(nomes[tipo]||tipo)+' deste talhão?\n\nEsta ação é permanente e não pode ser desfeita.')) return;
   const el=document.getElementById('nut-rel-status');
   try{
     const r=await sb.rpc('atualizar_raster_relatorio',{p_token:S.tokenAtual,p_tipo:tipo,p_url:''});
@@ -2795,6 +2804,7 @@ async function generateModeloB(idealMap){
     if(zonasItens.length){
       const marg=24, gap=14, headerH=54, topY=18+headerH+12, titleH=58, mapTop=topY+titleH+8;
       const cellH=(pageH-40)-mapTop;
+      const _bandTop=18+headerH, _tbH=44, _tTop=_bandTop+((mapTop-_bandTop)-_tbH)/2; // título centralizado na faixa
       const n=zonasItens.length;
       const cellW=(pageW-2*marg-(n-1)*gap)/n;
       const leftOf=i=>marg+i*(cellW+gap);
@@ -2810,7 +2820,7 @@ async function generateModeloB(idealMap){
       const tituloLeg={evi:'Índice de Biomassa',ndmi:'Índice de Água',textura:'Índice de Textura'};
       zonasItens.forEach((z,i)=>{
         const cx=leftOf(i);
-        html+='<div style="position:absolute;left:'+(cx+cellW/2-90)+'px;top:'+topY+'px;width:180px;border:1px solid #444;border-radius:3px;padding:8px 6px;text-align:center;font-size:14px;font-weight:600;line-height:1.3;">'+z.nome+'</div>';
+        html+='<div style="position:absolute;left:'+(cx+cellW/2-90)+'px;top:'+_tTop+'px;width:180px;height:'+_tbH+'px;border:1px solid #444;border-radius:3px;font-size:14px;font-weight:600;line-height:1.2;display:flex;align-items:center;justify-content:center;text-align:center;padding:4px 6px;box-sizing:border-box;">'+z.nome+'</div>';
         html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;">'
           +'<img src="'+z.img+'" style="max-width:86%;max-height:86%;width:auto;height:auto;object-fit:contain;display:block;">'
           +'<div style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:10px;">'
@@ -4399,6 +4409,7 @@ async function loadFromToken(token, params){
     sb.rpc('get_modelo_b_config',{p_token:token}).then(({data})=>{
       const d=(typeof data==='string')?JSON.parse(data):data;
       if(d && !d.erro){ S.modeloB.on=!!d.usar_modelo_b; S.modeloB.niveis=(typeof d.niveis_ideais==='string'?JSON.parse(d.niveis_ideais):d.niveis_ideais)||{}; }
+      try{ _aplicarVisibilidadeRel(); }catch(e){}
     }).catch(()=>{});
 
     // pré-preenche os campos do PDF com os dados do banco
