@@ -2596,8 +2596,24 @@ async function _mbSalvarNiveis(map){
   try{ await sb.rpc('atualizar_niveis_ideais',{ p_token:S.tokenAtual, p_json:map }); }catch(e){ console.warn('salvar níveis ideais:', e); }
 }
 
+// extrai apenas as arestas do PERÍMETRO do shapefile de zonas:
+// arestas internas são compartilhadas por 2 zonas (aparecem 2x); o perímetro aparece 1x.
+function _perimeterSegments(geo){
+  const counts={};
+  const addRing=(ring)=>{ for(let i=0;i<ring.length-1;i++){ const a=ring[i],b=ring[i+1];
+    const ka=a[0].toFixed(7)+','+a[1].toFixed(7), kb=b[0].toFixed(7)+','+b[1].toFixed(7);
+    const key=ka<kb?(ka+'|'+kb):(kb+'|'+ka);
+    if(!counts[key]) counts[key]={n:0,a,b}; counts[key].n++; } };
+  (geo&&geo.features||[]).forEach(f=>{ const g=f.geometry; if(!g)return;
+    const polys=g.type==='Polygon'?[g.coordinates]:(g.type==='MultiPolygon'?g.coordinates:[]);
+    polys.forEach(poly=>poly.forEach(ring=>{ if(Array.isArray(ring)&&ring.length>1) addRing(ring); })); });
+  const segs=[]; Object.keys(counts).forEach(k=>{ const c=counts[k]; if(c.n===1) segs.push([c.a,c.b]); });
+  return segs;
+}
+
 // converte um GeoTIFF colorido (RGB) numa imagem PNG (dataURL) para o relatório.
 // noData / pixels vazios ficam transparentes (aparece o formato do talhão).
+// Desenha por cima o contorno (perímetro) do shapefile de zonas, com linha mais grossa.
 async function _geotiffToPng(url){
   try{
     const _parse=(typeof parseGeoraster!=='undefined')?parseGeoraster:(window.parseGeoraster||window.parseGeoRaster);
@@ -2610,18 +2626,38 @@ async function _geotiffToPng(url){
     const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
     const ctx=cv.getContext('2d'); const out=ctx.createImageData(cw,ch);
     const bands=gr.values, nb=gr.numberOfRasters||bands.length, nd=gr.noDataValue;
+    let cx0=cw, cy0=ch, cx1=-1, cy1=-1;  // bounding-box do conteúdo (pixels não transparentes)
     for(let y=0;y<ch;y++){
       const sy=Math.min(h-1,Math.floor(y/scale));
       const r0=bands[0][sy], r1=nb>1?bands[1][sy]:null, r2=nb>2?bands[2][sy]:null, r3=nb>3?bands[3][sy]:null;
       for(let x=0;x<cw;x++){
         const sx=Math.min(w-1,Math.floor(x/scale)); const i=(y*cw+x)*4;
         let r=r0[sx], g=r1?r1[sx]:r, b=r2?r2[sx]:r, a=255;
-        if(r3){ a=r3[sx]; }                                   // 4ª banda = alfa, se existir
-        if(r==null||isNaN(r)||(nd!=null&&r===nd)){ a=0; r=g=b=255; } // noData = transparente
+        if(r3){ a=r3[sx]; }
+        if(r==null||isNaN(r)||(nd!=null&&r===nd)){ a=0; r=g=b=255; }
+        if(a!==0){ if(x<cx0)cx0=x; if(x>cx1)cx1=x; if(y<cy0)cy0=y; if(y>cy1)cy1=y; }
         out.data[i]=r; out.data[i+1]=g; out.data[i+2]=b; out.data[i+3]=a;
       }
     }
     ctx.putImageData(out,0,0);
+
+    // contorno (perímetro) do shapefile de zonas, ajustado ao bounding-box do conteúdo
+    try{
+      if(typeof S!=='undefined' && S.geoData && cx1>=cx0){
+        const segs=_perimeterSegments(S.geoData);
+        if(segs.length){
+          let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+          segs.forEach(s=>s.forEach(p=>{ if(p[0]<mnx)mnx=p[0]; if(p[0]>mxx)mxx=p[0]; if(p[1]<mny)mny=p[1]; if(p[1]>mxy)mxy=p[1]; }));
+          const gw=(mxx-mnx)||1, gh=(mxy-mny)||1, bw=(cx1-cx0)||cw, bh=(cy1-cy0)||ch;
+          const toPx=(p)=>[ cx0+((p[0]-mnx)/gw)*bw, cy1-((p[1]-mny)/gh)*bh ];
+          ctx.strokeStyle='#1f2a14'; ctx.lineWidth=Math.max(2.5, cw*0.006); ctx.lineJoin='round'; ctx.lineCap='round';
+          ctx.beginPath();
+          segs.forEach(s=>{ const a=toPx(s[0]), b=toPx(s[1]); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); });
+          ctx.stroke();
+        }
+      }
+    }catch(e){ console.warn('contorno perímetro:', e); }
+
     return cv.toDataURL('image/png');
   }catch(e){ console.warn('geotiff→png falhou:', e); return ''; }
 }
@@ -2727,8 +2763,8 @@ async function generateModeloB(idealMap){
       zonasItens.forEach((z,i)=>{
         const cx=leftOf(i);
         html+='<div style="position:absolute;left:'+(cx+cellW/2-90)+'px;top:'+topY+'px;width:180px;border:1px solid #444;border-radius:3px;padding:8px 6px;text-align:center;font-size:14px;font-weight:600;line-height:1.3;">'+z.nome+'</div>';
-        html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;">'
-          +'<img src="'+z.img+'" style="width:100%;height:100%;object-fit:contain;display:block;background:#fff;">'
+        html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;">'
+          +'<img src="'+z.img+'" style="max-width:86%;max-height:86%;width:auto;height:auto;object-fit:contain;display:block;">'
           +'<div style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:10px;">'
           +'<div style="font-weight:700;margin-bottom:3px;">'+(tituloLeg[z.key]||'')+'</div>'
           +(legend[z.key]||[]).map(L=>'<div style="display:flex;align-items:center;gap:6px;margin:1px 0;"><span style="display:inline-block;width:12px;height:10px;background:'+L[1]+';border:1px solid #333;"></span>'+L[0]+'</div>').join('')
