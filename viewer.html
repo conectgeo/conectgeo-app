@@ -857,7 +857,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       <div class="modal-sub">Confira o Nível Ideal de cada nutriente (salvo por cliente)</div>
     </div>
     <div class="modal-body">
-      <div id="mb-variant-row" style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px;background:#f7f7f8;border:1px solid var(--border);border-radius:8px;">
+      <div id="mb-variant-row" style="display:none;align-items:center;gap:10px;margin-bottom:12px;padding:10px;background:#f7f7f8;border:1px solid var(--border);border-radius:8px;">
         <label for="mb-variant" style="font-size:13px;font-weight:600;color:var(--ink);">Modelo do relatório:</label>
         <select id="mb-variant" style="padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;background:#fff;flex:1;">
           <option value="1">Modelo 1 — Nutrientes 00-20 (Ca/Mg, K/V, Al/pH, P-Meh/P-res, B/MO, S)</option>
@@ -2740,13 +2740,17 @@ async function generateModeloB(idealMap){
     const {jsPDF}=window.jspdf;
     const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
     const PW=297,PH=210,pageW=1123,pageH=794;
-    // resolve variante (1/2/3) e layout fixo de páginas
-    const variant=(idealMap&&MB_LAYOUTS[idealMap._variant])?idealMap._variant
-                 :((S.modeloB.niveis&&MB_LAYOUTS[S.modeloB.niveis._variant])?S.modeloB.niveis._variant:'1');
-    const layout=MB_LAYOUTS[variant]||MB_LAYOUTS['1'];
+    // MONTAGEM AUTOMÁTICA: páginas a partir das colunas detectadas no shape/planilha de nutrientes
     const byKey={}; matched.forEach(m=>{ byKey[m.def.key]=m; });
+    const ordered=matched.map(m=>m.def.key);            // já na ordem do dicionário (MB_DEFS)
+    const trioKeys=['calcio2040','al2040','satal2040'];
+    const temTrio=trioKeys.every(k=>byKey[k]);          // só agrupa o trio 20-40 se as 3 colunas existirem
+    const pool=ordered.filter(k=>!(temTrio && trioKeys.includes(k)));
+    const autoPages=[];
+    for(let i=0;i<pool.length;i+=2){ autoPages.push({type:'pair', keys: pool.slice(i,i+2)}); }
+    if(temTrio) autoPages.push({type:'trio', keys: trioKeys, header:'Potencial Químico para o Crescimento de Raiz em Profundidade (20-40cm)'});
     let first=true;
-    for(const pg of layout.pages){
+    for(const pg of autoPages){
       const itens=pg.keys.map(k=>byKey[k]).filter(Boolean);
       if(!itens.length) continue;
       const trio=(pg.type==='trio');
@@ -2820,7 +2824,9 @@ async function generateModeloB(idealMap){
       const tituloLeg={evi:'Índice de Biomassa',ndmi:'Índice de Água',textura:'Índice de Textura'};
       zonasItens.forEach((z,i)=>{
         const cx=leftOf(i);
-        html+='<div style="position:absolute;left:'+(cx+cellW/2-90)+'px;top:'+_tTop+'px;width:180px;height:'+_tbH+'px;border:1px solid #444;border-radius:3px;font-size:14px;font-weight:600;line-height:1.2;display:flex;align-items:center;justify-content:center;text-align:center;padding:4px 6px;box-sizing:border-box;">'+z.nome+'</div>';
+        html+='<div style="position:absolute;left:'+cx+'px;top:'+(18+headerH)+'px;width:'+cellW+'px;height:'+(mapTop-(18+headerH))+'px;display:flex;align-items:center;justify-content:center;">'
+          +'<div style="width:180px;height:'+_tbH+'px;border:1px solid #444;border-radius:3px;font-size:14px;font-weight:600;line-height:1.2;display:flex;align-items:center;justify-content:center;text-align:center;padding:4px 6px;box-sizing:border-box;">'+z.nome+'</div>'
+          +'</div>';
         html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;">'
           +'<img src="'+z.img+'" style="max-width:86%;max-height:86%;width:auto;height:auto;object-fit:contain;display:block;">'
           +'<div style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:10px;">'
