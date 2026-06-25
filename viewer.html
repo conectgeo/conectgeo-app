@@ -553,6 +553,12 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       <div class="up-text"><div class="up-title" data-i18n="nutAddCsv">Planilha (Excel / CSV)</div><div class="up-sub">.csv / .xlsx / .xls</div></div>
     </div>
     <div id="nut-up-status" style="font-size:11px;color:var(--leaf2);margin-top:6px;"></div>
+    <div class="up-zone" id="uz-nut-rel" style="margin-top:8px;">
+      <input type="file" id="f-nut-rel" accept=".tif,.tiff" multiple>
+      <div class="up-icon">🛰</div>
+      <div class="up-text"><div class="up-title">Imagens relatório</div><div class="up-sub">EVI / NDMI / Textura · .tif coloridos · nomeie o arquivo com EVI, NDMI ou Textura</div></div>
+    </div>
+    <div id="nut-rel-status" style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;"></div>
   </div>
 
   <div class="sec" id="sec-upload-geo">
@@ -2590,6 +2596,36 @@ async function _mbSalvarNiveis(map){
   try{ await sb.rpc('atualizar_niveis_ideais',{ p_token:S.tokenAtual, p_json:map }); }catch(e){ console.warn('salvar níveis ideais:', e); }
 }
 
+// converte um GeoTIFF colorido (RGB) numa imagem PNG (dataURL) para o relatório.
+// noData / pixels vazios ficam transparentes (aparece o formato do talhão).
+async function _geotiffToPng(url){
+  try{
+    const _parse=(typeof parseGeoraster!=='undefined')?parseGeoraster:(window.parseGeoraster||window.parseGeoRaster);
+    if(!_parse) return '';
+    const buf=await (await fetch(url)).arrayBuffer();
+    const gr=await _parse(buf);
+    const w=gr.width, h=gr.height; if(!w||!h) return '';
+    const maxDim=1100, scale=Math.min(1, maxDim/Math.max(w,h));
+    const cw=Math.max(1,Math.round(w*scale)), ch=Math.max(1,Math.round(h*scale));
+    const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+    const ctx=cv.getContext('2d'); const out=ctx.createImageData(cw,ch);
+    const bands=gr.values, nb=gr.numberOfRasters||bands.length, nd=gr.noDataValue;
+    for(let y=0;y<ch;y++){
+      const sy=Math.min(h-1,Math.floor(y/scale));
+      const r0=bands[0][sy], r1=nb>1?bands[1][sy]:null, r2=nb>2?bands[2][sy]:null, r3=nb>3?bands[3][sy]:null;
+      for(let x=0;x<cw;x++){
+        const sx=Math.min(w-1,Math.floor(x/scale)); const i=(y*cw+x)*4;
+        let r=r0[sx], g=r1?r1[sx]:r, b=r2?r2[sx]:r, a=255;
+        if(r3){ a=r3[sx]; }                                   // 4ª banda = alfa, se existir
+        if(r==null||isNaN(r)||(nd!=null&&r===nd)){ a=0; r=g=b=255; } // noData = transparente
+        out.data[i]=r; out.data[i+1]=g; out.data[i+2]=b; out.data[i+3]=a;
+      }
+    }
+    ctx.putImageData(out,0,0);
+    return cv.toDataURL('image/png');
+  }catch(e){ console.warn('geotiff→png falhou:', e); return ''; }
+}
+
 async function generateModeloB(idealMap){
   const matched=modeloBMatch();
   if(!matched.length){ toast('Nenhum nutriente reconhecido para o Modelo B','wrn'); return; }
@@ -2667,7 +2703,11 @@ async function generateModeloB(idealMap){
     }
     // página final "Zonas de Manejo" (Biomassa/Umidade/Textura) — só renderiza se houver URLs configuradas
     const zonasUrls=(S.modeloB&&S.modeloB.zonas)||{};
-    const zonasItens=(layout.zonas||[]).map(k=>({key:k, nome:({biomassa:'Biomassa',umidade:'Umidade na Planta',textura:'Textura do Solo'})[k]||k, url:zonasUrls[k]||''})).filter(z=>z.url);
+    const _relNomes={evi:'EVI — Vigor da Vegetação', ndmi:'NDMI — Umidade da Vegetação', textura:'Textura do Solo'};
+    let zonasItens=['evi','ndmi','textura'].map(k=>({key:k, nome:_relNomes[k], url:zonasUrls[k]||''})).filter(z=>z.url);
+    // converte cada GeoTIFF colorido em PNG (fora do talhão fica transparente)
+    for(const z of zonasItens){ z.img = await _geotiffToPng(z.url); }
+    zonasItens = zonasItens.filter(z=>z.img);
     if(zonasItens.length){
       const marg=24, gap=14, headerH=54, topY=18+headerH+12, titleH=58, mapTop=topY+titleH+8;
       const cellH=(pageH-40)-mapTop;
@@ -2676,14 +2716,19 @@ async function generateModeloB(idealMap){
       const leftOf=i=>marg+i*(cellW+gap);
       const page=document.createElement('div');
       page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
-      let html='<div style="position:absolute;left:'+marg+'px;right:'+marg+'px;top:18px;height:'+headerH+'px;border:1px solid #444;border-radius:3px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:17px;font-weight:700;padding:0 18px;">Levantamento Médio de Várias Safras para Elaboração das Zonas de Manejo</div>';
-      const legend={biomassa:[['Ótimo','#2ecc71'],['Médio','#f1c40f'],['Ruim','#e74c3c']],umidade:[['Ótimo','#3498db'],['Médio','#f1c40f'],['Ruim','#e74c3c']],textura:[['Mais Argilosa','#8b4513'],['Mais Arenosa','#f5deb3']]};
-      const tituloLeg={biomassa:'Índice de Biomassa',umidade:'Índice de Água',textura:'Índice de Textura'};
+      let html='<div style="position:absolute;left:'+marg+'px;right:'+marg+'px;top:18px;height:'+headerH+'px;border:1px solid #444;border-radius:3px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:17px;font-weight:700;padding:0 18px;">Índices de Satélite e Textura do Solo</div>';
+      // LEGENDAS FIXAS POR TIPO — ajuste as cores/labels para casar com seus GeoTIFFs coloridos
+      const legend={
+        evi:[['Alto vigor','#1a9850'],['Médio','#fee08b'],['Baixo vigor','#d73027']],
+        ndmi:[['Mais úmido','#2c7fb8'],['Médio','#7fcdbb'],['Mais seco','#edf8b1']],
+        textura:[['Mais Argilosa','#8b4513'],['Mais Arenosa','#f5deb3']]
+      };
+      const tituloLeg={evi:'EVI',ndmi:'NDMI',textura:'Textura'};
       zonasItens.forEach((z,i)=>{
         const cx=leftOf(i);
         html+='<div style="position:absolute;left:'+(cx+cellW/2-90)+'px;top:'+topY+'px;width:180px;border:1px solid #444;border-radius:3px;padding:8px 6px;text-align:center;font-size:14px;font-weight:600;line-height:1.3;">'+z.nome+'</div>';
         html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;">'
-          +'<img src="'+z.url+'" style="width:100%;height:100%;object-fit:contain;display:block;background:#fff;">'
+          +'<img src="'+z.img+'" style="width:100%;height:100%;object-fit:contain;display:block;background:#fff;">'
           +'<div style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:10px;">'
           +'<div style="font-weight:700;margin-bottom:3px;">'+(tituloLeg[z.key]||'')+'</div>'
           +(legend[z.key]||[]).map(L=>'<div style="display:flex;align-items:center;gap:6px;margin:1px 0;"><span style="display:inline-block;width:12px;height:10px;background:'+L[1]+';border:1px solid #333;"></span>'+L[0]+'</div>').join('')
@@ -3592,6 +3637,35 @@ function wireColetaControls(){
     }catch(err){ st.textContent='Erro: '+err.message; }
   });
 
+  // ── Imagens do relatório (EVI / NDMI / Textura): seleção múltipla, classifica pelo nome ──
+  const elNutRel=document.getElementById('f-nut-rel');
+  if(elNutRel) elNutRel.addEventListener('change', async()=>{
+    const st=document.getElementById('nut-rel-status');
+    const files=Array.from(elNutRel.files||[]); if(!files.length) return;
+    if(!sb||!S.tokenAtual){ st.textContent='Sem conexão para salvar.'; return; }
+    const classifica=(nome)=>{ const n=(nome||'').toLowerCase(); if(n.includes('ndmi'))return'ndmi'; if(n.includes('evi'))return'evi'; if(n.includes('text'))return'textura'; return null; };
+    const ok=[], pulou=[];
+    for(const f of files){
+      const tipo=classifica(f.name);
+      if(!tipo){ pulou.push(f.name+' (nome sem EVI/NDMI/Textura)'); continue; }
+      if(f.size>5*1024*1024){ pulou.push(f.name+' (>5MB)'); continue; }
+      st.textContent='Enviando '+tipo.toUpperCase()+'…';
+      try{
+        const path='relatorio/'+S.tokenAtual+'/'+tipo+'.tif';
+        const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true, contentType:'image/tiff'});
+        if(up&&up.error) throw new Error('bucket: '+up.error.message);
+        const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
+        const r=await sb.rpc('atualizar_raster_relatorio',{p_token:S.tokenAtual,p_tipo:tipo,p_url:url});
+        if(r&&r.error) throw new Error(r.error.message);
+        S.modeloB=S.modeloB||{on:false,niveis:{},zonas:{}}; S.modeloB.zonas=S.modeloB.zonas||{}; S.modeloB.zonas[tipo]=url;
+        ok.push(tipo.toUpperCase());
+      }catch(e){ pulou.push(f.name+' ('+e.message+')'); }
+    }
+    elNutRel.value='';
+    let msg=''; if(ok.length) msg='✅ '+ok.join(', ')+' no relatório. '; if(pulou.length) msg+='⚠ '+pulou.join('; ');
+    st.textContent=msg||'Nada enviado.';
+  });
+
   // ── Recomendação: upload da planilha (lê na hora; tenta salvar se houver backend) ──
   const elRecCsv=document.getElementById('f-rec-csv');
   if(elRecCsv) elRecCsv.addEventListener('change', async()=>{
@@ -4216,7 +4290,7 @@ async function loadFromToken(token, params){
     carregarBrandingConsultor(token);
 
     // modelo B (layout do consultor): flag (consultor) + níveis ideais (cliente)
-    S.modeloB={on:false,niveis:{}};
+    S.modeloB={on:false,niveis:{},zonas:(data.rasters_relatorio||{})};
     sb.rpc('get_modelo_b_config',{p_token:token}).then(({data})=>{
       const d=(typeof data==='string')?JSON.parse(data):data;
       if(d && !d.erro){ S.modeloB.on=!!d.usar_modelo_b; S.modeloB.niveis=(typeof d.niveis_ideais==='string'?JSON.parse(d.niveis_ideais):d.niveis_ideais)||{}; }
