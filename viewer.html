@@ -554,9 +554,9 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     </div>
     <div id="nut-up-status" style="font-size:11px;color:var(--leaf2);margin-top:6px;"></div>
     <div class="up-zone" id="uz-nut-rel" style="margin-top:8px;">
-      <input type="file" id="f-nut-rel" accept=".tif,.tiff" multiple>
+      <input type="file" id="f-nut-rel" accept=".tif,.tiff,.zip" multiple>
       <div class="up-icon">🛰</div>
-      <div class="up-text"><div class="up-title">Imagens relatório</div><div class="up-sub">EVI / NDMI / Textura · .tif coloridos · nomeie o arquivo com EVI, NDMI ou Textura</div></div>
+      <div class="up-text"><div class="up-title">Imagens / perímetro relatório</div><div class="up-sub">.tif (EVI / NDMI / Textura — nomeie o arquivo) · .zip = perímetro</div></div>
     </div>
     <div id="nut-rel-status" style="font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;"></div>
   </div>
@@ -2596,6 +2596,40 @@ async function _mbSalvarNiveis(map){
   try{ await sb.rpc('atualizar_niveis_ideais',{ p_token:S.tokenAtual, p_json:map }); }catch(e){ console.warn('salvar níveis ideais:', e); }
 }
 
+// mostra quais imagens (EVI/NDMI/Textura) já estão salvas neste talhão, com opção de remover
+function _relChip(label,onclick){
+  return '<span style="display:inline-block;background:var(--leaf-bg);color:var(--leaf2);border-radius:6px;padding:1px 7px;margin:2px 3px 2px 0;font-weight:600;">'+label+' ✓ <a onclick="'+onclick+'" style="cursor:pointer;color:#c0392b;text-decoration:none;font-weight:700;" title="remover">×</a></span>';
+}
+function _renderRelStatus(){
+  const el=document.getElementById('nut-rel-status'); if(!el) return;
+  const z=(S.modeloB&&S.modeloB.zonas)||{};
+  const chips=[];
+  [['evi','EVI'],['ndmi','NDMI'],['textura','Textura']].forEach(t=>{ if(z[t[0]]) chips.push(_relChip(t[1],"_removerRaster('"+t[0]+"')")); });
+  if(S.modeloB&&S.modeloB.perimetro) chips.push(_relChip('Perímetro',"_removerPerimetro()"));
+  if(!chips.length){ el.innerHTML='<span style="color:var(--muted)">Nada salvo neste talhão ainda.</span>'; return; }
+  el.innerHTML='<span style="color:var(--muted)">Salvos neste talhão:</span> '+chips.join('');
+}
+async function _removerPerimetro(){
+  if(!sb||!S.tokenAtual) return;
+  const el=document.getElementById('nut-rel-status');
+  try{
+    const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:null});
+    if(r&&r.error) throw new Error(r.error.message);
+    if(S.modeloB) S.modeloB.perimetro=null;
+    _renderRelStatus();
+  }catch(e){ if(el) el.innerHTML='<span style="color:#c0392b">Erro ao remover: '+e.message+'</span>'; }
+}
+async function _removerRaster(tipo){
+  if(!sb||!S.tokenAtual) return;
+  const el=document.getElementById('nut-rel-status');
+  try{
+    const r=await sb.rpc('atualizar_raster_relatorio',{p_token:S.tokenAtual,p_tipo:tipo,p_url:''});
+    if(r&&r.error) throw new Error(r.error.message);
+    if(S.modeloB&&S.modeloB.zonas) delete S.modeloB.zonas[tipo];
+    _renderRelStatus();
+  }catch(e){ if(el) el.innerHTML='<span style="color:#c0392b">Erro ao remover: '+e.message+'</span>'; }
+}
+
 // extrai apenas as arestas do PERÍMETRO do shapefile de zonas:
 // arestas internas são compartilhadas por 2 zonas (aparecem 2x); o perímetro aparece 1x.
 function _perimeterSegments(geo){
@@ -2641,18 +2675,32 @@ async function _geotiffToPng(url){
     }
     ctx.putImageData(out,0,0);
 
-    // contorno (perímetro) do shapefile de zonas, ajustado ao bounding-box do conteúdo
+    // contorno (perímetro) — usa o shapefile de perímetro enviado (.zip), por cima do raster
     try{
-      if(typeof S!=='undefined' && S.geoData && cx1>=cx0){
-        const segs=_perimeterSegments(S.geoData);
+      const perim=(typeof S!=='undefined' && S.modeloB && S.modeloB.perimetro) ? S.modeloB.perimetro : null;
+      if(perim && cx1>=cx0){
+        const segs=_perimeterSegments(perim);
         if(segs.length){
-          let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
-          segs.forEach(s=>s.forEach(p=>{ if(p[0]<mnx)mnx=p[0]; if(p[0]>mxx)mxx=p[0]; if(p[1]<mny)mny=p[1]; if(p[1]>mxy)mxy=p[1]; }));
-          const gw=(mxx-mnx)||1, gh=(mxy-mny)||1, bw=(cx1-cx0)||cw, bh=(cy1-cy0)||ch;
-          const toPx=(p)=>[ cx0+((p[0]-mnx)/gw)*bw, cy1-((p[1]-mny)/gh)*bh ];
+          const proj=gr.projection;
+          const toCRS=(lon,lat)=>{
+            if(!proj || proj===4326) return [lon,lat];
+            if(proj===3857||proj===900913){ const R=6378137; return [R*lon*Math.PI/180, R*Math.log(Math.tan(Math.PI/4+lat*Math.PI/360))]; }
+            return null; // CRS não tratável aqui
+          };
+          let pxFn;
+          if(toCRS(segs[0][0][0],segs[0][0][1])){
+            // georreferenciado pela extensão do GeoTIFF (preciso p/ 4326 e 3857)
+            pxFn=(p)=>{ const c=toCRS(p[0],p[1]); if(!c) return null; return [ (c[0]-gr.xmin)/(gr.xmax-gr.xmin)*cw, (gr.ymax-c[1])/(gr.ymax-gr.ymin)*ch ]; };
+          }else{
+            // fallback: encaixa o perímetro (limpo) no bounding-box do conteúdo do raster
+            let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+            segs.forEach(s=>s.forEach(p=>{ if(p[0]<mnx)mnx=p[0]; if(p[0]>mxx)mxx=p[0]; if(p[1]<mny)mny=p[1]; if(p[1]>mxy)mxy=p[1]; }));
+            const gw=(mxx-mnx)||1, gh=(mxy-mny)||1, bw=(cx1-cx0)||cw, bh=(cy1-cy0)||ch;
+            pxFn=(p)=>[ cx0+((p[0]-mnx)/gw)*bw, cy1-((p[1]-mny)/gh)*bh ];
+          }
           ctx.strokeStyle='#1f2a14'; ctx.lineWidth=Math.max(2.5, cw*0.006); ctx.lineJoin='round'; ctx.lineCap='round';
           ctx.beginPath();
-          segs.forEach(s=>{ const a=toPx(s[0]), b=toPx(s[1]); ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); });
+          segs.forEach(s=>{ const a=pxFn(s[0]), b=pxFn(s[1]); if(a&&b){ ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); } });
           ctx.stroke();
         }
       }
@@ -3682,6 +3730,22 @@ function wireColetaControls(){
     const classifica=(nome)=>{ const n=(nome||'').toLowerCase(); if(n.includes('ndmi'))return'ndmi'; if(n.includes('evi'))return'evi'; if(n.includes('text'))return'textura'; return null; };
     const ok=[], pulou=[];
     for(const f of files){
+      const ext=(f.name.split('.').pop()||'').toLowerCase();
+      if(ext==='zip'){
+        st.textContent='Lendo perímetro…';
+        try{
+          if(typeof shp==='undefined') throw new Error('parser de shapefile não carregou');
+          const buf=await f.arrayBuffer();
+          let gj=await shp(buf);
+          if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.reduce((a,c)=>a.concat(c.features||[]),[])};
+          if(!gj||!gj.features||!gj.features.length) throw new Error('shapefile sem polígonos');
+          const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:gj});
+          if(r&&r.error) throw new Error(r.error.message);
+          S.modeloB=S.modeloB||{on:false,niveis:{},zonas:{}}; S.modeloB.perimetro=gj;
+          ok.push('Perímetro');
+        }catch(e){ pulou.push(f.name+' (perímetro: '+e.message+')'); }
+        continue;
+      }
       const tipo=classifica(f.name);
       if(!tipo){ pulou.push(f.name+' (nome sem EVI/NDMI/Textura)'); continue; }
       if(f.size>5*1024*1024){ pulou.push(f.name+' (>5MB)'); continue; }
@@ -3698,8 +3762,8 @@ function wireColetaControls(){
       }catch(e){ pulou.push(f.name+' ('+e.message+')'); }
     }
     elNutRel.value='';
-    let msg=''; if(ok.length) msg='✅ '+ok.join(', ')+' no relatório. '; if(pulou.length) msg+='⚠ '+pulou.join('; ');
-    st.textContent=msg||'Nada enviado.';
+    _renderRelStatus();
+    if(pulou.length){ const st2=document.getElementById('nut-rel-status'); if(st2) st2.innerHTML='<span style="color:#c0392b">⚠ '+pulou.join('; ')+'</span><br>'+st2.innerHTML; }
   });
 
   // ── Recomendação: upload da planilha (lê na hora; tenta salvar se houver backend) ──
@@ -4326,7 +4390,8 @@ async function loadFromToken(token, params){
     carregarBrandingConsultor(token);
 
     // modelo B (layout do consultor): flag (consultor) + níveis ideais (cliente)
-    S.modeloB={on:false,niveis:{},zonas:(data.rasters_relatorio||{})};
+    S.modeloB={on:false,niveis:{},zonas:(data.rasters_relatorio||{}),perimetro:(data.perimetro_geojson||null)};
+    try{ _renderRelStatus(); }catch(e){}
     sb.rpc('get_modelo_b_config',{p_token:token}).then(({data})=>{
       const d=(typeof data==='string')?JSON.parse(data):data;
       if(d && !d.erro){ S.modeloB.on=!!d.usar_modelo_b; S.modeloB.niveis=(typeof d.niveis_ideais==='string'?JSON.parse(d.niveis_ideais):d.niveis_ideais)||{}; }
