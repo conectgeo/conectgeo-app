@@ -2764,17 +2764,28 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
   const orig={w:mapEl.style.width,h:mapEl.style.height,f:mapEl.style.flex,ww:wrap?wrap.style.width:''};
   mapEl.style.flex='none'; mapEl.style.width=slotW+'px'; mapEl.style.height=slotH+'px';
   if(wrap) wrap.style.width=slotW+'px';
-  try{ S.map.invalidateSize(true); }catch(e){}
-  renderMap();
-  try{ if(S.layer) S.map.fitBounds(S.layer.getBounds(),{padding:[14,14],animate:false}); }catch(e){}
-  // afasta ~15% (conteúdo a 85% do tamanho) para dar mais margem
-  try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.85),{animate:false}); }catch(e){}
-  await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1200:520));
-  let img;
-  if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'}); }
-  else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); img=cv.toDataURL('image/jpeg',0.95); }
-  mapEl.style.width=orig.w; mapEl.style.height=orig.h; mapEl.style.flex=orig.f; if(wrap) wrap.style.width=orig.ww;
-  try{ S.map.invalidateSize(true); }catch(e){}
+  let img='';
+  try{
+    try{ S.map.invalidateSize(true); }catch(e){}
+    renderMap();
+    try{ if(S.layer) S.map.fitBounds(S.layer.getBounds(),{padding:[14,14],animate:false}); }catch(e){}
+    // afasta ~15% (conteúdo a 85% do tamanho) para dar mais margem
+    try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.85),{animate:false}); }catch(e){}
+    await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1200:520));
+    const _timeout=(ms)=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout captura')),ms));
+    const _h2c=async()=>{ const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); return cv.toDataURL('image/jpeg',0.95); };
+    try{
+      const cap = S.shooter ? S.shooter.takeScreen('image',{mimeType:'image/jpeg'}) : _h2c();
+      img = await Promise.race([cap, _timeout(9000)]);
+    }catch(e1){
+      console.warn('[modeloB] captura principal falhou/timeout; tentando html2canvas:', col, e1);
+      try{ img = await Promise.race([_h2c(), _timeout(9000)]); }
+      catch(e2){ console.warn('[modeloB] html2canvas também falhou; célula em branco:', col, e2); img=''; }
+    }
+  } finally {
+    mapEl.style.width=orig.w; mapEl.style.height=orig.h; mapEl.style.flex=orig.f; if(wrap) wrap.style.width=orig.ww;
+    try{ S.map.invalidateSize(true); }catch(e){}
+  }
   return img;
 }
 
@@ -3017,10 +3028,10 @@ async function generateModeloB(idealMap){
       page.innerHTML=html;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      const cv=await html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
+      let cv=null; try{ cv=await Promise.race([html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),15000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
       document.body.removeChild(page);
       if(!first) doc.addPage(); first=false;
-      doc.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
+      if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
     }
     // página final "Zonas de Manejo" (Biomassa/Umidade/Textura) — só renderiza se houver URLs configuradas
     const zonasUrls=(S.modeloB&&S.modeloB.zonas)||{};
@@ -3061,10 +3072,10 @@ async function generateModeloB(idealMap){
       page.innerHTML=html;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      const cv=await html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
+      let cv=null; try{ cv=await Promise.race([html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),15000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
       document.body.removeChild(page);
       if(!first) doc.addPage(); first=false;
-      doc.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
+      if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
     }
     restore(); hideLoading();
     const fz=_normNome((S.linkData&&S.linkData.fazenda)||'fazenda'), tl=_normNome((S.linkData&&S.linkData.talhao)||'talhao');
@@ -4873,7 +4884,7 @@ function ensureCompareMap(){
   }catch(e){ S.compare.shooter2=null; }
 }
 function _renderSide(targetMap, layerKey, labelKey, depth, mn, mx, col){
-  const _col = col || S.colorCol;
+  const _col = (col===undefined) ? S.colorCol : col;
   if(S[layerKey]){ try{ targetMap.removeLayer(S[layerKey]); }catch(e){} }
   if(S[labelKey]){ S[labelKey].forEach(l=>{ try{ targetMap.removeLayer(l); }catch(e){} }); }
   S[labelKey]=[];
@@ -4916,8 +4927,8 @@ function renderCompare(){
   const L1=S.compare.left, R1=S.compare.right;
   if(!L1||!R1){ toast('Escolha as duas profundidades','wrn'); return; }
   // no modo "profundidade pelo nome", cada lado usa a coluna do nutriente naquela profundidade
-  const colL = S.depthByName ? (_colNaProfundidade(S.colorCol,L1)||S.colorCol) : S.colorCol;
-  const colR = S.depthByName ? (_colNaProfundidade(S.colorCol,R1)||S.colorCol) : S.colorCol;
+  const colL = S.depthByName ? _colNaProfundidade(S.colorCol,L1) : S.colorCol;
+  const colR = S.depthByName ? _colNaProfundidade(S.colorCol,R1) : S.colorCol;
   const fmtDepth=(d)=>/cm$/i.test(d)?d:d+'cm';
   document.getElementById('ctag-left').textContent  = fmtDepth(L1);
   document.getElementById('ctag-right').textContent = fmtDepth(R1);
@@ -4948,10 +4959,12 @@ function renderCompare(){
   document.getElementById('leg-ticks').innerHTML=ticks.map(t=>`<span>${t}</span>`).join('');
   const _hc=document.getElementById('hist-chart'); if(_hc) _hc.innerHTML='<div style="font-size:10px;color:var(--muted);padding:4px;">Comparação ativa — cada mapa usa sua própria escala de cores.</div>';
   // per-map floating legends, each with its OWN range
-  const legHTML = (depth,lo,hi,col)=>`<div class="ml-title">${depth} · ${col||S.colorCol}</div><div class="ml-bar" style="background:${gradient}"></div><div class="ml-ticks"><span>${lo.toFixed(2)}</span><span>${hi.toFixed(2)}</span></div>`;
+  const legHTML = (depth,lo,hi,col,hasData)=> hasData
+    ? `<div class="ml-title">${depth} · ${col||S.colorCol}</div><div class="ml-bar" style="background:${gradient}"></div><div class="ml-ticks"><span>${lo.toFixed(2)}</span><span>${hi.toFixed(2)}</span></div>`
+    : `<div class="ml-title">${depth}</div><div style="font-size:10px;color:var(--muted);padding:2px 0;">sem dados nesta profundidade</div>`;
   const _mlN=document.getElementById('mleg-left'), _mrN=document.getElementById('mleg-right');
-  _mlN.innerHTML  = legHTML(L1,mnL,mxL,colL); _mlN.style.display='';
-  _mrN.innerHTML = legHTML(R1,mnR,mxR,colR); _mrN.style.display='';
+  _mlN.innerHTML  = legHTML(L1,mnL,mxL,colL,valsL.length>0); _mlN.style.display='';
+  _mrN.innerHTML = legHTML(R1,mnR,mxR,colR,valsR.length>0); _mrN.style.display='';
   clearLabels();
   if(S.labelLayers2 && S.compare.map2){ S.labelLayers2.forEach(l=>{try{S.compare.map2.removeLayer(l);}catch(e){}}); } S.labelLayers2=[];
   _renderSide(S.map, 'layer', 'labelLayers', L1, mnL, mxL, colL);
