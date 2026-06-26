@@ -1511,14 +1511,23 @@ function renderMap(){
   if(!S.geoData) return;
   if(!S.colorCol){ renderZonasVazias(); return; }
   // Modelo B / depthByName: se o nutriente escolhido pertence a outra profundidade,
-  // tenta achar a coluna equivalente na profundidade ativa; se não existir, mapa vazio.
+  // tenta migrar para a coluna equivalente na profundidade ativa (não bloqueia).
+  // Se não existir equivalente, mantém o nutriente atual e ajusta a profundidade ativa pra do nutriente.
   let effectiveCol = S.colorCol;
   if(S.depthByName && S.activeDepth){
     const colDepth = _depthFromName(S.colorCol);
     if(colDepth && normDepth(colDepth)!==normDepth(S.activeDepth)){
       const alt = _colNaProfundidade(S.colorCol, S.activeDepth);
-      if(alt){ effectiveCol = alt; }
-      else { if(S.layer) S.map.removeLayer(S.layer); clearLabels(); renderZonasVazias(); return; }
+      if(alt){
+        effectiveCol = alt;
+        S.colorCol = alt;
+        const _sel=document.getElementById('sel-col');
+        if(_sel){ if(!Array.from(_sel.options).some(o=>o.value===alt)){ const o=document.createElement('option'); o.value=alt; o.textContent=alt; _sel.appendChild(o); } _sel.value=alt; }
+      } else {
+        // sem equivalente: segue a profundidade do nutriente escolhido
+        S.activeDepth = colDepth;
+        try{ renderDepthGrid(); }catch(e){}
+      }
     }
   }
   if(S.layer) S.map.removeLayer(S.layer);
@@ -1739,7 +1748,7 @@ function buildPalUI(){
 // ══ LISTENERS ══
 document.getElementById('sel-gjf').addEventListener('change',function(){S.joinGeo=this.value;joinData();renderMap();});
 document.getElementById('sel-csvf').addEventListener('change',function(){S.joinCsv=this.value;joinData();renderMap();});
-document.getElementById('sel-col').addEventListener('change',function(){S.colorCol=this.value;applyAutoPalette();buildPalUI();renderMap();});
+document.getElementById('sel-col').addEventListener('change',function(){S.colorCol=this.value; if(S.depthByName){ const d=_depthFromName(S.colorCol); if(d && normDepth(d)!==normDepth(S.activeDepth)){ S.activeDepth=d; try{ renderDepthGrid(); }catch(e){} } } applyAutoPalette();buildPalUI();renderMap();});
 document.getElementById('sl-opa').addEventListener('input',function(){S.opacity=this.value/100;document.getElementById('cv-opa').textContent=this.value+'%';renderMap();});
 document.getElementById('sl-lbl').addEventListener('input',function(){S.labelScale=this.value/100;document.getElementById('cv-lbl').textContent=this.value+'%';if(S.compare && S.compare.on){renderCompare();return;}if(S.showLabels){clearLabels();drawLabels();}multiRefreshExtraLabels();});
 document.getElementById('invert-row').addEventListener('click',function(){S.invert=!S.invert;S.userTouchedPal=true;document.getElementById('invert-toggle').classList.toggle('on',S.invert);buildPalUI();renderMap();});
