@@ -2893,8 +2893,15 @@ async function _geotiffToPng(url){
   try{
     const _parse=(typeof parseGeoraster!=='undefined')?parseGeoraster:(window.parseGeoraster||window.parseGeoRaster);
     if(!_parse) return '';
-    const buf=await (await fetch(url)).arrayBuffer();
-    const gr=await _parse(buf);
+    const buf=await Promise.race([
+      (await fetch(url)).arrayBuffer(),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout fetch')),12000))
+    ]);
+    let gr=await Promise.race([
+      _parse(buf),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout parse')),12000))
+    ]);
+    if(!gr || !gr.values || !gr.width || !gr.height) return '';
     const w=gr.width, h=gr.height; if(!w||!h) return '';
     const maxDim=1100, scale=Math.min(1, maxDim/Math.max(w,h));
     const cw=Math.max(1,Math.round(w*scale)), ch=Math.max(1,Math.round(h*scale));
@@ -3038,7 +3045,10 @@ async function generateModeloB(idealMap){
     const _relNomes={evi:'Biomassa', ndmi:'Umidade na Planta', textura:'Textura do Solo'};
     let zonasItens=['evi','ndmi','textura'].map(k=>({key:k, nome:_relNomes[k], url:zonasUrls[k]||''})).filter(z=>z.url);
     // converte cada GeoTIFF colorido em PNG (fora do talhão fica transparente)
-    for(const z of zonasItens){ z.img = await _geotiffToPng(z.url); }
+    for(const z of zonasItens){
+      try{ z.img = await _geotiffToPng(z.url); }
+      catch(e){ console.warn('[rasters pagina] conversao falhou para', z.key, e); z.img=''; }
+    }
     zonasItens = zonasItens.filter(z=>z.img);
     if(zonasItens.length){
       const marg=24, gap=14, headerH=54, topY=18+headerH+12, titleH=58, mapTop=topY+titleH+8;
