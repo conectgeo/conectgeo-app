@@ -3016,6 +3016,18 @@ async function _geotiffToPng(url){
       }
     }catch(e){ console.warn('contorno perímetro:', e); }
 
+    // recorta o canvas ao bounding-box do conteúdo (remove o "vazio" ao redor
+    // do polígono dentro do GeoTIFF) — sem isso a imagem fica pequena no PDF.
+    if(cx1>=cx0 && cy1>=cy0){
+      const pad=Math.max(2, Math.round(Math.min(cw,ch)*0.01));
+      const sx=Math.max(0,cx0-pad), sy=Math.max(0,cy0-pad);
+      const sw=Math.min(cw-sx, (cx1-cx0+1)+pad*2), sh=Math.min(ch-sy, (cy1-cy0+1)+pad*2);
+      if(sw>0 && sh>0 && (sw<cw || sh<ch)){
+        const cv2=document.createElement('canvas'); cv2.width=sw; cv2.height=sh;
+        cv2.getContext('2d').drawImage(cv, sx,sy,sw,sh, 0,0,sw,sh);
+        return cv2.toDataURL('image/png');
+      }
+    }
     return cv.toDataURL('image/png');
   }catch(e){ console.warn('geotiff→png falhou:', e); return ''; }
 }
