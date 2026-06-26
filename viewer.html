@@ -2965,7 +2965,7 @@ async function _geotiffToPng(url){
     }
     if(!gr || !gr.values || !gr.width || !gr.height) return '';
     const w=gr.width, h=gr.height; if(!w||!h) return '';
-    const maxDim=1100, scale=maxDim/Math.max(w,h);  // permite upscaling (scale > 1) para imagens pequenas
+    const maxDim=800, scale=maxDim/Math.max(w,h);  // permite upscaling mas com zoom menor que nutrientes
     const cw=Math.max(1,Math.round(w*scale)), ch=Math.max(1,Math.round(h*scale));
     const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
     const ctx=cv.getContext('2d'); const out=ctx.createImageData(cw,ch);
