@@ -986,6 +986,24 @@ function _depthFromName(col){ const m=String(col).match(/(\d{1,2})\s*-\s*(\d{1,2
 function _primeiraPalavra(col){ const s=String(col).normalize('NFD').replace(/[\u0300-\u036f]/g,''); const m=s.trim().match(/^([A-Za-z\.]+)/); return m?m[1].toLowerCase():s.trim().toLowerCase(); }
 function _colNaProfundidade(refCol, depth){ const w=_primeiraPalavra(refCol); const cands=(S.csvFields||[]).filter(f=>_depthFromName(f)===depth && _primeiraPalavra(f)===w); return cands.length?cands[0]:null; }
 function normDepth(v){ return String(v).trim().toLowerCase().replace(/\s+/g,'').replace('cm',''); }
+// Relatório B: força a leitura de profundidades pelos nomes das colunas (ex.: "Cálcio (00-20cm)")
+function _mbRecomputeDepthsFromNames(){
+  try{
+    if(!(S.modeloB && S.modeloB.on)) return false;
+    const fields=S.csvFields||[]; if(!fields.length) return false;
+    const ds=[]; fields.forEach(f=>{ const d=_depthFromName(f); if(d && !ds.includes(d)) ds.push(d); });
+    if(!ds.length) return false;
+    S.depthCol=null; S.depthByName=true; S.availDepths=ds; S.manualDepth=null;
+    if(!S.activeDepth || !ds.some(d=>normDepth(d)===normDepth(S.activeDepth))){
+      S.activeDepth = ds.find(d=>normDepth(d)==='00-20') || ds[0];
+    }
+    const mn=document.getElementById('manual-depth'); if(mn) mn.style.display='none';
+    const dn=document.getElementById('depth-note'); if(dn) dn.textContent='Profundidade lida pelo nome das colunas.';
+    const sd=document.getElementById('sec-depth'); if(sd) sd.style.display='';
+    try{ renderDepthGrid(); }catch(e){}
+    return true;
+  }catch(e){ return false; }
+}
 
 // ══ ENCODING-SAFE CSV PARSE ══
 function decodeBuffer(buf){
@@ -1314,6 +1332,8 @@ function applyCsvData(rows, fields, fileName){
       document.getElementById('depth-note').textContent=t('depthNone');
     }
   }
+  // Relatório B: sempre derivar profundidades a partir dos nomes das colunas
+  if(S.modeloB && S.modeloB.on){ _mbRecomputeDepthsFromNames(); }
   document.getElementById('sec-depth').style.display='';
   renderDepthGrid();
   S.joinCsv = _pickZoneField(fields)||fields[0];
@@ -4689,7 +4709,7 @@ async function loadFromToken(token, params){
       // Relatório B: a planilha combinada traz a recomendação → revela a aba Recomendação
       try{ if(S.modeloB.on && S.linkData && S.linkData.planilha_url){ const _mrec=document.getElementById('mode-recomendacao'); if(_mrec) _mrec.style.display=''; const ms=document.getElementById('mode-switch'); if(ms) ms.style.display='flex'; } }catch(e){}
       // Relatório B: re-popula o seletor de nutrientes (já sem as colunas de insumo)
-      try{ if(S.modeloB.on && (S.csvData||[]).length && typeof applyActiveDepth==='function') applyActiveDepth(); }catch(e){}
+      try{ if(S.modeloB.on && (S.csvData||[]).length){ _mbRecomputeDepthsFromNames(); if(typeof applyActiveDepth==='function') applyActiveDepth(); } }catch(e){}
     }).catch(()=>{});
 
     // pré-preenche os campos do PDF com os dados do banco
