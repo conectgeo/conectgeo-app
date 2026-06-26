@@ -2181,6 +2181,18 @@ function _coletaRasterColorFn(noData,nBands){
 }
 
 async function _parseColetaGeoraster(buf,label){
+  // Coleta de Solo: alguns TIFFs coloridos vêm sem GeoKeyDirectory/CRS.
+  // O georaster quebra antes de retornar o objeto (projection undefined), então
+  // para coleta fazemos primeiro a leitura direta do TIFF e encaixamos o PNG pela
+  // extensão das zonas/pontos. Se a lib GeoTIFF não estiver disponível, cai no fluxo antigo.
+  try{
+    const gr=await _parseColetaTiffRaw(buf);
+    gr._coletaProjectionFallback=true;
+    gr._coletaRawTiff=true;
+    return gr;
+  }catch(rawErr){
+    console.warn('[coleta][raster] leitor TIFF direto falhou; tentando georaster:', label||'', rawErr);
+  }
   const _parse = (typeof parseGeoraster!=='undefined')?parseGeoraster:(typeof parseGeoRaster!=='undefined'?parseGeoRaster:(window.parseGeoraster||window.parseGeoRaster));
   if(!_parse) throw new Error('Biblioteca de raster (georaster) não carregou');
   const a = (buf && buf.slice) ? buf.slice(0) : buf;
