@@ -999,6 +999,9 @@ async function onShpFiles(inp){
         geoJson=gj; geoFile=f;
         const ha=geodesicAreaHa(gj);
         coletaFiles.cz=f; // o mesmo shapefile de zonas serve para o mapa de coleta
+        // se o MESMO arquivo também traz pontos, aproveita-os para a coleta
+        const _pts=gj.features.filter(ft=>ft.geometry&&(ft.geometry.type==='Point'||ft.geometry.type==='MultiPoint'));
+        if(_pts.length){ pontosJson={type:'FeatureCollection',features:_pts}; coletaFiles.cp=f; }
       }else if(ehPonto){
         pontosJson=gj; coletaFiles.cp=f;
       }else{
@@ -1149,7 +1152,7 @@ async function salvarTalhao(){
 
     // 5b. MAPA DE COLETA DE SOLO — zonas (cz) sempre vêm do shapefile de zonas;
     // pontos (cp) e raster (cr) são opcionais. Marca tem_coleta_solo se houver raster ou pontos.
-    const temColeta = !!(coletaFiles.cr || coletaFiles.cp);
+    const temColeta = !!(coletaFiles.cr || coletaFiles.cp || pontosJson);
     if(temColeta){
       btn.textContent='Enviando mapa de coleta…';
       const up=async(file,nome)=>{
@@ -1159,7 +1162,10 @@ async function salvarTalhao(){
       };
       const updates={ tem_coleta_solo:true };
       // (a geometria de zonas da coleta já foi gravada como cópia independente acima)
-      if(coletaFiles.cp){
+      if(pontosJson){
+        const _pb=new Blob([JSON.stringify(pontosJson)],{type:'application/json'});
+        updates.coleta_pontos_url=await up(_pb, 'coleta_pontos.geojson');
+      } else if(coletaFiles.cp){
         const cpExt=coletaFiles.cp.name.split('.').pop().toLowerCase();
         updates.coleta_pontos_url=await up(coletaFiles.cp, `coleta_pontos.${cpExt}`);
       }
@@ -1428,7 +1434,7 @@ function emClose(){ document.getElementById('edit-modal').classList.remove('open
 let ARQ_URLS={};
 async function excluirArquivo(tipo, talhaoId){
   const url=ARQ_URLS[talhaoId+'_'+tipo]||'';
-  const nomes={gj:'as zonas de nutrientes',cz:'as zonas de coleta',cp:'os pontos de coleta',cr:'o raster',pl:'a planilha de nutrientes',rec:'a planilha de recomendação'};
+  const nomes={gj:'as zonas de nutrientes',cz:'as zonas de coleta',rz:'as zonas de recomendação',cp:'os pontos de coleta',cr:'o raster',pl:'a planilha de nutrientes',rec:'a planilha de recomendação'};
   confirmarExclusao('Excluir arquivo', 'Tem certeza que quer excluir <b>'+(nomes[tipo]||'este arquivo')+'</b>? Esta ação não pode ser desfeita.', async()=>{
     try{
       if(url){ const p=(url.split('/object/public/arquivos/')[1]||'').split('?')[0]; if(p){ try{ await sb.storage.from('arquivos').remove([decodeURIComponent(p)]); }catch(e){} } }
@@ -1436,7 +1442,7 @@ async function excluirArquivo(tipo, talhaoId){
         const { error } = await sb.from('analises').delete().eq('talhao_id',talhaoId);
         if(error) throw error;
       } else {
-        const col={gj:'zonas_geojson_url',cz:'coleta_zonas_url',cp:'coleta_pontos_url',cr:'coleta_raster_url',rec:'recomendacao_url'}[tipo];
+        const col={gj:'zonas_geojson_url',cz:'coleta_zonas_url',rz:'recomendacao_zonas_url',cp:'coleta_pontos_url',cr:'coleta_raster_url',rec:'recomendacao_url'}[tipo];
         const upd={}; upd[col]=null;
         const { error } = await sb.from('talhoes').update(upd).eq('id',talhaoId);
         if(error) throw error;
@@ -1449,7 +1455,7 @@ async function excluirArquivo(tipo, talhaoId){
 }
 async function renderEdicao(){
   ARQ_URLS={};
-  const { data:c } = await sb.from('clientes').select('id,nome,email,municipio,pais,fazendas(id,nome,municipio,estado,talhoes(id,nome,hectares,coleta_zonas_url,coleta_pontos_url,coleta_raster_url,zonas_geojson_url,recomendacao_url,analises(id,planilha_url)))').eq('id',EDIT_CLI).single();
+  const { data:c } = await sb.from('clientes').select('id,nome,email,municipio,pais,fazendas(id,nome,municipio,estado,talhoes(id,nome,hectares,coleta_zonas_url,coleta_pontos_url,coleta_raster_url,zonas_geojson_url,recomendacao_url,recomendacao_zonas_url,analises(id,planilha_url)))').eq('id',EDIT_CLI).single();
   if(!c){ document.getElementById('em-body').innerHTML='<div style="padding:24px">Cliente não encontrado.</div>'; return; }
   document.getElementById('em-title').textContent='Editar — '+c.nome;
   const fazendas=(c.fazendas||[]).slice().sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
@@ -1481,6 +1487,7 @@ async function renderEdicao(){
       const arqs=[];
       if(t.zonas_geojson_url){ arqs.push(['gj','Zonas (nutrientes)']); ARQ_URLS[t.id+'_gj']=t.zonas_geojson_url; }
       if(t.coleta_zonas_url){ arqs.push(['cz','Zonas (coleta)']); ARQ_URLS[t.id+'_cz']=t.coleta_zonas_url; }
+      if(t.recomendacao_zonas_url){ arqs.push(['rz','Zonas (recomendação)']); ARQ_URLS[t.id+'_rz']=t.recomendacao_zonas_url; }
       if(t.coleta_pontos_url){ arqs.push(['cp','Pontos (coleta)']); ARQ_URLS[t.id+'_cp']=t.coleta_pontos_url; }
       if(t.coleta_raster_url){ arqs.push(['cr','Raster']); ARQ_URLS[t.id+'_cr']=t.coleta_raster_url; }
       const planilha=(t.analises||[]).find(a=>a.planilha_url);

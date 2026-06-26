@@ -3423,6 +3423,38 @@ function setMapMode(mode){
   if(S.extras && S.extras.length){ multiApplyMode(mode); setTimeout(()=>{ try{ multiFitAll(); }catch(e){} }, 120); }
 }
 
+// carrega o raster da coleta por último (pode ser pesado): não trava a exibição das zonas/pontos
+async function _carregarColetaRaster(){
+  if(!S.coleta || !S.coleta.raster) return;
+  const buf=await fetchBufColeta(S.coleta.raster);
+  const _parse = (typeof parseGeoraster!=='undefined')?parseGeoraster:(typeof parseGeoRaster!=='undefined'?parseGeoRaster:(window.parseGeoraster||window.parseGeoRaster));
+  if(!_parse) throw new Error('Biblioteca de raster (georaster) não carregou');
+  const georaster=await _parse(buf);
+  const _Layer = (typeof GeoRasterLayer!=='undefined')?GeoRasterLayer:window.GeoRasterLayer;
+  const noData = georaster.noDataValue;
+  const nBands = georaster.numberOfRasters || (georaster.values?georaster.values.length:1);
+  S.coletaLayers.raster=new _Layer({
+    georaster, opacity:1, resolution:256,
+    pixelValuesToColorFn: (vals)=>{
+      if(vals==null) return null;
+      let r,g,b,a=255;
+      if(nBands>=3){ r=vals[0]; g=vals[1]; b=vals[2]; if(nBands>=4 && vals[3]!=null) a=vals[3]; }
+      else { r=g=b=vals[0]; }
+      if(r==null||g==null||b==null) return null;
+      if(noData!=null && (vals[0]===noData)) return null;
+      if(r===0 && g===0 && b===0) return null;
+      if(a===0) return null;
+      return 'rgba('+r+','+g+','+b+','+(a/255)+')';
+    }
+  });
+  // só adiciona se ainda estamos no mapa de coleta; mantém zonas/pontos por cima
+  if(S.mapMode==='coleta'){
+    S.coletaLayers.raster.addTo(S.map);
+    if(S.coletaLayers.zonas) S.coletaLayers.zonas.bringToFront();
+    if(S.coletaLayers.pontos) S.coletaLayers.pontos.bringToFront();
+  }
+}
+
 async function carregarColeta(){
   if(!S.coleta) return;
   if(S.coletaLoaded){
@@ -3435,34 +3467,7 @@ async function carregarColeta(){
   try{
     document.getElementById('loader-screen').classList.add('show');
     document.getElementById('ls-text').textContent='Carregando mapa de coleta…';
-    if(S.coleta.raster){
-      const buf=await fetchBufColeta(S.coleta.raster);
-      const _parse = (typeof parseGeoraster!=='undefined')?parseGeoraster:(typeof parseGeoRaster!=='undefined'?parseGeoRaster:(window.parseGeoraster||window.parseGeoRaster));
-      if(!_parse) throw new Error('Biblioteca de raster (georaster) não carregou — verifique a internet');
-      const georaster=await _parse(buf);
-      const _Layer = (typeof GeoRasterLayer!=='undefined')?GeoRasterLayer:window.GeoRasterLayer;
-      const noData = georaster.noDataValue;
-      const nBands = georaster.numberOfRasters || (georaster.values?georaster.values.length:1);
-      S.coletaLayers.raster=new _Layer({
-        georaster, opacity:1, resolution:256,
-        // pinta cada pixel com a cor RGB original; torna transparente o fundo (nodata, preto puro ou branco puro)
-        pixelValuesToColorFn: (vals)=>{
-          // valores ausentes → transparente
-          if(vals==null) return null;
-          let r,g,b,a=255;
-          if(nBands>=3){ r=vals[0]; g=vals[1]; b=vals[2]; if(nBands>=4 && vals[3]!=null) a=vals[3]; }
-          else { r=g=b=vals[0]; } // 1 banda (tons de cinza)
-          // pixel sem dado
-          if(r==null||g==null||b==null) return null;
-          if(noData!=null && (vals[0]===noData)) return null;
-          // fundo preto puro (0,0,0) que normalmente é a borda nodata do GeoTIFF → transparente
-          if(r===0 && g===0 && b===0) return null;
-          if(a===0) return null;
-          return 'rgba('+r+','+g+','+b+','+(a/255)+')';
-        }
-      });
-      S.coletaLayers.raster.addTo(S.map);
-    }
+    // (o raster da coleta é carregado por último, sem travar — ver fim desta função)
     let gjZonas=null;
     if(S.coleta.zonas){
       gjZonas=await _coletaParse(S.coleta.zonas);
@@ -3498,6 +3503,8 @@ async function carregarColeta(){
     S.coletaLoaded=true;
     ajustarVistaColeta();
     document.getElementById('loader-screen').classList.remove('show');
+    // raster por último: se for pesado/incompatível, o mapa de coleta (zonas/pontos) já está visível
+    if(S.coleta.raster){ _carregarColetaRaster().catch(e=>console.warn('raster da coleta falhou:',e)); }
   }catch(err){
     console.error('Erro coleta:',err);
     document.getElementById('ls-text').textContent='Erro no mapa de coleta';
