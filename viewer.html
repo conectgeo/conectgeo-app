@@ -1410,7 +1410,8 @@ function applyActiveDepth(){
   // Relatório B: o seletor de nutrientes vai só até o último Enxofre (insumos ficam na Recomendação)
   if(S.modeloB&&S.modeloB.on){ const li=_lastEnxofreIdx(S.csvFields); if(li>=0){ const ok=new Set(S.csvFields.slice(0,li+1)); numCols=numCols.filter(c=>ok.has(c)); } }
   // profundidade pelo nome: mostra só as colunas da profundidade ativa (ex.: só "(20-40cm)")
-  if(S.depthByName && S.activeDepth){ numCols=numCols.filter(c=>_depthFromName(c)===S.activeDepth); }
+  // No Relatório B, exibe nutrientes de TODAS as profundidades no mesmo seletor.
+  if(S.depthByName && S.activeDepth && !(S.modeloB&&S.modeloB.on)){ numCols=numCols.filter(c=>_depthFromName(c)===S.activeDepth); }
   const colSel=document.getElementById('sel-col');
   colSel.innerHTML=numCols.map(f=>`<option value="${f}">${f}</option>`).join('');
   colSel.value=numCols.includes(S.colorCol)?S.colorCol:(S.colorCol=numCols[0]||null);
