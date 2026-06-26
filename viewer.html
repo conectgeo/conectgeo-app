@@ -2240,9 +2240,26 @@ async function _loadRecGeo(){
     if(gu){ const gr=await fetch(gu); const gj=await gr.json(); if(gj && gj.features && gj.features.length){ const pol=gj.features.filter(_isPoly); S.rec.geo = pol.length ? {type:'FeatureCollection',features:pol} : gj; } }
   }catch(e){}
 }
+// Relatório B: a planilha de nutrientes também traz a recomendação.
+// Divisor = ÚLTIMA coluna de Enxofre/SO4. Nutrientes vão até ela; ZG + colunas após = recomendação.
+function _lastEnxofreIdx(fields){ let idx=-1; (fields||[]).forEach((f,i)=>{ if(/enxofre|so4/i.test(String(f))) idx=i; }); return idx; }
+function _deriveRecFromNutri(){
+  const fields=S.csvFields||[], rows=S.csvData||[];
+  if(!fields.length || !rows.length) return false;
+  const li=_lastEnxofreIdx(fields); if(li<0) return false;
+  const zoneF=S.joinCsv || _pickZoneField(fields) || fields[0];
+  const recCols=fields.slice(li+1).filter(c=>c!==S.depthCol && c!==zoneF);
+  if(!recCols.length) return false;
+  const recFields=[zoneF, ...recCols];
+  S.rec.fields=recFields;
+  S.rec.rows=rows.map(r=>{ const o={}; recFields.forEach(c=>{ o[c]=r[c]; }); return o; });
+  return true;
+}
 async function loadRecData(){
   await _loadRecGeo();
   if(S.rec.loaded) return;
+  // Relatório B: usa a PRÓPRIA planilha de nutrientes (ZG + colunas após o último Enxofre)
+  if(S.modeloB && S.modeloB.on && _deriveRecFromNutri()){ S.rec.loaded=true; return; }
   let url=S.rec.url || (S.linkData && S.linkData.recomendacao_url);
   if(!url && sb && S.tokenAtual){
     try{ const { data } = await sb.rpc('get_recomendacao_url',{p_token:S.tokenAtual}); if(data && data.recomendacao_url) url=data.recomendacao_url; }catch(e){}
@@ -2507,7 +2524,9 @@ const MB_LAYOUTS={
 
 // casa as colunas numéricas de nutriente com o dicionário (respeitando profundidade)
 function modeloBMatch(){
-  const cols=(S.csvFields||[]).filter(f=>f!==S.joinCsv && f!==S.depthCol && (S.csvData||[]).some(r=>typeof r[f]==='number'));
+  let cols=(S.csvFields||[]).filter(f=>f!==S.joinCsv && f!==S.depthCol && (S.csvData||[]).some(r=>typeof r[f]==='number'));
+  // Relatório B: os nutrientes vão só até a ÚLTIMA coluna de Enxofre; tudo após é recomendação
+  if(S.modeloB && S.modeloB.on){ const li=_lastEnxofreIdx(S.csvFields||[]); if(li>=0){ const ok=new Set((S.csvFields||[]).slice(0,li+1)); cols=cols.filter(c=>ok.has(c)); } }
   const temProf=!!(S.depthCol && (S.availDepths||[]).length>1);
   const has2040=(S.availDepths||[]).some(d=>normDepth(d)==='20-40');
   const out=[]; const used=new Set();
@@ -4424,6 +4443,8 @@ async function loadFromToken(token, params){
       const d=(typeof data==='string')?JSON.parse(data):data;
       if(d && !d.erro){ S.modeloB.on=!!d.usar_modelo_b; S.modeloB.niveis=(typeof d.niveis_ideais==='string'?JSON.parse(d.niveis_ideais):d.niveis_ideais)||{}; }
       try{ _aplicarVisibilidadeRel(); }catch(e){}
+      // Relatório B: a planilha combinada traz a recomendação → revela a aba Recomendação
+      try{ if(S.modeloB.on && S.linkData && S.linkData.planilha_url){ const _mrec=document.getElementById('mode-recomendacao'); if(_mrec) _mrec.style.display=''; const ms=document.getElementById('mode-switch'); if(ms) ms.style.display='flex'; } }catch(e){}
     }).catch(()=>{});
 
     // pré-preenche os campos do PDF com os dados do banco
