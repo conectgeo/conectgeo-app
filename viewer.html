@@ -2310,6 +2310,12 @@ function _makeColetaRasterLayer(gr,opts){
     lay._coletaRasterFallback=true;
     return lay;
   }
+  if(useFallback){
+    console.warn('[coleta][raster] TIFF sem CRS e sem limites válidos; camada ignorada para evitar GeoRasterLayer sem projeção.');
+    const empty=L.layerGroup();
+    empty._coletaRasterFallback=true;
+    return empty;
+  }
   if(_Layer) return new _Layer({georaster:gr, opacity:1, resolution:256, pixelValuesToColorFn:_coletaRasterColorFn(gr.noDataValue,nBands)});
   throw new Error('GeoTIFF sem projeção válida e sem limites do talhão para encaixe.');
 }
