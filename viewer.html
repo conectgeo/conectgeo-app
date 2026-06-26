@@ -2474,8 +2474,8 @@ const MB_DEFS=[
   {key:'s0020',     re:/enxofre|so4/i,             depth:'00-20', nome:'Enxofre SO4²',uni:'mg/dm³',   uid:'mg/dm³',    inv:false, l3:false, pair:5, slot:0},
   {key:'s2040',     re:/enxofre|so4/i,             depth:'20-40', nome:'Enxofre SO4²',uni:'mg/dm³',   uid:'mg/dm³',    inv:false, l3:false, pair:5, slot:1},
   {key:'calcio2040',re:/c[aá]lc/i,                 depth:'20-40', nome:'Cálcio',     uni:'cmol/dm³',  uid:'cmolc/dm³', inv:false, l3:true,  pair:6, slot:0},
-  {key:'satal2040', re:/satura.*alum/i,            depth:'20-40', nome:'Saturação de Alumínio', uni:'(m%)', uid:'%', inv:true, l3:true, pair:6, slot:2},
-  {key:'al2040',    re:/alum[ií]n/i,               depth:'20-40', nome:'Alumínio',   uni:'cmol/dm³',  uid:'cmolc/dm³', inv:true,  l3:true,  pair:6, slot:1},
+  {key:'satal2040', re:/satura.*alum|sat.*al|\bm\s*%/i, depth:'20-40', nome:'Saturação de Alumínio', uni:'(m%)', uid:'%', inv:true, l3:true, pair:6, slot:2},
+  {key:'al2040',    re:/alum[ií]n|^al[\s³²3(]|al\s*cmol/i, depth:'20-40', nome:'Alumínio',   uni:'cmol/dm³',  uid:'cmolc/dm³', inv:true,  l3:true,  pair:6, slot:1},
   {key:'cat2040',   re:/ca\s*%\s*t|sat.*c[aá]lcio/i,depth:'20-40',nome:'Ca%t',       uni:'',          uid:'%',         inv:false, l3:false, pair:7, slot:0},
 ];
 
@@ -2740,14 +2740,15 @@ async function generateModeloB(idealMap){
     const {jsPDF}=window.jspdf;
     const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
     const PW=297,PH=210,pageW=1123,pageH=794;
-    // MONTAGEM AUTOMÁTICA: páginas a partir das colunas detectadas no shape/planilha de nutrientes
+    // MONTAGEM AUTOMÁTICA: separa 00-20 e 20-40; o trio 20-40 (Ca/Al/satAl) forma página própria
     const byKey={}; matched.forEach(m=>{ byKey[m.def.key]=m; });
-    const ordered=matched.map(m=>m.def.key);            // já na ordem do dicionário (MB_DEFS)
     const trioKeys=['calcio2040','al2040','satal2040'];
-    const temTrio=trioKeys.every(k=>byKey[k]);          // só agrupa o trio 20-40 se as 3 colunas existirem
-    const pool=ordered.filter(k=>!(temTrio && trioKeys.includes(k)));
+    const temTrio=trioKeys.every(k=>byKey[k]);          // só agrupa o trio se as 3 colunas existirem
+    const keys00 = matched.filter(m=>m.def.depth==='00-20').map(m=>m.def.key);
+    const keys2040 = matched.filter(m=>m.def.depth==='20-40' && !(temTrio && trioKeys.includes(m.def.key))).map(m=>m.def.key);
     const autoPages=[];
-    for(let i=0;i<pool.length;i+=2){ autoPages.push({type:'pair', keys: pool.slice(i,i+2)}); }
+    for(let i=0;i<keys00.length;i+=2){ autoPages.push({type:'pair', keys: keys00.slice(i,i+2)}); }       // 00-20 em pares
+    for(let i=0;i<keys2040.length;i+=2){ autoPages.push({type:'pair', keys: keys2040.slice(i,i+2)}); }   // 20-40 restantes em pares
     if(temTrio) autoPages.push({type:'trio', keys: trioKeys, header:'Potencial Químico para o Crescimento de Raiz em Profundidade (20-40cm)'});
     let first=true;
     for(const pg of autoPages){
