@@ -956,6 +956,7 @@ const S = {
   csvData:null, csvFields:[],
   depthCol:null,            // detected depth column name in CSV (or null)
   availDepths:[],           // depth values present in CSV
+  depthByName:false,        // profundidade lida do nome das colunas (Relatório B combinado)
   manualDepth:null,         // user-entered depth when no column
   activeDepth:null,
   joinGeo:null, joinCsv:null, colorCol:null,
@@ -977,6 +978,8 @@ function detectDepthColumn(fields){
     return n.includes('profundidade')||n.includes('prof')||n==='camada'||n.includes('depth');
   }) || null;
 }
+// extrai a profundidade do NOME da coluna (ex.: "Cálcio (00-20cm)" → "00-20")
+function _depthFromName(col){ const m=String(col).match(/(\d{1,2})\s*-\s*(\d{1,2})\s*cm/i); if(m){ return m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0'); } return null; }
 function normDepth(v){ return String(v).trim().toLowerCase().replace(/\s+/g,'').replace('cm',''); }
 
 // ══ ENCODING-SAFE CSV PARSE ══
@@ -1286,14 +1289,24 @@ function applyCsvData(rows, fields, fileName){
   S.depthCol=detectDepthColumn(fields);
   S.availDepths=[];
   S.manualDepth=null;
+  S.depthByName=false;
   if(S.depthCol){
     const set=new Set(rows.map(r=>String(r[S.depthCol]).trim()).filter(v=>v));
     S.availDepths=[...set];
     document.getElementById('manual-depth').style.display='none';
     document.getElementById('depth-note').textContent=t('depthDetected',S.depthCol);
   }else{
-    document.getElementById('manual-depth').style.display='';
-    document.getElementById('depth-note').textContent=t('depthNone');
+    // profundidade pelo NOME das colunas? (ex.: "Cálcio (00-20cm)" / "(20-40cm)")
+    const ds=[]; fields.forEach(f=>{ const d=_depthFromName(f); if(d && !ds.includes(d)) ds.push(d); });
+    if(ds.length){
+      S.depthByName=true; S.availDepths=ds;
+      S.activeDepth = ds.includes('00-20') ? '00-20' : ds[0];
+      document.getElementById('manual-depth').style.display='none';
+      document.getElementById('depth-note').textContent='Profundidade lida pelo nome das colunas.';
+    }else{
+      document.getElementById('manual-depth').style.display='';
+      document.getElementById('depth-note').textContent=t('depthNone');
+    }
   }
   document.getElementById('sec-depth').style.display='';
   renderDepthGrid();
@@ -1321,19 +1334,22 @@ function renderDepthGrid(){
   DEPTH_LABELS.forEach(label=>{
     const cell=document.createElement('div');
     let isAvail=false, count=0;
-    if(S.depthCol){
+    if(S.depthByName){
+      isAvail = S.availDepths.includes(label);
+      count = isAvail ? (S.csvData?S.csvData.length:0) : 0;
+    }else if(S.depthCol){
       const matching=S.csvData.filter(r=>normDepth(r[S.depthCol])===normDepth(label));
       isAvail=matching.length>0; count=matching.length;
     }else if(S.manualDepth){
       isAvail = (normDepth(S.manualDepth)===normDepth(label));
       count = isAvail ? S.csvData.length : 0;
     }
-    cell.className='depth-cell'+(label===S.activeDepth?' active':'')+(isAvail?' avail':'')+(!isAvail&&S.depthCol?' disabled':'');
-    cell.innerHTML=`<div class="dlabel">${label}</div><div class="dstate">${isAvail?count+' zonas':(S.depthCol?'sem dados':'—')}</div>`;
-    if(isAvail || !S.depthCol){
+    cell.className='depth-cell'+(label===S.activeDepth?' active':'')+(isAvail?' avail':'')+(!isAvail&&(S.depthCol||S.depthByName)?' disabled':'');
+    cell.innerHTML=`<div class="dlabel">${label}</div><div class="dstate">${isAvail?count+' zonas':((S.depthCol||S.depthByName)?'sem dados':'—')}</div>`;
+    if(isAvail || (!S.depthCol && !S.depthByName)){
       cell.addEventListener('click',()=>{
-        if(S.depthCol && !isAvail){ toast(`Profundidade "${label}" não existe na planilha`,'wrn'); return; }
-        if(!S.depthCol){
+        if((S.depthCol||S.depthByName) && !isAvail){ toast(`Profundidade "${label}" não existe na planilha`,'wrn'); return; }
+        if(!S.depthCol && !S.depthByName){
           // no depth column: clicking a button assigns the whole file to that depth label
           S.manualDepth=label;
           document.getElementById('manual-depth-input').value=label;
@@ -1392,6 +1408,8 @@ function applyActiveDepth(){
   let numCols=S.csvFields.filter(f=>f!==S.joinCsv&&f!==S.depthCol&&rows.some(r=>typeof r[f]==='number'));
   // Relatório B: o seletor de nutrientes vai só até o último Enxofre (insumos ficam na Recomendação)
   if(S.modeloB&&S.modeloB.on){ const li=_lastEnxofreIdx(S.csvFields); if(li>=0){ const ok=new Set(S.csvFields.slice(0,li+1)); numCols=numCols.filter(c=>ok.has(c)); } }
+  // profundidade pelo nome: mostra só as colunas da profundidade ativa (ex.: só "(20-40cm)")
+  if(S.depthByName && S.activeDepth){ numCols=numCols.filter(c=>_depthFromName(c)===S.activeDepth); }
   const colSel=document.getElementById('sel-col');
   colSel.innerHTML=numCols.map(f=>`<option value="${f}">${f}</option>`).join('');
   colSel.value=numCols.includes(S.colorCol)?S.colorCol:(S.colorCol=numCols[0]||null);
@@ -2219,10 +2237,40 @@ function recFatorColuna(col){
 // área da zona em hectares (usa campo do shapefile se houver; senão calcula da geometria)
 function _ringAreaM2(ring){ const R=6378137,d=Math.PI/180; let a=0; for(let i=0;i<ring.length;i++){ const p1=ring[i],p2=ring[(i+1)%ring.length]; if(!p1||!p2) continue; a+=(p2[0]*d-p1[0]*d)*(2+Math.sin(p1[1]*d)+Math.sin(p2[1]*d)); } return Math.abs(a*R*R/2); }
 function _polyHa(geom){ if(!geom) return 0; let m2=0; const polys=geom.type==='Polygon'?[geom.coordinates]:(geom.type==='MultiPolygon'?geom.coordinates:[]); polys.forEach(poly=>(poly||[]).forEach((ring,ri)=>{ const a=_ringAreaM2(ring); m2+=ri===0?a:-a; })); return m2/10000; }
+// procura a coluna de área (ha) numa planilha e devolve o valor da zona pedida
+function _areaHaFromRows(fields, rows, zoneKeyRaw){
+  if(!fields || !rows || !rows.length) return NaN;
+  let col=null;
+  for(const c of fields){ const kn=String(c).toLowerCase().replace(/[^a-z0-9]/g,''); if(/^(areaha|areha|hectares?|ha|supha)$/.test(kn) || /hectare/.test(kn)){ col=c; break; } }
+  if(!col) return NaN;
+  const zoneF=_pickZoneField(fields)||fields[0];
+  for(const r of rows){ if(_zkey(r[zoneF])===_zkey(zoneKeyRaw)){ const v=recNum(r[col]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
+  return NaN;
+}
+// procura a área (ha) nos atributos das feições de um geojson, casando por zona
+function _areaHaFromGeo(features, zoneKeyRaw){
+  if(!features || !features.length) return NaN;
+  for(const f of features){ const p=f.properties||{}; const jg=S.joinGeo||_zoneField(p);
+    if(_zkey(p[jg])!==_zkey(zoneKeyRaw)) continue;
+    for(const k of Object.keys(p)){ const kn=String(k).toLowerCase().replace(/[^a-z0-9]/g,''); if(/^(areaha|areha|hectares?|ha|supha)$/.test(kn)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
+  }
+  return NaN;
+}
 function zoneHa(feature){
   const p=feature.properties||{};
-  for(const k of Object.keys(p)){ if(/^(area_?ha|hectares?|ha|sup_?ha)$/i.test(k)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
-  for(const k of Object.keys(p)){ if(/^(area|area_?m2|sup|superficie|shape_?area)$/i.test(k)){ const v=recNum(p[k]); if(!isNaN(v)&&v>1000) return v/10000; } }
+  const jg=S.joinGeo||_zoneField(p); const zk=p[jg];
+  // 0) área (ha) EXATA da planilha (coluna "Area (ha)"), casada por zona (ZG) — preferida
+  try{
+    let a=_areaHaFromRows(S.rec&&S.rec.fields, S.rec&&S.rec.rows, zk);
+    if(isNaN(a)) a=_areaHaFromRows(S.csvFields, S.csvData, zk);
+    if(!isNaN(a)) return a;
+  }catch(e){}
+  // 1) área (ha) EXATA dos atributos da própria feição (shapefile)
+  for(const k of Object.keys(p)){ const kn=String(k).toLowerCase().replace(/[^a-z0-9]/g,''); if(/^(areaha|areha|hectares?|ha|supha)$/.test(kn)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
+  // 1b) cruza com as zonas de nutrientes (mesmo shapefile original)
+  try{ const a=_areaHaFromGeo(S.geoData&&S.geoData.features, zk); if(!isNaN(a)) return a; }catch(e){}
+  // 2) área em m² → ha
+  for(const k of Object.keys(p)){ const kn=String(k).toLowerCase().replace(/[^a-z0-9]/g,''); if(/^(area|aream2|sup|superficie|shapearea)$/.test(kn)){ const v=recNum(p[k]); if(!isNaN(v)&&v>1000) return v/10000; } }
   return _polyHa(feature.geometry);
 }
 function popularInsumos(){
@@ -3463,8 +3511,12 @@ async function _carregarColetaRaster(){
       let r,g,b,a=255;
       if(nBands>=3){ r=vals[0]; g=vals[1]; b=vals[2]; if(nBands>=4 && vals[3]!=null) a=vals[3]; }
       else { r=g=b=vals[0]; }
-      if(r==null||g==null||b==null) return null;
+      if(r==null||g==null||b==null||isNaN(r)) return null;
       if(noData!=null && (vals[0]===noData)) return null;
+      // valores float 0-1 → escala 0-255
+      const mx=Math.max(r,g,b);
+      if(mx>0 && mx<=1){ r*=255; g*=255; b*=255; if(a<=1) a*=255; }
+      r=Math.max(0,Math.min(255,Math.round(r))); g=Math.max(0,Math.min(255,Math.round(g))); b=Math.max(0,Math.min(255,Math.round(b)));
       if(r===0 && g===0 && b===0) return null;
       if(a===0) return null;
       return 'rgba('+r+','+g+','+b+','+(a/255)+')';
@@ -3527,7 +3579,7 @@ async function carregarColeta(){
     ajustarVistaColeta();
     document.getElementById('loader-screen').classList.remove('show');
     // raster por último: se for pesado/incompatível, o mapa de coleta (zonas/pontos) já está visível
-    if(S.coleta.raster){ _carregarColetaRaster().catch(e=>console.warn('raster da coleta falhou:',e)); }
+    if(S.coleta.raster){ _carregarColetaRaster().catch(e=>{ console.warn('raster da coleta falhou:',e); try{ toast('Não consegui carregar a imagem (raster) da coleta: '+((e&&e.message)||e),'wrn'); }catch(_){} }); }
   }catch(err){
     console.error('Erro coleta:',err);
     document.getElementById('ls-text').textContent='Erro no mapa de coleta';
