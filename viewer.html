@@ -14,6 +14,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
 <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
 <script src="https://unpkg.com/georaster-layer-for-leaflet@4.1.2/dist/georaster-layer-for-leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
@@ -2255,16 +2256,30 @@ function _georasterToPngDataUrl(gr,maxDim){
   const bands=gr&&gr.values; if(!bands||!bands[0]) return '';
   const h=gr.height || bands[0].length, w=gr.width || (bands[0][0]&&bands[0][0].length);
   if(!w||!h) return '';
-  const scale=Math.min(1,(maxDim||1800)/Math.max(w,h));
-  const cw=Math.max(1,Math.round(w*scale)), ch=Math.max(1,Math.round(h*scale));
+  const nb=gr.numberOfRasters || bands.length || 1, nd=gr.noDataValue;
+  const visivel=(x,y)=>{
+    const row0=bands[0][y]; if(!row0) return false;
+    let r=row0[x]; if(r==null||isNaN(r)||(nd!=null&&r===nd)) return false;
+    let g=nb>1?(bands[1][y]&&bands[1][y][x]):r, b=nb>2?(bands[2][y]&&bands[2][y][x]):r, a=nb>3?(bands[3][y]&&bands[3][y][x]):255;
+    let rr=r,gg=g,bb=b; const mx=Math.max(rr,gg,bb); if(mx>0&&mx<=1){rr*=255;gg*=255;bb*=255;}
+    if(Math.round(rr)===0&&Math.round(gg)===0&&Math.round(bb)===0) return false;
+    if(a===0) return false;
+    return true;
+  };
+  // bbox do conteúdo colorido (ignora margens transparentes/nodata)
+  let x0=w,y0=h,x1=-1,y1=-1;
+  for(let y=0;y<h;y++){ for(let x=0;x<w;x++){ if(visivel(x,y)){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; } } }
+  if(x1<x0||y1<y0){ x0=0;y0=0;x1=w-1;y1=h-1; }
+  const wSrc=x1-x0+1, hSrc=y1-y0+1;
+  const scale=Math.min(1,(maxDim||1800)/Math.max(wSrc,hSrc));
+  const cw=Math.max(1,Math.round(wSrc*scale)), ch=Math.max(1,Math.round(hSrc*scale));
   const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
   const ctx=cv.getContext('2d'); const out=ctx.createImageData(cw,ch);
-  const nb=gr.numberOfRasters || bands.length || 1, nd=gr.noDataValue;
   for(let y=0;y<ch;y++){
-    const sy=Math.min(h-1,Math.floor(y/scale));
+    const sy=Math.min(hSrc-1,Math.floor(y/scale))+y0;
     const r0=bands[0][sy], r1=nb>1?bands[1][sy]:null, r2=nb>2?bands[2][sy]:null, r3=nb>3?bands[3][sy]:null;
     for(let x=0;x<cw;x++){
-      const sx=Math.min(w-1,Math.floor(x/scale)); const i=(y*cw+x)*4;
+      const sx=Math.min(wSrc-1,Math.floor(x/scale))+x0; const i=(y*cw+x)*4;
       let r=r0&&r0[sx], g=r1?r1[sx]:r, b=r2?r2[sx]:r, a=r3?r3[sx]:255;
       if(r==null||g==null||b==null||isNaN(r)||(nd!=null&&r===nd)){ out.data[i+3]=0; continue; }
       const mx=Math.max(r,g,b); if(mx>0&&mx<=1){ r*=255; g*=255; b*=255; if(a<=1) a*=255; }
