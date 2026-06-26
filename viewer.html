@@ -980,12 +980,13 @@ function detectDepthColumn(fields){
     return n.includes('profundidade')||n.includes('prof')||n==='camada'||n.includes('depth');
   }) || null;
 }
-// extrai a profundidade do NOME da coluna (ex.: "Cálcio (00-20cm)" → "00-20")
-function _depthFromName(col){ const m=String(col).match(/(\d{1,2})\s*-\s*(\d{1,2})\s*cm/i); if(m){ return m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0'); } return null; }
+// extrai a profundidade do NOME da coluna (ex.: "Cálcio (00-20cm)" ou "Cálcio (00-20)" → "00-20")
+function _depthFromName(col){ const m=String(col).match(/(\d{1,2})\s*-\s*(\d{1,2})(?:\s*cm)?/i); if(m){ return m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0'); } return null; }
 // nome do nutriente (1ª palavra, sem acento) p/ casar a mesma medida em profundidades diferentes
 function _primeiraPalavra(col){ const s=String(col).normalize('NFD').replace(/[\u0300-\u036f]/g,''); const m=s.trim().match(/^([A-Za-z\.]+)/); return m?m[1].toLowerCase():s.trim().toLowerCase(); }
-function _colNaProfundidade(refCol, depth){ const w=_primeiraPalavra(refCol); const cands=(S.csvFields||[]).filter(f=>_depthFromName(f)===depth && _primeiraPalavra(f)===w); return cands.length?cands[0]:null; }
 function normDepth(v){ return String(v).trim().toLowerCase().replace(/\s+/g,'').replace('cm',''); }
+function _sameDepth(a,b){ return !!a && !!b && normDepth(a)===normDepth(b); }
+function _colNaProfundidade(refCol, depth){ const w=_primeiraPalavra(refCol); const cands=(S.csvFields||[]).filter(f=>_sameDepth(_depthFromName(f), depth) && _primeiraPalavra(f)===w); return cands.length?cands[0]:null; }
 // Relatório B: força a leitura de profundidades pelos nomes das colunas (ex.: "Cálcio (00-20cm)")
 function _mbRecomputeDepthsFromNames(){
   try{
@@ -995,7 +996,7 @@ function _mbRecomputeDepthsFromNames(){
     if(!ds.length) return false;
     S.depthCol=null; S.depthByName=true; S.availDepths=ds; S.manualDepth=null;
     if(!S.activeDepth || !ds.some(d=>normDepth(d)===normDepth(S.activeDepth))){
-      S.activeDepth = ds.find(d=>normDepth(d)==='00-20') || ds[0];
+      S.activeDepth = DEPTH_LABELS.find(l=>ds.some(d=>normDepth(d)===normDepth(l)) && normDepth(l)==='00-20') || DEPTH_LABELS.find(l=>ds.some(d=>normDepth(d)===normDepth(l))) || ds[0];
     }
     const mn=document.getElementById('manual-depth'); if(mn) mn.style.display='none';
     const dn=document.getElementById('depth-note'); if(dn) dn.textContent='Profundidade lida pelo nome das colunas.';
@@ -1370,7 +1371,7 @@ function renderDepthGrid(){
       isAvail = (normDepth(S.manualDepth)===normDepth(label));
       count = isAvail ? S.csvData.length : 0;
     }
-    cell.className='depth-cell'+(label===S.activeDepth?' active':'')+(isAvail?' avail':'')+(!isAvail&&(S.depthCol||S.depthByName)?' disabled':'');
+    cell.className='depth-cell'+(_sameDepth(label,S.activeDepth)?' active':'')+(isAvail?' avail':'')+(!isAvail&&(S.depthCol||S.depthByName)?' disabled':'');
     cell.innerHTML=`<div class="dlabel">${label}</div><div class="dstate">${isAvail?count+' zonas':((S.depthCol||S.depthByName)?'sem dados':'—')}</div>`;
     if(isAvail || (!S.depthCol && !S.depthByName)){
       cell.addEventListener('click',()=>{
@@ -1435,7 +1436,7 @@ function applyActiveDepth(){
   // Relatório B: o seletor de nutrientes vai só até o último Enxofre (insumos ficam na Recomendação)
   if(S.modeloB&&S.modeloB.on){ const li=_lastEnxofreIdx(S.csvFields); if(li>=0){ const ok=new Set(S.csvFields.slice(0,li+1)); numCols=numCols.filter(c=>ok.has(c)); } }
   // profundidade pelo nome: mostra só as colunas da profundidade ativa (ex.: só "(20-40cm)")
-  if(S.depthByName && S.activeDepth){ numCols=numCols.filter(c=>_depthFromName(c)===S.activeDepth); }
+  if(S.depthByName && S.activeDepth){ numCols=numCols.filter(c=>_sameDepth(_depthFromName(c), S.activeDepth)); }
   const colSel=document.getElementById('sel-col');
   colSel.innerHTML=numCols.map(f=>`<option value="${f}">${f}</option>`).join('');
   // tenta preservar o mesmo nutriente trocando só de profundidade
@@ -1751,7 +1752,7 @@ function buildPalUI(){
 // ══ LISTENERS ══
 document.getElementById('sel-gjf').addEventListener('change',function(){S.joinGeo=this.value;joinData();renderMap();});
 document.getElementById('sel-csvf').addEventListener('change',function(){S.joinCsv=this.value;joinData();renderMap();});
-document.getElementById('sel-col').addEventListener('change',function(){S.colorCol=this.value; if(S.depthByName){ const d=_depthFromName(S.colorCol); if(d && normDepth(d)!==normDepth(S.activeDepth)){ S.activeDepth=d; try{ renderDepthGrid(); }catch(e){} } } applyAutoPalette();buildPalUI();renderMap();});
+document.getElementById('sel-col').addEventListener('change',function(){S.colorCol=this.value; if(S.depthByName){ const d=_depthFromName(S.colorCol); if(d && !_sameDepth(d,S.activeDepth)){ S.activeDepth=DEPTH_LABELS.find(l=>normDepth(l)===normDepth(d))||d; try{ renderDepthGrid(); }catch(e){} } } applyAutoPalette();buildPalUI();renderMap();});
 document.getElementById('sl-opa').addEventListener('input',function(){S.opacity=this.value/100;document.getElementById('cv-opa').textContent=this.value+'%';renderMap();});
 document.getElementById('sl-lbl').addEventListener('input',function(){S.labelScale=this.value/100;document.getElementById('cv-lbl').textContent=this.value+'%';if(S.compare && S.compare.on){renderCompare();return;}if(S.showLabels){clearLabels();drawLabels();}multiRefreshExtraLabels();});
 document.getElementById('invert-row').addEventListener('click',function(){S.invert=!S.invert;S.userTouchedPal=true;document.getElementById('invert-toggle').classList.toggle('on',S.invert);buildPalUI();renderMap();});
