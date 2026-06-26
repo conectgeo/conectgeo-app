@@ -12,6 +12,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
 <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
 <script src="https://unpkg.com/georaster-layer-for-leaflet@4.1.2/dist/georaster-layer-for-leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -2162,6 +2163,125 @@ async function fetchBufColeta(url){
   const r=await fetch(url); if(!r.ok) throw new Error('Falha ao baixar '+url); return await r.arrayBuffer();
 }
 
+function _coletaRasterColorFn(noData,nBands){
+  return (vals)=>{
+    if(vals==null) return null;
+    let r,g,b,a=255;
+    if(nBands>=3){ r=vals[0]; g=vals[1]; b=vals[2]; if(nBands>=4 && vals[3]!=null) a=vals[3]; }
+    else { r=g=b=vals[0]; }
+    if(r==null||g==null||b==null||isNaN(r)) return null;
+    if(noData!=null && vals[0]===noData) return null;
+    const mx=Math.max(r,g,b);
+    if(mx>0 && mx<=1){ r*=255; g*=255; b*=255; if(a<=1) a*=255; }
+    r=Math.max(0,Math.min(255,Math.round(r))); g=Math.max(0,Math.min(255,Math.round(g))); b=Math.max(0,Math.min(255,Math.round(b)));
+    if(r===0 && g===0 && b===0) return null;
+    if(a===0) return null;
+    return 'rgba('+r+','+g+','+b+','+(a/255)+')';
+  };
+}
+
+async function _parseColetaGeoraster(buf,label){
+  const _parse = (typeof parseGeoraster!=='undefined')?parseGeoraster:(typeof parseGeoRaster!=='undefined'?parseGeoRaster:(window.parseGeoraster||window.parseGeoRaster));
+  if(!_parse) throw new Error('Biblioteca de raster (georaster) não carregou');
+  const a = (buf && buf.slice) ? buf.slice(0) : buf;
+  const b = (buf && buf.slice) ? buf.slice(0) : buf;
+  try{ return await _parse(a); }
+  catch(e){
+    const msg=String((e&&e.message)||e||'');
+    if(/projection|metadata|undefined/i.test(msg)){
+      console.warn('[coleta][raster] GeoTIFF sem projeção/metadados; usando fallback visual:', label||'', e);
+      try{
+        const gr=await _parse(b,{projection:4326});
+        gr._coletaProjectionFallback=true;
+        return gr;
+      }catch(e2){
+        console.warn('[coleta][raster] fallback georaster também falhou; usando leitor TIFF puro:', label||'', e2);
+        const gr=await _parseColetaTiffRaw(buf);
+        gr._coletaProjectionFallback=true;
+        return gr;
+      }
+    }
+    throw e;
+  }
+}
+
+async function _parseColetaTiffRaw(buf){
+  const GT=(typeof GeoTIFF!=='undefined')?GeoTIFF:window.GeoTIFF;
+  if(!GT || !GT.fromArrayBuffer) throw new Error('Biblioteca GeoTIFF indisponível para fallback');
+  const tiff=await GT.fromArrayBuffer((buf&&buf.slice)?buf.slice(0):buf);
+  const img=await tiff.getImage();
+  const w=img.getWidth(), h=img.getHeight();
+  const ras=await img.readRasters({interleave:false});
+  const nb=ras.length||1, vals=[];
+  for(let b=0;b<nb;b++){
+    const src=ras[b], rows=new Array(h);
+    for(let y=0;y<h;y++) rows[y]=src.subarray ? src.subarray(y*w,(y+1)*w) : src.slice(y*w,(y+1)*w);
+    vals.push(rows);
+  }
+  let nd=null; try{ nd=img.getGDALNoData(); if(nd!=null) nd=Number(nd); }catch(e){}
+  return {values:vals,width:w,height:h,numberOfRasters:nb,noDataValue:(Number.isFinite(nd)?nd:null),projection:4326,xmin:0,xmax:w,ymin:0,ymax:h,pixelWidth:1,pixelHeight:1};
+}
+
+function _coletaFallbackBounds(preferBounds){
+  try{ if(preferBounds && preferBounds.isValid && preferBounds.isValid()) return preferBounds; }catch(e){}
+  try{ if(S.coletaLayers && S.coletaLayers.zonas){ const b=S.coletaLayers.zonas.getBounds(); if(b&&b.isValid()) return b; } }catch(e){}
+  try{ if(S.coletaLayers && S.coletaLayers.pontos){ const b=S.coletaLayers.pontos.getBounds(); if(b&&b.isValid()) return b; } }catch(e){}
+  try{ if(S.layer){ const b=S.layer.getBounds(); if(b&&b.isValid()) return b; } }catch(e){}
+  try{ if(S.geoData){ const b=L.geoJSON(S.geoData).getBounds(); if(b&&b.isValid()) return b; } }catch(e){}
+  return null;
+}
+
+function _georasterExtentLooksLatLng(gr){
+  const xs=[gr&&gr.xmin,gr&&gr.xmax,gr&&gr.ymin,gr&&gr.ymax];
+  if(!xs.every(v=>Number.isFinite(Number(v)))) return false;
+  return gr.xmin>=-180 && gr.xmax<=180 && gr.ymin>=-90 && gr.ymax<=90 && gr.xmax>gr.xmin && gr.ymax>gr.ymin;
+}
+
+function _georasterToPngDataUrl(gr,maxDim){
+  const bands=gr&&gr.values; if(!bands||!bands[0]) return '';
+  const h=gr.height || bands[0].length, w=gr.width || (bands[0][0]&&bands[0][0].length);
+  if(!w||!h) return '';
+  const scale=Math.min(1,(maxDim||1800)/Math.max(w,h));
+  const cw=Math.max(1,Math.round(w*scale)), ch=Math.max(1,Math.round(h*scale));
+  const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+  const ctx=cv.getContext('2d'); const out=ctx.createImageData(cw,ch);
+  const nb=gr.numberOfRasters || bands.length || 1, nd=gr.noDataValue;
+  for(let y=0;y<ch;y++){
+    const sy=Math.min(h-1,Math.floor(y/scale));
+    const r0=bands[0][sy], r1=nb>1?bands[1][sy]:null, r2=nb>2?bands[2][sy]:null, r3=nb>3?bands[3][sy]:null;
+    for(let x=0;x<cw;x++){
+      const sx=Math.min(w-1,Math.floor(x/scale)); const i=(y*cw+x)*4;
+      let r=r0&&r0[sx], g=r1?r1[sx]:r, b=r2?r2[sx]:r, a=r3?r3[sx]:255;
+      if(r==null||g==null||b==null||isNaN(r)||(nd!=null&&r===nd)){ out.data[i+3]=0; continue; }
+      const mx=Math.max(r,g,b); if(mx>0&&mx<=1){ r*=255; g*=255; b*=255; if(a<=1) a*=255; }
+      r=Math.max(0,Math.min(255,Math.round(r))); g=Math.max(0,Math.min(255,Math.round(g))); b=Math.max(0,Math.min(255,Math.round(b))); a=Math.max(0,Math.min(255,Math.round(a)));
+      if((r===0&&g===0&&b===0)||a===0){ out.data[i+3]=0; continue; }
+      out.data[i]=r; out.data[i+1]=g; out.data[i+2]=b; out.data[i+3]=a;
+    }
+  }
+  ctx.putImageData(out,0,0);
+  return cv.toDataURL('image/png');
+}
+
+function _makeColetaRasterLayer(gr,opts){
+  const _Layer=(typeof GeoRasterLayer!=='undefined')?GeoRasterLayer:window.GeoRasterLayer;
+  const nBands=gr.numberOfRasters || (gr.values?gr.values.length:1);
+  const useFallback = gr._coletaProjectionFallback || ((String(gr.projection)==='4326'||String(gr.projection).toUpperCase()==='EPSG:4326') && !_georasterExtentLooksLatLng(gr));
+  if(_Layer && !useFallback){
+    try{ return new _Layer({georaster:gr, opacity:1, resolution:256, pixelValuesToColorFn:_coletaRasterColorFn(gr.noDataValue,nBands)}); }
+    catch(e){ console.warn('[coleta][raster] GeoRasterLayer falhou; tentando overlay visual:',e); }
+  }
+  const b=_coletaFallbackBounds(opts&&opts.fitBounds);
+  const img=_georasterToPngDataUrl(gr,1800);
+  if(b && img){
+    const lay=L.imageOverlay(img,b,{opacity:1,interactive:false});
+    lay._coletaRasterFallback=true;
+    return lay;
+  }
+  if(_Layer) return new _Layer({georaster:gr, opacity:1, resolution:256, pixelValuesToColorFn:_coletaRasterColorFn(gr.noDataValue,nBands)});
+  throw new Error('GeoTIFF sem projeção válida e sem limites do talhão para encaixe.');
+}
+
 // estilo base das zonas no Mapa de Coleta: linha preta grossa, sem preenchimento
 function estiloZonaColeta(){ return { color:'#1a1a1a', weight:1.2, opacity:0.9, fillColor:'#1a1a1a', fillOpacity:0 }; }
 
@@ -3496,39 +3616,27 @@ function setMapMode(mode){
 
 // carrega o raster da coleta por último (pode ser pesado): não trava a exibição das zonas/pontos
 async function _carregarColetaRaster(){
-  if(!S.coleta || !S.coleta.raster) return;
+  if(!S.coleta || !S.coleta.raster){ console.warn('[coleta][raster] sem URL em S.coleta.raster'); return; }
+  console.log('[coleta][raster] carregando:', S.coleta.raster);
   const buf=await fetchBufColeta(S.coleta.raster);
-  const _parse = (typeof parseGeoraster!=='undefined')?parseGeoraster:(typeof parseGeoRaster!=='undefined'?parseGeoRaster:(window.parseGeoraster||window.parseGeoRaster));
-  if(!_parse) throw new Error('Biblioteca de raster (georaster) não carregou');
-  const georaster=await _parse(buf);
-  const _Layer = (typeof GeoRasterLayer!=='undefined')?GeoRasterLayer:window.GeoRasterLayer;
-  const noData = georaster.noDataValue;
+  console.log('[coleta][raster] bytes baixados:', buf && buf.byteLength);
+  const georaster=await _parseColetaGeoraster(buf,'principal');
   const nBands = georaster.numberOfRasters || (georaster.values?georaster.values.length:1);
-  S.coletaLayers.raster=new _Layer({
-    georaster, opacity:1, resolution:256,
-    pixelValuesToColorFn: (vals)=>{
-      if(vals==null) return null;
-      let r,g,b,a=255;
-      if(nBands>=3){ r=vals[0]; g=vals[1]; b=vals[2]; if(nBands>=4 && vals[3]!=null) a=vals[3]; }
-      else { r=g=b=vals[0]; }
-      if(r==null||g==null||b==null||isNaN(r)) return null;
-      if(noData!=null && (vals[0]===noData)) return null;
-      // valores float 0-1 → escala 0-255
-      const mx=Math.max(r,g,b);
-      if(mx>0 && mx<=1){ r*=255; g*=255; b*=255; if(a<=1) a*=255; }
-      r=Math.max(0,Math.min(255,Math.round(r))); g=Math.max(0,Math.min(255,Math.round(g))); b=Math.max(0,Math.min(255,Math.round(b)));
-      if(r===0 && g===0 && b===0) return null;
-      if(a===0) return null;
-      return 'rgba('+r+','+g+','+b+','+(a/255)+')';
-    }
-  });
-  // só adiciona se ainda estamos no mapa de coleta; mantém zonas/pontos por cima
-  if(S.mapMode==='coleta'){
+  console.log('[coleta][raster] parsed. bands=',nBands,'noData=',georaster.noDataValue,'w=',georaster.width,'h=',georaster.height,'proj=',georaster.projection,'fallback=',!!georaster._coletaProjectionFallback);
+  S.coletaLayers.raster=_makeColetaRasterLayer(georaster,{fitBounds:_coletaFallbackBounds()});
+  // respeita o estado do toggle "Mostrar imagem (raster)"
+  const rt=document.getElementById('clt-raster-toggle');
+  const rasterOn = !rt || rt.classList.contains('on');
+  if(S.mapMode==='coleta' && rasterOn){
     S.coletaLayers.raster.addTo(S.map);
     if(S.coletaLayers.zonas) S.coletaLayers.zonas.bringToFront();
     if(S.coletaLayers.pontos) S.coletaLayers.pontos.bringToFront();
+    console.log('[coleta][raster] camada adicionada ao mapa.');
+  } else {
+    console.log('[coleta][raster] não adicionada. mapMode=',S.mapMode,'toggleOn=',rasterOn);
   }
 }
+
 
 async function carregarColeta(){
   if(!S.coleta) return;
@@ -3688,15 +3796,23 @@ function multiRebuildExtrasPontos(){
 }
 
 // recarrega as camadas de coleta sem recarregar a página (mantém o usuário no Mapa de Coleta)
-async function recarregarColetaInPlace(){
+async function recarregarColetaInPlace(preferRasterUrl){
+  const keep = Object.assign({zonas:'',pontos:'',raster:''}, S.coleta||{});
   try{
     if(sb && S.tokenAtual){
       const { data } = await sb.rpc('get_link_data',{p_token:S.tokenAtual});
       if(data && !data.erro){
-        S.coleta = { zonas:data.coleta_zonas_url||'', pontos:data.coleta_pontos_url||'', raster:data.coleta_raster_url||'' };
+        // mantém a URL recém-enviada em memória caso o RPC ainda não tenha propagado
+        S.coleta = {
+          zonas: data.coleta_zonas_url || keep.zonas || '',
+          pontos: data.coleta_pontos_url || keep.pontos || '',
+          raster: preferRasterUrl || data.coleta_raster_url || keep.raster || ''
+        };
       }
     }
   }catch(e){ console.warn('Falha ao reler get_link_data:',e); }
+  if(preferRasterUrl){ S.coleta = Object.assign({}, S.coleta||keep, {raster:preferRasterUrl}); }
+  console.log('[coleta] recarregando camadas. raster=', S.coleta&&S.coleta.raster);
   Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
   S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l)); S.coletaZonaLabels=[];
   S.coletaLayers={raster:null,pontos:null,zonas:null};
@@ -3705,6 +3821,7 @@ async function recarregarColetaInPlace(){
   if(S.mapMode!=='coleta') setMapMode('coleta');
   else { await carregarColeta(); renderZonaLabels(); }
 }
+
 
 // liga os controles do painel de coleta (chamado uma vez no boot)
 function wireColetaControls(){
@@ -3764,15 +3881,19 @@ function wireColetaControls(){
     st.textContent='Enviando raster…';
     try{
       const path='coleta/'+S.tokenAtual+'/raster.tif';
-      const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
+      const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true, contentType:'image/tiff'});
       if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
       const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
-      await sb.rpc('atualizar_coleta', {p_token:S.tokenAtual,p_raster_url:url});
+      const rpc=await sb.rpc('atualizar_coleta', {p_token:S.tokenAtual,p_raster_url:url});
+      if(rpc && rpc.error) throw new Error('atualizar_coleta: '+rpc.error.message);
+      // garante a URL em memória mesmo que get_link_data ainda esteja com cache antigo
+      S.coleta = Object.assign({zonas:'',pontos:'',raster:''}, S.coleta||{}, {raster:url});
       st.textContent='✅ Salvo! Atualizando…';
-      await recarregarColetaInPlace();
+      await recarregarColetaInPlace(url);
       st.textContent='✅ Raster atualizado.';
-    }catch(err){ st.textContent='Erro: '+err.message; }
+    }catch(err){ console.error('[coleta][raster] falha no upload/save:',err); st.textContent='Erro: '+err.message; }
   });
+
   // uploads do consultor — nutrientes (zonas geojson + planilha)
   const elNutShp=document.getElementById('f-nut-shp');
   if(elNutShp) elNutShp.addEventListener('change', async()=>{
@@ -4115,15 +4236,11 @@ function _rasterColorFn(noData,nBands){
     if(r==null||g==null||b==null) return null; if(noData!=null && vals[0]===noData) return null;
     if(r===0&&g===0&&b===0) return null; if(a===0) return null; return 'rgba('+r+','+g+','+b+','+(a/255)+')'; };
 }
-async function _buildRaster(url){
+async function _buildRaster(url,fitBounds){
   try{
     const buf=await fetchBufColeta(url);
-    const _parse=(typeof parseGeoraster!=='undefined')?parseGeoraster:(typeof parseGeoRaster!=='undefined'?parseGeoRaster:(window.parseGeoraster||window.parseGeoRaster));
-    const _Layer=(typeof GeoRasterLayer!=='undefined')?GeoRasterLayer:window.GeoRasterLayer;
-    if(!_parse||!_Layer) return null;
-    const gr=await _parse(buf);
-    const nBands=gr.numberOfRasters||(gr.values?gr.values.length:1);
-    return new _Layer({georaster:gr,opacity:1,resolution:256,pixelValuesToColorFn:_rasterColorFn(gr.noDataValue,nBands)});
+    const gr=await _parseColetaGeoraster(buf,url);
+    return _makeColetaRasterLayer(gr,{fitBounds});
   }catch(e){ return null; }
 }
 function _pickZoneField(fields){
@@ -4197,7 +4314,6 @@ async function _buildColeta(data, geoPoly, geoPoints){
   const out={raster:null, zonas:null, pontos:null, zonasGeo:null, pontosGeo:null,
     rasterUrl:(data&&data.coleta_raster_url)||'', zonasUrl:(data&&data.coleta_zonas_url)||'', pontosUrl:(data&&data.coleta_pontos_url)||''};
   try{
-    if(data.coleta_raster_url) out.raster=await _buildRaster(data.coleta_raster_url);
     // lê o zip de zonas (pode conter polígonos E pontos)
     let gjAll=null;
     if(data.coleta_zonas_url){ try{ gjAll=await _coletaParse(data.coleta_zonas_url); }catch(e){} }
@@ -4212,6 +4328,8 @@ async function _buildColeta(data, geoPoly, geoPoints){
         layer.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
         layer.on('mouseout',function(){ this.setStyle(estiloZonaColeta()); });
       } }); }
+    let rb=null; try{ if(gjZonas) rb=L.geoJSON(gjZonas).getBounds(); }catch(e){}
+    if(data.coleta_raster_url) out.raster=await _buildRaster(data.coleta_raster_url,rb);
     // pontos: arquivo separado → pontos no zip de zonas → pontos embutidos no geojson
     let gjPts=null;
     if(data.coleta_pontos_url){ try{ const g=await _coletaParse(data.coleta_pontos_url); if((g.features||[]).some(isPt)) gjPts=g; }catch(e){} }
