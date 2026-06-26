@@ -1510,11 +1510,23 @@ function renderMap(){
   if(S.compare && S.compare.on){ renderCompare(); return; }
   if(!S.geoData) return;
   if(!S.colorCol){ renderZonasVazias(); return; }
+  // Modelo B / depthByName: se o nutriente escolhido pertence a outra profundidade,
+  // tenta achar a coluna equivalente na profundidade ativa; se não existir, mapa vazio.
+  let effectiveCol = S.colorCol;
+  if(S.depthByName && S.activeDepth){
+    const colDepth = _depthFromName(S.colorCol);
+    if(colDepth && normDepth(colDepth)!==normDepth(S.activeDepth)){
+      const alt = _colNaProfundidade(S.colorCol, S.activeDepth);
+      if(alt){ effectiveCol = alt; }
+      else { if(S.layer) S.map.removeLayer(S.layer); clearLabels(); renderZonasVazias(); return; }
+    }
+  }
   if(S.layer) S.map.removeLayer(S.layer);
   clearLabels();
   const vals=[];
-  S.geoData.features.forEach(f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[S.colorCol]):NaN;if(!isNaN(v))vals.push(v);});
-  if(!vals.length){toast('Nenhum valor numérico. Verifique os campos de junção.','wrn');return;}
+  S.geoData.features.forEach(f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[effectiveCol]):NaN;if(!isNaN(v))vals.push(v);});
+  if(!vals.length){ renderZonasVazias(); return; }
+
   const mn=Math.min(...vals),mx=Math.max(...vals);
   const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
   const sorted=[...vals].sort((a,b)=>a-b);const med=sorted[Math.floor(sorted.length/2)];
@@ -1528,7 +1540,7 @@ function renderMap(){
   let gmn=mn, gmx=mx;
   if(S.extras && S.extras.length){
     const allVals=vals.slice();
-    S.extras.forEach(ex=>{ _extraNutVals(ex, S.colorCol, S.activeDepth).forEach(v=>allVals.push(v)); });
+    S.extras.forEach(ex=>{ _extraNutVals(ex, effectiveCol, S.activeDepth).forEach(v=>allVals.push(v)); });
     if(allVals.length){ gmn=Math.min(...allVals); gmx=Math.max(...allVals); }
     S.nutScale={mn:gmn,mx:gmx};
   } else { S.nutScale=null; }
@@ -1541,12 +1553,13 @@ function renderMap(){
 
   const legendItems=[];
   S.layer=L.geoJSON(S.geoData,{
-    style:f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[S.colorCol]):NaN;return{fillColor:corDe(v),color:'#333',weight:S.pdfMode?0:1.2,stroke:!S.pdfMode,fillOpacity:S.opacity};},
+    style:f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[effectiveCol]):NaN;return{fillColor:corDe(v),color:'#333',weight:S.pdfMode?0:1.2,stroke:!S.pdfMode,fillOpacity:S.opacity};},
     onEachFeature:(f,layer)=>{
-      const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[S.colorCol]):NaN;
+      const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[effectiveCol]):NaN;
       legendItems.push({key,v,color:corDe(v)});
       const valStr=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
-      layer.bindTooltip(`<div class="tt-head">Zona ${key||'—'}</div><div class="tt-col">${S.colorCol}</div><div class="tt-val">${valStr}</div>`,{sticky:true,opacity:1,permanent:false});
+      layer.bindTooltip(`<div class="tt-head">Zona ${key||'—'}</div><div class="tt-col">${effectiveCol}</div><div class="tt-val">${valStr}</div>`,{sticky:true,opacity:1,permanent:false});
+
       layer.on('mouseover',function(e){this.setStyle({weight:2.5,color:'#fff'});this.bringToFront();this.openTooltip(e.latlng);});
       layer.on('mousemove',function(e){this.getTooltip()&&this.getTooltip().setLatLng(e.latlng);});
       layer.on('mouseout',function(){S.layer.resetStyle(this);this.closeTooltip();});
