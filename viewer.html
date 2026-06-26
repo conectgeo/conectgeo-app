@@ -2892,15 +2892,25 @@ function _perimeterSegments(geo){
 async function _geotiffToPng(url){
   try{
     const _parse=(typeof parseGeoraster!=='undefined')?parseGeoraster:(window.parseGeoraster||window.parseGeoRaster);
-    if(!_parse) return '';
     const buf=await Promise.race([
-      (await fetch(url)).arrayBuffer(),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout fetch')),12000))
+      fetch(url).then(r=>r.arrayBuffer()),
+      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout fetch')),30000))
     ]);
-    let gr=await Promise.race([
-      _parse(buf),
-      new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout parse')),12000))
-    ]);
+    let gr=null;
+    // 1) tenta georaster (rápido p/ TIFFs com CRS)
+    if(_parse){
+      try{
+        gr=await Promise.race([
+          _parse((buf&&buf.slice)?buf.slice(0):buf),
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout parse')),30000))
+        ]);
+      }catch(eGr){ console.warn('[modeloB][raster] georaster falhou, fallback TIFF puro:', eGr); gr=null; }
+    }
+    // 2) fallback: leitor TIFF direto (mesma lógica da Coleta) p/ TIFFs sem projeção
+    if(!gr || !gr.values || !gr.width || !gr.height){
+      try{ gr=await _parseColetaTiffRaw(buf); }
+      catch(eRaw){ console.warn('[modeloB][raster] leitor TIFF puro falhou:', eRaw); return ''; }
+    }
     if(!gr || !gr.values || !gr.width || !gr.height) return '';
     const w=gr.width, h=gr.height; if(!w||!h) return '';
     const maxDim=1100, scale=Math.min(1, maxDim/Math.max(w,h));
