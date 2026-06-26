@@ -1040,6 +1040,15 @@ function onColetaFile(inp, tipo){
 
 // área geodésica (hectares) — soma dos polígonos, descontando buracos
 function geodesicAreaHa(gj){
+  // 1) se as feições já trazem a área (ha) nos atributos, usa a SOMA (fiel ao shapefile original)
+  let soma=0, tem=false;
+  (gj.features||[]).forEach(f=>{ const p=f.properties||{};
+    for(const k of Object.keys(p)){ const kn=String(k).toLowerCase().replace(/[^a-z0-9]/g,'');
+      if(/^(areaha|areha|hectares?|ha|supha)$/.test(kn)){ const v=parseFloat(String(p[k]).replace(',','.')); if(!isNaN(v)&&v>0&&v<100000){ soma+=v; tem=true; break; } }
+    }
+  });
+  if(tem) return Math.round(soma*100)/100;
+  // 2) senão, calcula geodésico (esférico WGS84) e arredonda a 2 casas
   const R=6378137;
   function ringArea(c){let a=0;for(let i=0;i<c.length;i++){const p1=c[i],p2=c[(i+1)%c.length];a+=(p2[0]-p1[0])*Math.PI/180*(2+Math.sin(p1[1]*Math.PI/180)+Math.sin(p2[1]*Math.PI/180));}return a*R*R/2;}
   let total=0;
@@ -1048,7 +1057,7 @@ function geodesicAreaHa(gj){
     const polys=g.type==='Polygon'?[g.coordinates]:g.type==='MultiPolygon'?g.coordinates:[];
     polys.forEach(rings=>rings.forEach((r,i)=>{const ar=Math.abs(ringArea(r));total+=i===0?ar:-ar;}));
   });
-  return total/10000;
+  return Math.round(total/10000*100)/100;
 }
 
 function tokenGen(){ return (Math.random().toString(36).slice(2,8)+Math.random().toString(36).slice(2,4)); }

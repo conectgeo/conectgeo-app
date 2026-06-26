@@ -1389,7 +1389,9 @@ function applyActiveDepth(){
   cjSel.innerHTML=S.csvFields.map(f=>`<option value="${f}">${f}</option>`).join('');
   cjSel.value=S.csvFields.includes(S.joinCsv)?S.joinCsv:(S.joinCsv=S.csvFields[0]);
   // numeric color columns (exclude join + depth)
-  const numCols=S.csvFields.filter(f=>f!==S.joinCsv&&f!==S.depthCol&&rows.some(r=>typeof r[f]==='number'));
+  let numCols=S.csvFields.filter(f=>f!==S.joinCsv&&f!==S.depthCol&&rows.some(r=>typeof r[f]==='number'));
+  // Relatório B: o seletor de nutrientes vai só até o último Enxofre (insumos ficam na Recomendação)
+  if(S.modeloB&&S.modeloB.on){ const li=_lastEnxofreIdx(S.csvFields); if(li>=0){ const ok=new Set(S.csvFields.slice(0,li+1)); numCols=numCols.filter(c=>ok.has(c)); } }
   const colSel=document.getElementById('sel-col');
   colSel.innerHTML=numCols.map(f=>`<option value="${f}">${f}</option>`).join('');
   colSel.value=numCols.includes(S.colorCol)?S.colorCol:(S.colorCol=numCols[0]||null);
@@ -2763,12 +2765,14 @@ async function generateModeloB(idealMap){
     const byKey={}; matched.forEach(m=>{ byKey[m.def.key]=m; });
     const trioKeys=['calcio2040','al2040','satal2040'];
     const temTrio=trioKeys.every(k=>byKey[k]);          // só agrupa o trio se as 3 colunas existirem
-    const keys00 = matched.filter(m=>m.def.depth==='00-20').map(m=>m.def.key);
-    const keys2040 = matched.filter(m=>m.def.depth==='20-40' && !(temTrio && trioKeys.includes(m.def.key))).map(m=>m.def.key);
+    const enxKeys=['s0020','s2040'].filter(k=>byKey[k]); // Enxofres ficam juntos numa página própria
+    const keys00 = matched.filter(m=>m.def.depth==='00-20' && !enxKeys.includes(m.def.key)).map(m=>m.def.key);
+    const keys2040 = matched.filter(m=>m.def.depth==='20-40' && !(temTrio && trioKeys.includes(m.def.key)) && !enxKeys.includes(m.def.key)).map(m=>m.def.key);
     const autoPages=[];
     for(let i=0;i<keys00.length;i+=2){ autoPages.push({type:'pair', keys: keys00.slice(i,i+2)}); }       // 00-20 em pares
     for(let i=0;i<keys2040.length;i+=2){ autoPages.push({type:'pair', keys: keys2040.slice(i,i+2)}); }   // 20-40 restantes em pares
     if(temTrio) autoPages.push({type:'trio', keys: trioKeys, header:'Potencial Químico para o Crescimento de Raiz em Profundidade (20-40cm)'});
+    if(enxKeys.length) autoPages.push({type:'pair', keys: enxKeys}); // 1 ou 2 Enxofres lado a lado
     let first=true;
     for(const pg of autoPages){
       const itens=pg.keys.map(k=>byKey[k]).filter(Boolean);
@@ -2784,7 +2788,7 @@ async function generateModeloB(idealMap){
       let cellW, leftOf;
       if(trio){ cellW=(pageW-2*marg-(nCell-1)*gap)/nCell; leftOf=i=>marg+i*(cellW+gap); }
       else if(nCell===2){ cellW=(pageW-2*marg-gap)/2; leftOf=i=>marg+i*(cellW+gap); }
-      else { cellW=540; const ls=(pageW-cellW)/2; leftOf=()=>ls; }
+      else { cellW=(pageW-2*marg-gap)/2; leftOf=()=>marg; } // 1 item: meia largura, alinhado à esquerda (logo dentro)
       const slotW=Math.round(cellW*1.4), slotH=Math.round(cellH*1.4);
       const caps=[];
       for(let i=0;i<itens.length;i++){
@@ -4445,6 +4449,8 @@ async function loadFromToken(token, params){
       try{ _aplicarVisibilidadeRel(); }catch(e){}
       // Relatório B: a planilha combinada traz a recomendação → revela a aba Recomendação
       try{ if(S.modeloB.on && S.linkData && S.linkData.planilha_url){ const _mrec=document.getElementById('mode-recomendacao'); if(_mrec) _mrec.style.display=''; const ms=document.getElementById('mode-switch'); if(ms) ms.style.display='flex'; } }catch(e){}
+      // Relatório B: re-popula o seletor de nutrientes (já sem as colunas de insumo)
+      try{ if(S.modeloB.on && (S.csvData||[]).length && typeof applyActiveDepth==='function') applyActiveDepth(); }catch(e){}
     }).catch(()=>{});
 
     // pré-preenche os campos do PDF com os dados do banco
