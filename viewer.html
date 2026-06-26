@@ -1301,7 +1301,8 @@ function applyCsvData(rows, fields, fileName){
     const ds=[]; fields.forEach(f=>{ const d=_depthFromName(f); if(d && !ds.includes(d)) ds.push(d); });
     if(ds.length){
       S.depthByName=true; S.availDepths=ds;
-      S.activeDepth = ds.includes('00-20') ? '00-20' : ds[0];
+      const _pref = DEPTH_LABELS.find(l=>normDepth(l)==='00-20' && ds.some(d=>normDepth(d)===normDepth(l))) || DEPTH_LABELS.find(l=>ds.some(d=>normDepth(d)===normDepth(l))) || ds[0];
+      S.activeDepth = _pref;
       document.getElementById('manual-depth').style.display='none';
       document.getElementById('depth-note').textContent='Profundidade lida pelo nome das colunas.';
     }else{
@@ -1336,7 +1337,7 @@ function renderDepthGrid(){
     const cell=document.createElement('div');
     let isAvail=false, count=0;
     if(S.depthByName){
-      isAvail = S.availDepths.includes(label);
+      isAvail = S.availDepths.some(d=>normDepth(d)===normDepth(label));
       count = isAvail ? (S.csvData?S.csvData.length:0) : 0;
     }else if(S.depthCol){
       const matching=S.csvData.filter(r=>normDepth(r[S.depthCol])===normDepth(label));
