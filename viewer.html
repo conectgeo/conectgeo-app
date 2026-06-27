@@ -2984,14 +2984,11 @@ async function _geotiffToPng(url){
       }
     }
     nctx.putImageData(nout,0,0);
-    // 2) amplia com suavização (bilinear) para o tamanho final
+    // 2) amplia SEM interpolação (nearest-neighbor) — mantém o raster original como enviado
     const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
     const ctx=cv.getContext('2d');
-    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.imageSmoothingEnabled=false;
     ctx.drawImage(nat,0,0,cw,ch);
-    // a suavização (alfa premultiplicado) deixa pontas finas semitransparentes -> apareciam "brancas".
-    // Solidifica o alfa: qualquer pixel com alfa apreciável vira opaco (cor já está correta).
-    try{ const _id=ctx.getImageData(0,0,cw,ch), _d=_id.data; for(let i=3;i<_d.length;i+=4){ _d[i]=_d[i]>=24?255:0; } ctx.putImageData(_id,0,0); }catch(e){ console.warn('solidificar alfa:',e); }
     // bbox em coords de saída (para o contorno do perímetro) — inclui a largura CHEIA do último pixel
     const cx0=(bx1>=bx0)?Math.floor(bx0*scale):cw, cy0=(by1>=by0)?Math.floor(by0*scale):ch,
           cx1=(bx1>=bx0)?Math.ceil((bx1+1)*scale):-1, cy1=(by1>=by0)?Math.ceil((by1+1)*scale):-1;
@@ -3158,7 +3155,7 @@ async function generateModeloB(idealMap){
           +'<div style="width:180px;height:'+_tbH+'px;border:1px solid #444;border-radius:3px;font-size:14px;font-weight:600;line-height:1.2;display:flex;align-items:center;justify-content:center;text-align:center;padding:4px 6px;box-sizing:border-box;">'+z.nome+'</div>'
           +'</div>';
         html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;">'
-          +'<img src="'+z.img+'" style="max-width:76%;max-height:76%;width:auto;height:auto;object-fit:contain;display:block;">'
+          +'<img src="'+z.img+'" style="max-width:68%;max-height:68%;width:auto;height:auto;object-fit:contain;display:block;image-rendering:auto;">'
           +'<div style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:10px;">'
           +'<div style="font-weight:700;margin-bottom:3px;">'+(tituloLeg[z.key]||'')+'</div>'
           +(legend[z.key]||[]).map(L=>'<div style="display:flex;align-items:center;gap:6px;margin:1px 0;"><span style="display:inline-block;width:12px;height:10px;background:'+L[1]+';border:1px solid #333;"></span>'+L[0]+'</div>').join('')
