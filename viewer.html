@@ -2579,7 +2579,7 @@ function renderRecomendacao(){
   const palRev=[...PALS.rdylgn.c].reverse(); // dose alta = vermelho (independente do invert)
   const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const t=mx===mn?0:(d-mn)/(mx-mn); return lerpColor(palRev, Math.max(0,Math.min(1,t))); };
   S.rec.layer=L.geoJSON(recGeo(),{ filter:_isPoly,
-    style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+    style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:(S.pdfMode&&S.modeloB&&S.modeloB.on)?0:1.1,stroke:!(S.pdfMode&&S.modeloB&&S.modeloB.on),fillOpacity:(S.opacity||0.85)}; },
     onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo]??'').trim(); const d=doseDe(f); const ha=zoneHa(f);
       l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+col+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div><div style="font-size:10px;opacity:.85">'+ha.toFixed(2)+' ha</div>',{sticky:true,opacity:1});
       l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
@@ -2638,7 +2638,7 @@ function _renderRecSide(targetMap, insumoCol, scaleOverride){
   const palRev=[...PALS.rdylgn.c].reverse();
   const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const t=mx===mn?0:(d-mn)/(mx-mn); return lerpColor(palRev,Math.max(0,Math.min(1,t))); };
   const layer=L.geoJSON(recGeo(),{ filter:_isPoly,
-    style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+    style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:(S.pdfMode&&S.modeloB&&S.modeloB.on)?0:1.1,stroke:!(S.pdfMode&&S.modeloB&&S.modeloB.on),fillOpacity:(S.opacity||0.85)}; },
     onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo]??'').trim(); const d=doseDe(f);
       l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+insumoCol+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div>',{sticky:true,opacity:1});
       l.on('mouseover',function(){this.setStyle({weight:2.5,color:'#fff'});this.bringToFront();});
@@ -2657,7 +2657,7 @@ function _extraRecCmpLayer(ex, col, sc, targetMap){
   const jg=ex.joinGeo||_zoneField(ex.geo.features[0].properties);
   const doseDe=(f)=>{ const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[recCol]):NaN; return isNaN(d)?null:d*fator; };
   const layer=L.geoJSON(ex.geo,{ filter:_isPoly,
-    style:f=>({fillColor:corRec(doseDe(f)),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}),
+    style:f=>({fillColor:corRec(doseDe(f)),color:'#333',weight:(S.pdfMode&&S.modeloB&&S.modeloB.on)?0:1.1,stroke:!(S.pdfMode&&S.modeloB&&S.modeloB.on),fillOpacity:(S.opacity||0.85)}),
     onEachFeature:(f,l)=>{ const k=String(f.properties[jg]??'').trim(); const d=doseDe(f); l.bindTooltip('<div class="tt-head">'+(ex.nome||'Talhão')+' — Zona '+(k||'—')+'</div><div class="tt-col">'+recCol+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div>',{sticky:true,opacity:1}); }
   }).addTo(targetMap);
   if(S.rec.showLabels){
@@ -2965,25 +2965,33 @@ async function _geotiffToPng(url){
     }
     if(!gr || !gr.values || !gr.width || !gr.height) return '';
     const w=gr.width, h=gr.height; if(!w||!h) return '';
-    const maxDim=800, scale=maxDim/Math.max(w,h);  // permite upscaling mas com zoom menor que nutrientes
+    const maxDim=800, scale=maxDim/Math.max(w,h);  // amplia com suavização (zoom menor que nutrientes)
     const cw=Math.max(1,Math.round(w*scale)), ch=Math.max(1,Math.round(h*scale));
-    const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
-    const ctx=cv.getContext('2d'); const out=ctx.createImageData(cw,ch);
     const bands=gr.values, nb=gr.numberOfRasters||bands.length, nd=gr.noDataValue;
-    let cx0=cw, cy0=ch, cx1=-1, cy1=-1;  // bounding-box do conteúdo (pixels não transparentes)
-    for(let y=0;y<ch;y++){
-      const sy=Math.min(h-1,Math.floor(y/scale));
-      const r0=bands[0][sy], r1=nb>1?bands[1][sy]:null, r2=nb>2?bands[2][sy]:null, r3=nb>3?bands[3][sy]:null;
-      for(let x=0;x<cw;x++){
-        const sx=Math.min(w-1,Math.floor(x/scale)); const i=(y*cw+x)*4;
-        let r=r0[sx], g=r1?r1[sx]:r, b=r2?r2[sx]:r, a=255;
-        if(r3){ a=r3[sx]; }
+    // 1) renderiza em resolução NATIVA (1:1) — sem blocos/cortes
+    const nat=document.createElement('canvas'); nat.width=w; nat.height=h;
+    const nctx=nat.getContext('2d'); const nout=nctx.createImageData(w,h);
+    let bx0=w, by0=h, bx1=-1, by1=-1;  // bbox conteúdo (coords nativas)
+    for(let y=0;y<h;y++){
+      const r0=bands[0][y], r1=nb>1?bands[1][y]:null, r2=nb>2?bands[2][y]:null, r3=nb>3?bands[3][y]:null;
+      for(let x=0;x<w;x++){
+        const i=(y*w+x)*4;
+        let r=r0[x], g=r1?r1[x]:r, b=r2?r2[x]:r, a=255;
+        if(r3){ a=r3[x]; }
         if(r==null||isNaN(r)||(nd!=null&&r===nd)){ a=0; r=g=b=255; }
-        if(a!==0){ if(x<cx0)cx0=x; if(x>cx1)cx1=x; if(y<cy0)cy0=y; if(y>cy1)cy1=y; }
-        out.data[i]=r; out.data[i+1]=g; out.data[i+2]=b; out.data[i+3]=a;
+        if(a!==0){ if(x<bx0)bx0=x; if(x>bx1)bx1=x; if(y<by0)by0=y; if(y>by1)by1=y; }
+        nout.data[i]=r; nout.data[i+1]=g; nout.data[i+2]=b; nout.data[i+3]=a;
       }
     }
-    ctx.putImageData(out,0,0);
+    nctx.putImageData(nout,0,0);
+    // 2) amplia com suavização (bilinear) para o tamanho final
+    const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+    const ctx=cv.getContext('2d');
+    ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+    ctx.drawImage(nat,0,0,cw,ch);
+    // bbox em coords de saída (para o contorno do perímetro)
+    const cx0=(bx1>=bx0)?Math.round(bx0*scale):cw, cy0=(by1>=by0)?Math.round(by0*scale):ch,
+          cx1=(bx1>=bx0)?Math.round(bx1*scale):-1, cy1=(by1>=by0)?Math.round(by1*scale):-1;
 
     // contorno (perímetro) — usa o shapefile de perímetro enviado (.zip), por cima do raster
     try{
@@ -4669,7 +4677,7 @@ function multiRenderExtrasRec(){
     const jg=ex.joinGeo||_zoneField(ex.geo.features[0].properties);
     const doseDe=(f)=>{ const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[recCol]):NaN; return isNaN(d)?null:d*fator; };
     const layer=L.geoJSON(ex.geo,{ filter:_isPoly,
-      style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+      style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:(S.pdfMode&&S.modeloB&&S.modeloB.on)?0:1.1,stroke:!(S.pdfMode&&S.modeloB&&S.modeloB.on),fillOpacity:(S.opacity||0.85)}; },
       onEachFeature:(f,l)=>{ const k=String(f.properties[jg]??'').trim(); const d=doseDe(f);
         l.bindTooltip('<div class="tt-head">'+(ex.nome||'Talhão')+' — Zona '+(k||'—')+'</div><div class="tt-col">'+recCol+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div>',{sticky:true,opacity:1});
         l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
