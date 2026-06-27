@@ -783,7 +783,7 @@ async function carregarDashboard(){
   document.getElementById('st-talhoes').textContent  = (tal.data||[]).length;
 
   const ha = (tal.data||[]).reduce((s,t)=>s+(parseFloat(t.hectares)||0),0);
-  document.getElementById('st-hectares').textContent = ha>=1000 ? (ha/1000).toFixed(1).replace('.',',')+' mil' : Math.round(ha).toLocaleString('pt-BR');
+  document.getElementById('st-hectares').textContent = fmtHa(ha);
 
   // recentes
   const rec=(tal.data||[]).slice(0,3);
@@ -800,7 +800,7 @@ async function carregarDashboard(){
       </div>
       <div class="proj-body">
         <div class="proj-name">${t.fazenda?.nome||'—'} — ${t.nome}</div>
-        <div class="proj-meta">👤 ${t.fazenda?.cliente?.nome||'—'} · 📍 ${t.zonas||'?'} zonas${t.hectares?' · '+Math.round(t.hectares)+' ha':''}</div>
+        <div class="proj-meta">👤 ${t.fazenda?.cliente?.nome||'—'} · 📍 ${t.zonas||'?'} zonas${t.hectares?' · '+fmtHa(t.hectares)+' ha':''}</div>
       </div>
       <div class="proj-foot">
         <button class="ab ab-primary" onclick="abrirTalhao('${t.id}')">🗺 <span data-i18n="abrirMapa">Abrir mapa</span></button>
@@ -818,7 +818,7 @@ async function openSO(){
   document.getElementById('so').classList.add('open');
   const b=document.getElementById('so-busca'); if(b) b.value='';
   const { data } = await sb.from('clientes')
-    .select('id,nome,fazendas(id,nome,talhoes(id,nome))')
+    .select('id,nome,fazendas(id,nome,talhoes(id,nome,hectares))')
     .order('nome');
   SO_CLIENTES=data||[];
   renderSOClientes(SO_CLIENTES);
@@ -832,13 +832,16 @@ function renderSOClientes(list){
   document.getElementById('so-tal-title').textContent='Talhões';
   document.getElementById('so-tal-sub').textContent='Selecione uma fazenda';
   document.getElementById('so-talhoes').innerHTML='<div class="so-empty"><div class="ic">🗺</div>Selecione uma fazenda</div>';
-  document.getElementById('so-clientes').innerHTML = list.length ? list.map(c=>`
+  document.getElementById('so-clientes').innerHTML = list.length ? list.map(c=>{
+    const _nf=(c.fazendas||[]).length;
+    const _tha=(c.fazendas||[]).reduce((s,f)=>s+(f.talhoes||[]).reduce((a,t)=>a+(parseFloat(t.hectares)||0),0),0);
+    return `
     <div class="so-item">
       <div class="so-av" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')">${c.nome[0].toUpperCase()}</div>
-      <div style="flex:1;min-width:0" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')"><div class="so-nm">${c.nome}</div><div class="so-mt">${(c.fazendas||[]).length} fazenda${(c.fazendas||[]).length!==1?'s':''}</div></div>
+      <div style="flex:1;min-width:0" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')"><div class="so-nm">${c.nome}</div><div class="so-mt">${_nf} fazenda${_nf!==1?'s':''} · ${fmtHa(_tha)} ha</div></div>
       <button class="ab" onclick="event.stopPropagation();abrirEdicaoCliente('${c.id}')" title="Editar cliente" style="color:var(--leaf2)">✏️ Editar</button>
       <div class="so-badge" onclick="soSelCliente(this.parentNode,'${c.id}','${esc(c.nome)}')">→</div>
-    </div>`).join('')
+    </div>`;}).join('')
     : `<div class="so-empty"><div class="ic">👥</div>Nenhum resultado.<br><br><button class="btn pri" onclick="closeSO();showView('novo')">+ Criar Novo</button></div>`;
 }
 function buscarSO(q){
@@ -862,15 +865,18 @@ async function soSelCliente(el, id, nome){
   document.getElementById('so-faz-sub').textContent = 'Carregando…';
   // mobile: avança coluna
   if(innerWidth<=800){ soMob(2); }
-  const { data } = await sb.from('fazendas').select('id,nome,municipio,talhoes(id)').eq('cliente_id', id).order('nome');
+  const { data } = await sb.from('fazendas').select('id,nome,talhoes(id,hectares)').eq('cliente_id', id).order('nome');
   const list=data||[];
   document.getElementById('so-faz-sub').textContent = `${list.length} fazenda${list.length!==1?'s':''}`;
-  document.getElementById('so-fazendas').innerHTML = list.length ? list.map(f=>`
+  document.getElementById('so-fazendas').innerHTML = list.length ? list.map(f=>{
+    const _nt=(f.talhoes||[]).length;
+    const _tha=(f.talhoes||[]).reduce((a,t)=>a+(parseFloat(t.hectares)||0),0);
+    return `
     <div class="so-item">
       <div class="so-av" style="background:#f0ede8;color:#5c4d3c" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')">🏡</div>
-      <div style="flex:1;min-width:0" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')"><div class="so-nm">${f.nome}</div><div class="so-mt">${f.municipio||''} ${(f.talhoes||[]).length} talhõe${(f.talhoes||[]).length!==1?'s':'s'}</div></div>
-      <div class="so-badge" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')">${(f.talhoes||[]).length} →</div>
-    </div>`).join('')
+      <div style="flex:1;min-width:0" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')"><div class="so-nm">${f.nome}</div><div class="so-mt">${_nt} talh${_nt!==1?'ões':'ão'} · ${fmtHa(_tha)} ha</div></div>
+      <div class="so-badge" onclick="soSelFazenda(this.parentNode,'${f.id}','${esc(f.nome)}')">${_nt} →</div>
+    </div>`;}).join('')
     : `<div class="so-empty"><div class="ic">🏡</div>Sem fazendas</div>`;
   document.getElementById('so-talhoes').innerHTML='<div class="so-empty"><div class="ic">🗺</div>Selecione uma fazenda</div>';
 }
@@ -891,7 +897,7 @@ async function soSelFazenda(el, id, nome){
       <div class="tal-ic">🗺</div>
       <div style="min-width:0;flex:1">
         <div class="tal-nm">${t.nome}</div>
-        <div class="tal-mt">${t.zonas||'?'} zonas${t.hectares?' · '+Math.round(t.hectares)+' ha':''}${link?' · 🔗 link ativo':''}</div>
+        <div class="tal-mt">${t.zonas||'?'} zonas${t.hectares?' · '+fmtHa(t.hectares)+' ha':''}${link?' · 🔗 link ativo':''}</div>
       </div>
       <div class="tal-acts">
         <button class="ab" onclick="event.stopPropagation();gerarOuCopiarLink('${t.id}')" title="Copiar link">🔗</button>
@@ -1319,7 +1325,7 @@ async function mvPopularTalhoes(autoAbrir){
   box.innerHTML=MV_TALHOES.map(t=>`
     <label style="display:flex;align-items:center;gap:8px;padding:9px 10px;border-bottom:1px solid var(--sand);font-size:13px;cursor:pointer">
       <input type="checkbox" value="${t.id}" data-nome="${esc(t.nome)}" onchange="mvCheckChange()" style="width:16px;height:16px;accent-color:var(--leaf2)">
-      <span style="flex:1;min-width:0">${t.nome} <span style="color:var(--muted)">· ${(Number(t.hectares)||0).toFixed(1)} ha</span></span>
+      <span style="flex:1;min-width:0">${t.nome} <span style="color:var(--muted)">· ${fmtHa(t.hectares)} ha</span></span>
     </label>`).join('');
   if(autoAbrir && MV_TALHOES.length){
     const first=box.querySelector('input[type=checkbox]'); if(first) first.checked=true;
@@ -1737,6 +1743,7 @@ function sugCidade(inp){
 // UTIL
 // ═══════════════════════════════════════════════
 function esc(s){ return String(s).replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
+function fmtHa(x){ return (Math.round((parseFloat(x)||0)*100)/100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
 function toast(msg,ic='✅'){
   const t=document.createElement('div'); t.className='toast';
   t.innerHTML=`<span>${ic}</span> ${msg}`;
