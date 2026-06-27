@@ -2989,9 +2989,12 @@ async function _geotiffToPng(url){
     const ctx=cv.getContext('2d');
     ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
     ctx.drawImage(nat,0,0,cw,ch);
-    // bbox em coords de saída (para o contorno do perímetro)
-    const cx0=(bx1>=bx0)?Math.round(bx0*scale):cw, cy0=(by1>=by0)?Math.round(by0*scale):ch,
-          cx1=(bx1>=bx0)?Math.round(bx1*scale):-1, cy1=(by1>=by0)?Math.round(by1*scale):-1;
+    // a suavização (alfa premultiplicado) deixa pontas finas semitransparentes -> apareciam "brancas".
+    // Solidifica o alfa: qualquer pixel com alfa apreciável vira opaco (cor já está correta).
+    try{ const _id=ctx.getImageData(0,0,cw,ch), _d=_id.data; for(let i=3;i<_d.length;i+=4){ _d[i]=_d[i]>=24?255:0; } ctx.putImageData(_id,0,0); }catch(e){ console.warn('solidificar alfa:',e); }
+    // bbox em coords de saída (para o contorno do perímetro) — inclui a largura CHEIA do último pixel
+    const cx0=(bx1>=bx0)?Math.floor(bx0*scale):cw, cy0=(by1>=by0)?Math.floor(by0*scale):ch,
+          cx1=(bx1>=bx0)?Math.ceil((bx1+1)*scale):-1, cy1=(by1>=by0)?Math.ceil((by1+1)*scale):-1;
 
     // contorno (perímetro) — usa o shapefile de perímetro enviado (.zip), por cima do raster
     try{
@@ -3029,7 +3032,7 @@ async function _geotiffToPng(url){
     if(cx1>=cx0 && cy1>=cy0){
       const pad=Math.max(2, Math.round(Math.min(cw,ch)*0.01));
       const sx=Math.max(0,cx0-pad), sy=Math.max(0,cy0-pad);
-      const sw=Math.min(cw-sx, (cx1-cx0+1)+pad*2), sh=Math.min(ch-sy, (cy1-cy0+1)+pad*2);
+      const sw=Math.min(cw-sx, (cx1-cx0)+pad*2), sh=Math.min(ch-sy, (cy1-cy0)+pad*2);
       if(sw>0 && sh>0 && (sw<cw || sh<ch)){
         const cv2=document.createElement('canvas'); cv2.width=sw; cv2.height=sh;
         cv2.getContext('2d').drawImage(cv, sx,sy,sw,sh, 0,0,sw,sh);
