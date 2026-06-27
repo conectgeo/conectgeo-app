@@ -1435,12 +1435,23 @@ function applyActiveDepth(){
   let numCols=S.csvFields.filter(f=>f!==S.joinCsv&&f!==S.depthCol&&rows.some(r=>typeof r[f]==='number'));
   // Relatório B: o seletor de nutrientes vai só até o último Enxofre (insumos ficam na Recomendação)
   if(S.modeloB&&S.modeloB.on){ const li=_lastEnxofreIdx(S.csvFields); if(li>=0){ const ok=new Set(S.csvFields.slice(0,li+1)); numCols=numCols.filter(c=>ok.has(c)); } }
-  // profundidade pelo nome: mostra só as colunas da profundidade ativa (ex.: só "(20-40cm)")
-  if(S.depthByName && S.activeDepth){ numCols=numCols.filter(c=>_sameDepth(_depthFromName(c), S.activeDepth)); }
+  // profundidade pelo nome das colunas
+  const _comparando = !!(S.compare && S.compare.on && S.depthByName);
+  if(S.depthByName){
+    if(_comparando){
+      // comparação: lista TODOS os nutrientes (união das profundidades), 1 por nome-base
+      const seen=new Set(); numCols=numCols.filter(c=>{ const b=_primeiraPalavra(c); if(seen.has(b)) return false; seen.add(b); return true; });
+    } else if(S.activeDepth){
+      // visualização normal: só as colunas da profundidade ativa (ex.: só "(20-40cm)")
+      numCols=numCols.filter(c=>_sameDepth(_depthFromName(c), S.activeDepth));
+    }
+  }
   const colSel=document.getElementById('sel-col');
-  colSel.innerHTML=numCols.map(f=>`<option value="${f}">${f}</option>`).join('');
-  // tenta preservar o mesmo nutriente trocando só de profundidade
+  const _lbl=(f)=> _comparando ? String(f).replace(/\(?\s*\d{1,2}\s*-\s*\d{1,2}\s*cm\s*\)?/ig,'').replace(/\s+/g,' ').trim() : f;
+  colSel.innerHTML=numCols.map(f=>`<option value="${f}">${_lbl(f)}</option>`).join('');
+  // preserva o mesmo nutriente (por nome) ao trocar de profundidade ou entrar/sair da comparação
   let nextCol = numCols.includes(S.colorCol) ? S.colorCol : null;
+  if(!nextCol && S.colorCol){ const w=_primeiraPalavra(S.colorCol); nextCol = numCols.find(c=>_primeiraPalavra(c)===w) || null; }
   if(!nextCol && S.colorCol){ const alt=_colNaProfundidade(S.colorCol, S.activeDepth); if(alt && numCols.includes(alt)) nextCol=alt; }
   if(!nextCol) nextCol = numCols[0] || null;
   S.colorCol = nextCol; colSel.value = nextCol || '';
@@ -1752,7 +1763,7 @@ function buildPalUI(){
 // ══ LISTENERS ══
 document.getElementById('sel-gjf').addEventListener('change',function(){S.joinGeo=this.value;joinData();renderMap();});
 document.getElementById('sel-csvf').addEventListener('change',function(){S.joinCsv=this.value;joinData();renderMap();});
-document.getElementById('sel-col').addEventListener('change',function(){S.colorCol=this.value; if(S.depthByName){ const d=_depthFromName(S.colorCol); if(d && !_sameDepth(d,S.activeDepth)){ S.activeDepth=DEPTH_LABELS.find(l=>normDepth(l)===normDepth(d))||d; try{ renderDepthGrid(); }catch(e){} } } applyAutoPalette();buildPalUI();renderMap();});
+document.getElementById('sel-col').addEventListener('change',function(){S.colorCol=this.value; if(S.depthByName && !(S.compare&&S.compare.on)){ const d=_depthFromName(S.colorCol); if(d && !_sameDepth(d,S.activeDepth)){ S.activeDepth=DEPTH_LABELS.find(l=>normDepth(l)===normDepth(d))||d; try{ renderDepthGrid(); }catch(e){} } } applyAutoPalette();buildPalUI();renderMap();});
 document.getElementById('sl-opa').addEventListener('input',function(){S.opacity=this.value/100;document.getElementById('cv-opa').textContent=this.value+'%';renderMap();});
 document.getElementById('sl-lbl').addEventListener('input',function(){S.labelScale=this.value/100;document.getElementById('cv-lbl').textContent=this.value+'%';if(S.compare && S.compare.on){renderCompare();return;}if(S.showLabels){clearLabels();drawLabels();}multiRefreshExtraLabels();});
 document.getElementById('invert-row').addEventListener('click',function(){S.invert=!S.invert;S.userTouchedPal=true;document.getElementById('invert-toggle').classList.toggle('on',S.invert);buildPalUI();renderMap();});
@@ -5085,6 +5096,7 @@ function setCompareMode(on){
   if(on){
     rebuildCompareSelects();
     ensureCompareMap();
+    if(S.depthByName && (S.csvData||[]).length){ try{ applyActiveDepth(); }catch(e){} }
     setTimeout(()=>{
       S.map.invalidateSize();
       if(S.compare.map2) S.compare.map2.invalidateSize();
@@ -5094,6 +5106,7 @@ function setCompareMode(on){
     // remove second-map layers visually
     if(S.layer2 && S.compare.map2){ try{S.compare.map2.removeLayer(S.layer2);}catch(e){} S.layer2=null; }
     if(S.labelLayers2 && S.compare.map2){ S.labelLayers2.forEach(l=>{try{S.compare.map2.removeLayer(l);}catch(e){}}); S.labelLayers2=[]; }
+    if(S.depthByName && (S.csvData||[]).length){ try{ applyActiveDepth(); }catch(e){} }
     setTimeout(()=>{ S.map.invalidateSize(); renderMap(); }, 60);
   }
 }
