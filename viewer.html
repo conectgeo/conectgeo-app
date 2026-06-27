@@ -2463,19 +2463,15 @@ function _areaHaFromGeo(features, zoneKeyRaw){
 function zoneHa(feature){
   const p=feature.properties||{};
   const jg=S.joinGeo||_zoneField(p); const zk=p[jg];
-  // 0) área (ha) EXATA da planilha (coluna "Area (ha)"), casada por zona (ZG) — preferida
+  // SOMENTE "Area (ha)": planilha (por zona ZG) → atributo do shapefile → zonas de nutrientes
   try{
     let a=_areaHaFromRows(S.rec&&S.rec.fields, S.rec&&S.rec.rows, zk);
     if(isNaN(a)) a=_areaHaFromRows(S.csvFields, S.csvData, zk);
     if(!isNaN(a)) return a;
   }catch(e){}
-  // 1) área (ha) EXATA dos atributos da própria feição (shapefile)
   for(const k of Object.keys(p)){ const kn=String(k).toLowerCase().replace(/[^a-z0-9]/g,''); if(/^(areaha|areha|hectares?|ha|supha)$/.test(kn)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
-  // 1b) cruza com as zonas de nutrientes (mesmo shapefile original)
   try{ const a=_areaHaFromGeo(S.geoData&&S.geoData.features, zk); if(!isNaN(a)) return a; }catch(e){}
-  // 2) área em m² → ha
-  for(const k of Object.keys(p)){ const kn=String(k).toLowerCase().replace(/[^a-z0-9]/g,''); if(/^(area|aream2|sup|superficie|shapearea)$/.test(kn)){ const v=recNum(p[k]); if(!isNaN(v)&&v>1000) return v/10000; } }
-  return _polyHa(feature.geometry);
+  return 0; // sem "Area (ha)" para esta zona → não inventa área (sem geodésico)
 }
 function popularInsumos(){
   const sel=document.getElementById('sel-insumo'); const emp=document.getElementById('rec-empty'); if(!sel) return;
