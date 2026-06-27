@@ -2984,59 +2984,62 @@ async function _geotiffToPng(url){
       }
     }
     nctx.putImageData(nout,0,0);
-    // 2) amplia SEM interpolação (nearest-neighbor) — mantém o raster original como enviado
-    const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
-    const ctx=cv.getContext('2d');
-    ctx.imageSmoothingEnabled=false;
-    ctx.drawImage(nat,0,0,cw,ch);
-    // bbox em coords de saída (para o contorno do perímetro) — inclui a largura CHEIA do último pixel
-    const cx0=(bx1>=bx0)?Math.floor(bx0*scale):cw, cy0=(by1>=by0)?Math.floor(by0*scale):ch,
-          cx1=(bx1>=bx0)?Math.ceil((bx1+1)*scale):-1, cy1=(by1>=by0)?Math.ceil((by1+1)*scale):-1;
 
-    // contorno (perímetro) — usa o shapefile de perímetro enviado (.zip), por cima do raster
-    try{
-      const perim=(typeof S!=='undefined' && S.modeloB && S.modeloB.perimetro) ? S.modeloB.perimetro : null;
-      if(perim && cx1>=cx0){
-        const segs=_perimeterSegments(perim);
-        if(segs.length){
-          const proj=gr.projection;
-          const toCRS=(lon,lat)=>{
-            if(!proj || proj===4326) return [lon,lat];
-            if(proj===3857||proj===900913){ const R=6378137; return [R*lon*Math.PI/180, R*Math.log(Math.tan(Math.PI/4+lat*Math.PI/360))]; }
-            return null; // CRS não tratável aqui
-          };
-          let pxFn;
-          if(toCRS(segs[0][0][0],segs[0][0][1])){
-            // georreferenciado pela extensão do GeoTIFF (preciso p/ 4326 e 3857)
-            pxFn=(p)=>{ const c=toCRS(p[0],p[1]); if(!c) return null; return [ (c[0]-gr.xmin)/(gr.xmax-gr.xmin)*cw, (gr.ymax-c[1])/(gr.ymax-gr.ymin)*ch ]; };
-          }else{
-            // fallback: encaixa o perímetro (limpo) no bounding-box do conteúdo do raster
-            let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
-            segs.forEach(s=>s.forEach(p=>{ if(p[0]<mnx)mnx=p[0]; if(p[0]>mxx)mxx=p[0]; if(p[1]<mny)mny=p[1]; if(p[1]>mxy)mxy=p[1]; }));
-            const gw=(mxx-mnx)||1, gh=(mxy-mny)||1, bw=(cx1-cx0)||cw, bh=(cy1-cy0)||ch;
-            pxFn=(p)=>[ cx0+((p[0]-mnx)/gw)*bw, cy1-((p[1]-mny)/gh)*bh ];
-          }
-          ctx.strokeStyle='#1f2a14'; ctx.lineWidth=Math.max(2.5, cw*0.006); ctx.lineJoin='round'; ctx.lineCap='round';
-          ctx.beginPath();
-          segs.forEach(s=>{ const a=pxFn(s[0]), b=pxFn(s[1]); if(a&&b){ ctx.moveTo(a[0],a[1]); ctx.lineTo(b[0],b[1]); } });
-          ctx.stroke();
-        }
-      }
-    }catch(e){ console.warn('contorno perímetro:', e); }
+    // === monta o canvas. Se o raster e o perímetro são georreferenciados, usa a
+    // EXTENSÃO COMBINADA (raster ∪ perímetro) para o perímetro nunca ser cortado. ===
+    const perim=(typeof S!=='undefined' && S.modeloB && S.modeloB.perimetro) ? S.modeloB.perimetro : null;
+    const segs = perim ? _perimeterSegments(perim) : [];
+    const proj = gr.projection;
+    const toCRS=(lon,lat)=>{
+      if(!proj || proj===4326) return [lon,lat];
+      if(proj===3857||proj===900913){ const R=6378137; return [R*lon*Math.PI/180, R*Math.log(Math.tan(Math.PI/4+lat*Math.PI/360))]; }
+      return null; // CRS não tratável aqui
+    };
+    const rasterGeoref = isFinite(gr.xmin)&&isFinite(gr.xmax)&&isFinite(gr.ymin)&&isFinite(gr.ymax)
+                       && gr.xmax>gr.xmin && gr.ymax>gr.ymin && (!proj||proj===4326||proj===3857||proj===900913);
+    const georefPerim = segs.length>0 && rasterGeoref && toCRS(segs[0][0][0],segs[0][0][1])!=null;
 
-    // recorta o canvas ao bounding-box do conteúdo (remove o "vazio" ao redor
-    // do polígono dentro do GeoTIFF) — sem isso a imagem fica pequena no PDF.
-    if(cx1>=cx0 && cy1>=cy0){
-      const pad=Math.max(2, Math.round(Math.min(cw,ch)*0.01));
-      const sx=Math.max(0,cx0-pad), sy=Math.max(0,cy0-pad);
-      const sw=Math.min(cw-sx, (cx1-cx0)+pad*2), sh=Math.min(ch-sy, (cy1-cy0)+pad*2);
-      if(sw>0 && sh>0 && (sw<cw || sh<ch)){
-        const cv2=document.createElement('canvas'); cv2.width=sw; cv2.height=sh;
-        cv2.getContext('2d').drawImage(cv, sx,sy,sw,sh, 0,0,sw,sh);
-        return cv2.toDataURL('image/png');
+    let cv2, ctx2, CW, CH, geoToPx=null;
+    if(georefPerim){
+      // extensão combinada (raster ∪ perímetro), em coords do CRS do raster
+      let pxmin=gr.xmin,pxmax=gr.xmax,pymin=gr.ymin,pymax=gr.ymax;
+      segs.forEach(sg=>sg.forEach(p=>{ const c=toCRS(p[0],p[1]); if(c){ if(c[0]<pxmin)pxmin=c[0]; if(c[0]>pxmax)pxmax=c[0]; if(c[1]<pymin)pymin=c[1]; if(c[1]>pymax)pymax=c[1]; } }));
+      const Xspan=(pxmax-pxmin)||1, Yspan=(pymax-pymin)||1;
+      const ppu = maxDim/Math.max(Xspan,Yspan);     // px por unidade geográfica
+      const M=10;                                    // margem p/ a linha do contorno não tocar a borda
+      CW=Math.max(1,Math.round(Xspan*ppu))+2*M; CH=Math.max(1,Math.round(Yspan*ppu))+2*M;
+      cv2=document.createElement('canvas'); cv2.width=CW; cv2.height=CH;
+      ctx2=cv2.getContext('2d'); ctx2.imageSmoothingEnabled=false;
+      // posiciona o raster pela sua extensão geográfica dentro da extensão combinada
+      const rx=(gr.xmin-pxmin)*ppu+M, ry=(pymax-gr.ymax)*ppu+M, rw=(gr.xmax-gr.xmin)*ppu, rh=(gr.ymax-gr.ymin)*ppu;
+      ctx2.drawImage(nat, rx, ry, rw, rh);
+      geoToPx=(c)=>[ (c[0]-pxmin)*ppu+M, (pymax-c[1])*ppu+M ];
+    } else {
+      // sem georreferência (ou sem perímetro): amplia o raster pixel a pixel (nearest)
+      CW=cw; CH=ch;
+      cv2=document.createElement('canvas'); cv2.width=CW; cv2.height=CH;
+      ctx2=cv2.getContext('2d'); ctx2.imageSmoothingEnabled=false;
+      ctx2.drawImage(nat,0,0,CW,CH);
+      if(segs.length){
+        // encaixa o perímetro no bbox do conteúdo do raster
+        const cx0=(bx1>=bx0)?Math.floor(bx0*scale):0, cy0=(by1>=by0)?Math.floor(by0*scale):0,
+              cx1=(bx1>=bx0)?Math.ceil((bx1+1)*scale):CW, cy1=(by1>=by0)?Math.ceil((by1+1)*scale):CH;
+        let mnx=Infinity,mny=Infinity,mxx=-Infinity,mxy=-Infinity;
+        segs.forEach(sg=>sg.forEach(p=>{ if(p[0]<mnx)mnx=p[0]; if(p[0]>mxx)mxx=p[0]; if(p[1]<mny)mny=p[1]; if(p[1]>mxy)mxy=p[1]; }));
+        const gw=(mxx-mnx)||1, gh=(mxy-mny)||1, bw=(cx1-cx0)||CW, bh=(cy1-cy0)||CH;
+        geoToPx=(c)=>[ cx0+((c[0]-mnx)/gw)*bw, cy1-((c[1]-mny)/gh)*bh ];
       }
     }
-    return cv.toDataURL('image/png');
+    // desenha o contorno do perímetro COMPLETO por cima
+    if(segs.length && geoToPx){
+      try{
+        ctx2.strokeStyle='#1f2a14'; ctx2.lineWidth=Math.max(2.5, CW*0.006); ctx2.lineJoin='round'; ctx2.lineCap='round';
+        ctx2.beginPath();
+        segs.forEach(sg=>{ const a=georefPerim?toCRS(sg[0][0],sg[0][1]):sg[0], b=georefPerim?toCRS(sg[1][0],sg[1][1]):sg[1]; if(a&&b){ const A=geoToPx(a),B=geoToPx(b); ctx2.moveTo(A[0],A[1]); ctx2.lineTo(B[0],B[1]); } });
+        ctx2.stroke();
+      }catch(e){ console.warn('contorno perímetro:', e); }
+    }
+    return cv2.toDataURL('image/png');
   }catch(e){ console.warn('geotiff→png falhou:', e); return ''; }
 }
 
