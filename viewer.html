@@ -984,9 +984,13 @@ function detectDepthColumn(fields){
 function _depthFromName(col){ const m=String(col).match(/(\d{1,2})\s*-\s*(\d{1,2})(?:\s*cm)?/i); if(m){ return m[1].padStart(2,'0')+'-'+m[2].padStart(2,'0'); } return null; }
 // nome do nutriente (1ª palavra, sem acento) p/ casar a mesma medida em profundidades diferentes
 function _primeiraPalavra(col){ const s=String(col).normalize('NFD').replace(/[\u0300-\u036f]/g,''); const m=s.trim().match(/^([A-Za-z\.]+)/); return m?m[1].toLowerCase():s.trim().toLowerCase(); }
+// sinônimos: mesmo nutriente com nomes diferentes entre profundidades (ex.: "Al³" = "Alumínio")
+const _NUT_SINON={al:'aluminio',aluminio:'aluminio',ca:'calcio',calcio:'calcio',mg:'magnesio',magnesio:'magnesio',k:'potassio',potassio:'potassio',p:'fosforo',fosforo:'fosforo',s:'enxofre',enxofre:'enxofre',b:'boro',boro:'boro',cu:'cobre',cobre:'cobre',fe:'ferro',ferro:'ferro',mn:'manganes',manganes:'manganes',zn:'zinco',zinco:'zinco',na:'sodio',sodio:'sodio'};
+// chave canônica do nutriente (aplica sinônimos sobre a primeira palavra)
+function _nutBase(col){ const w=_primeiraPalavra(col); return _NUT_SINON[w]||w; }
 function normDepth(v){ return String(v).trim().toLowerCase().replace(/\s+/g,'').replace('cm',''); }
 function _sameDepth(a,b){ return !!a && !!b && normDepth(a)===normDepth(b); }
-function _colNaProfundidade(refCol, depth){ const w=_primeiraPalavra(refCol); const cands=(S.csvFields||[]).filter(f=>_sameDepth(_depthFromName(f), depth) && _primeiraPalavra(f)===w); return cands.length?cands[0]:null; }
+function _colNaProfundidade(refCol, depth){ const w=_nutBase(refCol); const cands=(S.csvFields||[]).filter(f=>_sameDepth(_depthFromName(f), depth) && _nutBase(f)===w); return cands.length?cands[0]:null; }
 // Relatório B: força a leitura de profundidades pelos nomes das colunas (ex.: "Cálcio (00-20cm)")
 function _mbRecomputeDepthsFromNames(){
   try{
@@ -1440,7 +1444,7 @@ function applyActiveDepth(){
   if(S.depthByName){
     if(_comparando){
       // comparação: lista TODOS os nutrientes (união das profundidades), 1 por nome-base
-      const seen=new Set(); numCols=numCols.filter(c=>{ const b=_primeiraPalavra(c); if(seen.has(b)) return false; seen.add(b); return true; });
+      const seen=new Set(); numCols=numCols.filter(c=>{ const b=_nutBase(c); if(seen.has(b)) return false; seen.add(b); return true; });
     } else if(S.activeDepth){
       // visualização normal: só as colunas da profundidade ativa (ex.: só "(20-40cm)")
       numCols=numCols.filter(c=>_sameDepth(_depthFromName(c), S.activeDepth));
@@ -1451,7 +1455,7 @@ function applyActiveDepth(){
   colSel.innerHTML=numCols.map(f=>`<option value="${f}">${_lbl(f)}</option>`).join('');
   // preserva o mesmo nutriente (por nome) ao trocar de profundidade ou entrar/sair da comparação
   let nextCol = numCols.includes(S.colorCol) ? S.colorCol : null;
-  if(!nextCol && S.colorCol){ const w=_primeiraPalavra(S.colorCol); nextCol = numCols.find(c=>_primeiraPalavra(c)===w) || null; }
+  if(!nextCol && S.colorCol){ const w=_nutBase(S.colorCol); nextCol = numCols.find(c=>_nutBase(c)===w) || null; }
   if(!nextCol && S.colorCol){ const alt=_colNaProfundidade(S.colorCol, S.activeDepth); if(alt && numCols.includes(alt)) nextCol=alt; }
   if(!nextCol) nextCol = numCols[0] || null;
   S.colorCol = nextCol; colSel.value = nextCol || '';
