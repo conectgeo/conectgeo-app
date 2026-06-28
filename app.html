@@ -1443,31 +1443,59 @@ function confirmarExclusao(titulo, msgHtml, onOk, okLabel){
 }
 function cmClose(){ document.getElementById('confirm-modal').classList.remove('open'); }
 
-// ── Inativar (cliente / fazenda / talhão) ──
-function ivClose(){ document.getElementById('inativar-modal').classList.remove('open'); }
+// ── Inativar / Duplicar (cliente / fazenda / talhão) ──
+function ivClose(){
+  document.getElementById('inativar-modal').classList.remove('open');
+  document.getElementById('iv-acao-wrap').style.display='none';
+  document.getElementById('iv-continuar-wrap').style.display='block';
+}
 function abrirInativar(escopo, id, nome){
   const tit = escopo==='cliente'?'cliente':escopo==='fazenda'?'fazenda':'talhão';
-  document.getElementById('iv-title').textContent='Inativar '+tit;
+  document.getElementById('iv-title').textContent='Inativar / Duplicar '+tit;
   document.getElementById('iv-msg').innerHTML=`Indique o ano a que se refere o estudo de <b>${lkEsc(nome)}</b>.`;
+  document.getElementById('iv-acao-wrap').style.display='none';
+  document.getElementById('iv-continuar-wrap').style.display='block';
   const anoEl=document.getElementById('iv-ano'); anoEl.value=new Date().getFullYear();
   document.getElementById('inativar-modal').classList.add('open');
-  const ok=document.getElementById('iv-ok'); const novo=ok.cloneNode(true); ok.parentNode.replaceChild(novo,ok);
-  novo.addEventListener('click', ()=>{
+
+  // Passo 1: confirmar o ano
+  const ok=document.getElementById('iv-ok'); const novoOk=ok.cloneNode(true); ok.parentNode.replaceChild(novoOk,ok);
+  novoOk.textContent='Continuar →';
+  novoOk.addEventListener('click', ()=>{
     const ano=parseInt(anoEl.value,10);
     if(!ano || ano<2000 || ano>2100){ toast('Informe um ano válido','⚠️'); return; }
-    ivClose();
+    // Passo 2: mostrar escolha de ação
+    document.getElementById('iv-continuar-wrap').style.display='none';
+    document.getElementById('iv-acao-wrap').style.display='flex';
+
     const det = escopo==='cliente'
-      ? 'Todas as fazendas e talhões dele serão inativados juntos.'
+      ? 'Todas as fazendas e talhões serão inativados juntos.'
       : escopo==='fazenda' ? 'Todos os talhões dela serão inativados juntos.' : '';
-    confirmarExclusao('Inativar?',
-      `Confirmar a inativação ${escopo==='cliente'?'do cliente':escopo==='fazenda'?'da fazenda':'do talhão'} <b>${lkEsc(nome)}</b> referente ao ano <b>${ano}</b>?`
-      + (det?`<br>${det}`:'')
-      + `<br><br>Os dados ficam guardados em <b>Inativos</b> e podem ser reativados depois.`,
-      async()=>{
-        const { error } = await sb.rpc('inativar_estudo', { p_escopo:escopo, p_id:id, p_ano:ano });
-        if(error){ toast('Erro ao inativar: '+error.message,'⚠️'); return; }
-        toast('Inativado','📦'); emClose(); openSO(); carregarDashboard();
-      }, 'Sim, inativar');
+
+    const confirmar = (duplicar) => {
+      ivClose();
+      const acao = duplicar ? 'inativar e duplicar' : 'inativar';
+      const acaoLabel = duplicar ? 'Sim, inativar e duplicar' : 'Sim, inativar';
+      confirmarExclusao(
+        duplicar ? 'Inativar e Duplicar?' : 'Inativar?',
+        `Confirmar a ${acao} ${escopo==='cliente'?'do cliente':escopo==='fazenda'?'da fazenda':'do talhão'} <b>${lkEsc(nome)}</b> referente ao ano <b>${ano}</b>?`
+        + (det?`<br>${det}`:'')
+        + (duplicar ? `<br><br>Um novo estudo <b>vazio</b> será criado no lugar (sem shapefiles e sem planilhas, pronto para novo upload).` : `<br><br>Os dados ficam guardados em <b>Inativos</b> e podem ser reativados depois.`),
+        async()=>{
+          const rpc = duplicar ? 'duplicar_estudo' : 'inativar_estudo';
+          const { error } = await sb.rpc(rpc, { p_escopo:escopo, p_id:id, p_ano:ano });
+          if(error){ toast('Erro: '+error.message,'⚠️'); return; }
+          toast(duplicar ? 'Inativado e duplicado ✅' : 'Inativado 📦');
+          emClose(); openSO(); carregarDashboard();
+        }, acaoLabel);
+    };
+
+    const btnInativar=document.getElementById('iv-so-inativar');
+    const btnDuplicar=document.getElementById('iv-duplicar');
+    const ni=btnInativar.cloneNode(true); btnInativar.parentNode.replaceChild(ni,btnInativar);
+    const nd=btnDuplicar.cloneNode(true); btnDuplicar.parentNode.replaceChild(nd,btnDuplicar);
+    ni.addEventListener('click', ()=>confirmar(false));
+    nd.addEventListener('click', ()=>confirmar(true));
   });
 }
 
@@ -1543,26 +1571,17 @@ function renderInativosLista(){
 }
 function toggleExp(id){ const el=document.getElementById(id); const ic=document.getElementById('exp-ic-'+id); if(el){el.style.display=el.style.display==='none'?'block':'none'; ic.textContent=el.style.display==='none'?'▶':'▼';} }
 
-// ── Reativar: escolher o que trazer de volta ──
+// ── Reativar: escolher o que trazer de volta (fazenda → talhões) ──
 let REATIVAR_CTX=null;
 function rvClose(){ document.getElementById('reativar-modal').classList.remove('open'); }
 async function abrirReativarCliente(clienteId, ano){
   const { data:cli } = await sb.from('clientes').select('id,nome,inativo,consultor_id').eq('id',clienteId).single();
-  
-  // Busca os registros de inativação do cliente neste ANO específico
-  const { data: inativs } = await sb.from('inativacoes')
-    .select('id').eq('cliente_id', clienteId).eq('ano', ano);
+  const { data: inativs } = await sb.from('inativacoes').select('id').eq('cliente_id', clienteId).eq('ano', ano);
   const inativIds = (inativs||[]).map(i => i.id);
-  
-  if(!inativIds.length){
-    toast('Nenhum estudo inativo neste ano para este cliente','ℹ️'); return;
-  }
-  
-  // Busca os talhões inativados APENAS neste ano
+  if(!inativIds.length){ toast('Nenhum estudo inativo neste ano para este cliente','ℹ️'); return; }
   const { data } = await sb.from('talhoes')
     .select('id,nome,fazendas!inner(id,nome,cliente_id)')
     .eq('inativo',true).eq('fazendas.cliente_id', clienteId).in('inativacao_id', inativIds);
-  
   const tals=data||[];
   let temCorrespondente=false;
   if(cli && cli.inativo){
@@ -1571,24 +1590,32 @@ async function abrirReativarCliente(clienteId, ano){
   }
   REATIVAR_CTX={clienteId};
   document.getElementById('rv-title').textContent='Reativar — '+((cli&&cli.nome)||'');
-  const porFaz={}; tals.forEach(t=>{ const fn=(t.fazendas&&t.fazendas.nome)||'—'; (porFaz[fn]=porFaz[fn]||[]).push(t); });
-  const anoRef=ano;
+  const porFaz={}; tals.forEach(t=>{ const fid=(t.fazendas&&t.fazendas.id)||'_'; const fn=(t.fazendas&&t.fazendas.nome)||'—'; porFaz[fid]=porFaz[fid]||{nome:fn,tals:[]}; porFaz[fid].tals.push(t); });
   let h='';
   if(!tals.length){ h='<div style="padding:20px">Nada inativo neste ano para este cliente.</div>'; }
   else{
     h += temCorrespondente
-      ? `<div style="background:#fff7e6;border:1px solid #f0d9a8;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px">Já existe um cliente ativo com este nome — os itens reativados serão vinculados a ele com o sufixo <b>(Int ${anoRef})</b> no nome.</div>`
-      : `<div style="background:#eef6ec;border:1px solid #cfe3c8;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px">Voltará com os nomes originais (não há cliente ativo correspondente).</div>`;
+      ? `<div style="background:#fff7e6;border:1px solid #f0d9a8;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px">Já existe um cliente ativo com este nome — os talhões entrarão na fazenda ativa correspondente com sufixo <b>(Int ${ano})</b>.</div>`
+      : `<div style="background:#eef6ec;border:1px solid #cfe3c8;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px">Os talhões serão reativados com sufixo <b>(Int ${ano})</b> na fazenda ativa correspondente.</div>`;
     h += `<div style="margin-bottom:8px;font-size:13px;color:var(--muted)">Marque o que deseja trazer de volta:</div>`;
-    Object.keys(porFaz).sort().forEach(fn=>{
-      h+=`<div class="ed-faz"><div class="ed-h">${esc(fn)}</div><div class="ed-tals" style="padding:4px 0">`;
-      porFaz[fn].forEach(t=>{ h+=`<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:14px"><input type="checkbox" class="rv-chk" value="${t.id}" checked> ${esc(t.nome)}</label>`; });
+    Object.keys(porFaz).forEach((fid,fi)=>{
+      const g=porFaz[fid]; const fazChkId='rv-faz-'+fi;
+      h+=`<div class="ed-faz" style="margin-bottom:10px">
+        <label style="display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;padding:6px 2px;cursor:pointer">
+          <input type="checkbox" id="${fazChkId}" class="rv-faz-chk" data-fid="${fid}" checked onchange="rvToggleFaz('${fazChkId}')"> ${esc(g.nome)}
+        </label>
+        <div class="ed-tals" style="padding:0 0 4px 20px">`;
+      g.tals.forEach(t=>{ h+=`<label style="display:flex;align-items:center;gap:8px;padding:5px 2px;font-size:13px;cursor:pointer"><input type="checkbox" class="rv-chk" value="${t.id}" data-faz="${fazChkId}" checked> ${esc(t.nome)}</label>`; });
       h+=`</div></div>`;
     });
   }
   document.getElementById('rv-body').innerHTML=h;
   document.getElementById('rv-ok').style.display=tals.length?'':'none';
   document.getElementById('reativar-modal').classList.add('open');
+}
+function rvToggleFaz(fazChkId){
+  const chk=document.getElementById(fazChkId);
+  document.querySelectorAll(`.rv-chk[data-faz="${fazChkId}"]`).forEach(c=>c.checked=chk.checked);
 }
 async function reativarConfirmar(){
   if(!REATIVAR_CTX) return;
@@ -1598,7 +1625,7 @@ async function reativarConfirmar(){
   const { error } = await sb.rpc('reativar_estudo', { p_cliente:REATIVAR_CTX.clienteId, p_talhao_ids:ids });
   btn.disabled=false; btn.textContent=t0;
   if(error){ toast('Erro ao reativar: '+error.message,'⚠️'); return; }
-  toast('Reativado','✅'); rvClose(); carregarInativos(); carregarDashboard();
+  toast('Reativado ✅'); rvClose(); carregarInativos(); carregarDashboard();
 }
 
 // ── Modal de edição do cliente (cadastro + fazendas + talhões) ──
@@ -1649,7 +1676,7 @@ async function renderEdicao(){
       <label>País<input id="ec-pais" value="${attr(c.pais)}"></label>
     </div>
     <div class="ed-row-btns">
-      <button class="btn sec sm" onclick="abrirInativar('cliente','${c.id}','${esc(c.nome)}')" title="Inativar cliente (guarda em Inativos)">📦 Inativar</button>
+      <button class="btn sec sm" onclick="abrirInativar('cliente','${c.id}','${esc(c.nome)}')" title="Inativar ou duplicar cliente">📦 Inativar / Duplicar</button>
       <button class="btn danger sm" onclick="pedirExcluirCliente('${c.id}','${esc(c.nome)}')">Excluir cliente</button></div>
   </div>`;
   h+=`<div class="ed-sec"><div class="ed-h">Fazendas (${fazendas.length})</div>`;
@@ -1662,7 +1689,7 @@ async function renderEdicao(){
         <label>Município<input id="ef-mun-${f.id}" value="${attr(f.municipio)}"></label>
       </div>
       <div class="ed-row-btns">
-        <button class="btn sec sm" onclick="abrirInativar('fazenda','${f.id}','${esc(f.nome)}')" title="Inativar fazenda (guarda em Inativos)">📦 Inativar</button>
+        <button class="btn sec sm" onclick="abrirInativar('fazenda','${f.id}','${esc(f.nome)}')" title="Inativar ou duplicar fazenda">📦 Inativar / Duplicar</button>
         <button class="btn danger sm" onclick="pedirExcluirFazenda('${f.id}','${esc(f.nome)}')">Excluir fazenda</button></div>
       <div class="ed-tals">`;
     if(!tals.length) h+='<div class="ed-vazio">Sem talhões.</div>';
@@ -1682,7 +1709,7 @@ async function renderEdicao(){
       h+=`<div class="ed-tal">
         <input id="et-nome-${t.id}" value="${attr(t.nome)}" style="flex:1;min-width:120px">
         <input id="et-ha-${t.id}" value="${t.hectares??''}" type="number" step="0.01" placeholder="ha" style="width:88px">
-        <button class="btn sec sm" onclick="abrirInativar('talhao','${t.id}','${esc(t.nome)}')" title="Inativar talhão (guarda em Inativos)">📦 Inativar</button>
+        <button class="btn sec sm" onclick="abrirInativar('talhao','${t.id}','${esc(t.nome)}')" title="Inativar ou duplicar talhão">📦 Inativar / Duplicar</button>
         <button class="btn danger sm" onclick="pedirExcluirTalhao('${t.id}','${esc(t.nome)}')">Excluir</button>
       </div>${arqHtml}`;
     });
@@ -1929,13 +1956,19 @@ function toast(msg,ic='✅'){
 <!-- Inativar: pergunta o ano de referência -->
 <div id="inativar-modal" class="cmodal"><div class="cbox">
   <div class="cic">📦</div>
-  <div class="ctitle" id="iv-title">Inativar estudo</div>
+  <div class="ctitle" id="iv-title">Inativar / Duplicar</div>
   <div class="cmsg" id="iv-msg"></div>
   <div style="margin:8px 0 2px">
     <label style="font-weight:700;font-size:13px;color:var(--muted)">Ano de referência
       <br><input id="iv-ano" type="number" inputmode="numeric" style="margin-top:6px;width:140px;text-align:center;font-size:16px;padding:8px;border:1.5px solid var(--sand2);border-radius:8px"></label>
   </div>
-  <div class="cbtns"><button class="btn sec" onclick="ivClose()">Cancelar</button><button class="btn pri" id="iv-ok">Continuar</button></div>
+  <div id="iv-acao-wrap" style="display:none;margin-top:14px;display:flex;flex-direction:column;gap:8px">
+    <button class="btn sec" id="iv-so-inativar" style="width:100%">📦 Só Inativar<br><small style="font-weight:400;opacity:.8">Arquiva o estudo em Inativos</small></button>
+    <button class="btn pri" id="iv-duplicar" style="width:100%">📦 Inativar e Duplicar<br><small style="font-weight:400;opacity:.8">Arquiva + cria novo estudo vazio no lugar</small></button>
+  </div>
+  <div id="iv-continuar-wrap" style="margin-top:10px">
+    <div class="cbtns"><button class="btn sec" onclick="ivClose()">Cancelar</button><button class="btn pri" id="iv-ok">Continuar →</button></div>
+  </div>
 </div></div>
 <!-- Edição de cliente / fazendas / talhões -->
 <div id="edit-modal" class="emodal"><div class="ebox">
