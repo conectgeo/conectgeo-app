@@ -1688,31 +1688,50 @@ function _renderCompareIntAtual(){
   const { geoInt, csvInt, fieldsInt, nAtual, nInt } = S.cmpIntPar;
   const depth=S.activeDepth||'00-20';
   const colNut=S.colorCol;
+
+  // --- LADO ESQUERDO: talhão atual (S) ---
   const colL=S.depthByName?_colNaProfundidade(colNut,depth):colNut;
   const rowsL=S.depthCol?S.csvData.filter(r=>normDepth(r[S.depthCol])===normDepth(depth)):S.csvData;
   const valsL=[]; rowsL.forEach(r=>{const v=parseFloat(r[colL]); if(!isNaN(v)) valsL.push(v);});
-  const depthColR=(fieldsInt||[]).find(f=>_depthFromName(f)||(f||'').toLowerCase().includes('profundidade'));
-  const colRName=(fieldsInt||[]).find(f=>_nutBase(f)===_nutBase(colNut));
-  const rowsR=depthColR?(csvInt||[]).filter(r=>normDepth(r[depthColR])===normDepth(depth)):(csvInt||[]);
-  const valsR=[]; rowsR.forEach(r=>{const v=parseFloat(r[colRName||colNut]); if(!isNaN(v)) valsR.push(v);});
   const mnL=valsL.length?Math.min(...valsL):0, mxL=valsL.length?Math.max(...valsL):1;
+
+  // --- LADO DIREITO: talhão Int ---
+  const depthColR=(fieldsInt||[]).find(f=>_depthFromName(f)||(f||'').toLowerCase().includes('profundidade'));
+  const joinGeoR=geoInt?_zoneField((geoInt.features[0]||{}).properties||{}):S.joinGeo;
+  // joinCsv do lado direito: coluna de zona na planilha Int
+  const joinCsvR=(fieldsInt||[]).find(f=>/^(zg|zona|talhao|id|n[°ºo])/i.test(String(f||'')))||fieldsInt[0]||S.joinCsv;
+  const colRName=(fieldsInt||[]).find(f=>_nutBase(f)===_nutBase(colNut));
+  // filtra por profundidade
+  const allRowsR=csvInt||[];
+  const rowsR=depthColR?allRowsR.filter(r=>normDepth(r[depthColR])===normDepth(depth)):allRowsR;
+  const valsR=[]; rowsR.forEach(r=>{const v=parseFloat(r[colRName||colNut]); if(!isNaN(v)) valsR.push(v);});
   const mnR=valsR.length?Math.min(...valsR):0, mxR=valsR.length?Math.max(...valsR):1;
+
+  // legendas e tags
   const cols=palColors(); const grad='linear-gradient(to right,'+cols.join(',')+')';
   document.getElementById('ctag-left').textContent=nAtual||'Atual';
   document.getElementById('ctag-right').textContent=nInt||'(Int)';
   const _ml=document.getElementById('mleg-left'), _mr=document.getElementById('mleg-right');
-  if(_ml){ _ml.innerHTML='<div class="ml-title">'+( nAtual||'Atual')+' \xb7 '+(colL||colNut)+'</div><div class="ml-bar" style="background:'+grad+'"></div><div class="ml-ticks"><span>'+mnL.toFixed(2)+'</span><span>'+mxL.toFixed(2)+'</span></div>'; _ml.style.display=''; }
-  if(_mr){ _mr.innerHTML=valsR.length?'<div class="ml-title">'+(nInt||'(Int)')+' \xb7 '+(colRName||colNut)+'</div><div class="ml-bar" style="background:'+grad+'"></div><div class="ml-ticks"><span>'+mnR.toFixed(2)+'</span><span>'+mxR.toFixed(2)+'</span></div>':'<div class="ml-title">'+(nInt||'(Int)')+' \u2014 sem dados</div>'; _mr.style.display=''; }
+  if(_ml){ _ml.innerHTML='<div class="ml-title">'+(nAtual||'Atual')+' · '+(colL||colNut)+'</div><div class="ml-bar" style="background:'+grad+'"></div><div class="ml-ticks"><span>'+mnL.toFixed(2)+'</span><span>'+mxL.toFixed(2)+'</span></div>'; _ml.style.display=''; }
+  if(_mr){ _mr.innerHTML=valsR.length?'<div class="ml-title">'+(nInt||'(Int)')+' · '+(colRName||colNut)+'</div><div class="ml-bar" style="background:'+grad+'"></div><div class="ml-ticks"><span>'+mnR.toFixed(2)+'</span><span>'+mxR.toFixed(2)+'</span></div>':'<div class="ml-title">'+(nInt||'(Int)')+' — sem dados</div>'; _mr.style.display=''; }
+
+  // renderiza lado esquerdo (usa S normal)
   clearLabels();
   if(S.labelLayers2&&S.compare.map2){ S.labelLayers2.forEach(l=>{try{S.compare.map2.removeLayer(l);}catch(e){}}); S.labelLayers2=[]; }
   _renderSide(S.map,'layer','labelLayers',depth,mnL,mxL,colL);
+
+  // renderiza lado direito (swap temporário de dados)
   if(geoInt && S.compare.map2){
-    const _go=S.geoData,_co=S.csvData,_fo=S.csvFields,_jo=S.joinGeo,_dco=S.depthCol;
-    S.geoData=geoInt; S.csvData=rowsR; S.csvFields=fieldsInt;
-    S.joinGeo=_zoneField((geoInt.features[0]||{}).properties||{});
-    S.depthCol=depthColR||null;
+    const _go=S.geoData, _co=S.csvData, _fo=S.csvFields, _jo=S.joinGeo, _jc=S.joinCsv, _dco=S.depthCol;
+    S.geoData=geoInt;
+    S.csvData=rowsR;        // já filtrado por profundidade — _renderSide não filtra de novo
+    S.csvFields=fieldsInt;
+    S.joinGeo=joinGeoR;
+    S.joinCsv=joinCsvR;
+    S.depthCol=null;        // já filtrado: não deixa _renderSide filtrar de novo
     _renderSide(S.compare.map2,'layer2','labelLayers2',depth,mnR,mxR,colRName||colNut);
-    S.geoData=_go; S.csvData=_co; S.csvFields=_fo; S.joinGeo=_jo; S.depthCol=_dco;
+    // restaura
+    S.geoData=_go; S.csvData=_co; S.csvFields=_fo; S.joinGeo=_jo; S.joinCsv=_jc; S.depthCol=_dco;
   }
 }
 
@@ -1878,7 +1897,7 @@ document.getElementById('sel-gjf').addEventListener('change',function(){S.joinGe
 document.getElementById('sel-csvf').addEventListener('change',function(){S.joinCsv=this.value;joinData();renderMap();});
 document.getElementById('sel-col').addEventListener('change',function(){S.colorCol=this.value; if(S.depthByName && !(S.compare&&S.compare.on)){ const d=_depthFromName(S.colorCol); if(d && !_sameDepth(d,S.activeDepth)){ S.activeDepth=DEPTH_LABELS.find(l=>normDepth(l)===normDepth(d))||d; try{ renderDepthGrid(); }catch(e){} } } applyAutoPalette();buildPalUI();renderMap();});
 document.getElementById('sl-opa').addEventListener('input',function(){S.opacity=this.value/100;document.getElementById('cv-opa').textContent=this.value+'%';renderMap();});
-document.getElementById('sl-lbl').addEventListener('input',function(){S.labelScale=this.value/100;document.getElementById('cv-lbl').textContent=this.value+'%';if(S.compare && S.compare.on){renderCompare();return;}if(S.showLabels){clearLabels();drawLabels();}multiRefreshExtraLabels();});
+document.getElementById('sl-lbl').addEventListener('input',function(){S.labelScale=this.value/100;document.getElementById('cv-lbl').textContent=this.value+'%';if(S.compare && S.compare.on){if(S.cmpIntPar&&S.cmpIntPar.on){_renderCompareIntAtual();}else{renderCompare();}return;}if(S.showLabels){clearLabels();drawLabels();}multiRefreshExtraLabels();});
 document.getElementById('invert-row').addEventListener('click',function(){S.invert=!S.invert;S.userTouchedPal=true;document.getElementById('invert-toggle').classList.toggle('on',S.invert);buildPalUI();renderMap();});
 document.getElementById('labels-row').addEventListener('click',function(){S.showLabels=!S.showLabels;document.getElementById('labels-toggle').classList.toggle('on',S.showLabels);if(S.compare&&S.compare.on){renderCompare();return;}clearLabels();if(S.showLabels)drawLabels();multiRefreshExtraLabels();});
 document.querySelectorAll('.base-btn').forEach(b=>b.addEventListener('click',function(){setBasemap(this.dataset.base);}));
