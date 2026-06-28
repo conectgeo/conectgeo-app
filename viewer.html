@@ -1648,33 +1648,35 @@ async function _ativarCompareIntAtual(tokAtual, tokInt, nAtual, nInt){
     if(!dInt) return;
     let geoInt=null, csvInt=[], fieldsInt=[];
     if(dInt.zonas_geojson_url){ const r=await fetch(dInt.zonas_geojson_url+'?v='+Date.now()); geoInt=await r.json(); }
-    const planUrl=dInt.planilha_url||(dInt.analises&&dInt.analises[0]&&dInt.analises[0].planilha_url);
+    const planUrl=dInt.planilha_url;
     if(planUrl){
       const r=await fetch(planUrl); const buf=await r.arrayBuffer();
       const p=_extIsCsv(planUrl)?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
       csvInt=p.rows||[]; fieldsInt=p.fields||[];
     }
     S.cmpIntPar={ on:true, tokAtual, tokInt, nAtual, nInt, geoInt, csvInt, fieldsInt };
-    ensureCompareMap();
-    S.compare.on=true;
-    document.getElementById('compare-row').classList.add('on');
-    document.getElementById('compare-toggle').classList.add('on');
-    document.getElementById('compare-pickers').classList.add('show');
-    document.getElementById('depth-grid').style.display='none';
-    document.querySelector('.map-wrap').classList.add('compare-on');
-    document.getElementById('cmp-depth-pickers').style.display='none';
-    document.getElementById('cmp-talhao-pickers').style.display='none';
-    const lL=document.querySelector('#cmp-depth-pickers .ctrl:first-child .ctrl-label');
-    const lR=document.querySelector('#cmp-depth-pickers .ctrl:last-child .ctrl-label');
-    if(lL) lL.innerHTML='<span class="side-tag" style="background:#2a6e00">Atual</span> '+(nAtual||'');
-    if(lR) lR.innerHTML='<span class="side-tag" style="background:#8b6914">Int</span> '+(nInt||'');
-    // espera o mapa 2 estar pronto antes de renderizar
-    await new Promise(res=>{
-      const check=()=>{ if(S.compare&&S.compare.map2){ res(); } else { setTimeout(check,80); } };
-      check();
-    });
+
+    // usa setCompareMode(true) para popular selects e criar map2
+    // mas bloqueia renderCompare para não renderizar antes dos dados Int
+    const _origRC=window.renderCompare;
+    window.renderCompare=function(){};
+    setCompareMode(true);
+    window.renderCompare=_origRC;
+
+    // substitui conteúdo dos selects pelos nomes dos talhões
+    const selL=document.getElementById('sel-depth-left');
+    const selR=document.getElementById('sel-depth-right');
+    if(selL){ selL.disabled=true; selL.innerHTML='<option>'+nAtual+'</option>'; }
+    if(selR){ selR.disabled=true; selR.innerHTML='<option>'+nInt+'</option>'; }
+    const clL=document.querySelector('#cmp-depth-pickers .ctrl:first-child .ctrl-label');
+    const clR=document.querySelector('#cmp-depth-pickers .ctrl:last-child .ctrl-label');
+    if(clL) clL.innerHTML='<span class="side-tag" style="background:#2a6e00">Atual</span> '+(nAtual||'');
+    if(clR) clR.innerHTML='<span class="side-tag" style="background:#8b6914">Int</span> '+(nInt||'');
+
+    // espera map2 estar pronto
+    await new Promise(res=>{ const chk=()=>{ if(S.compare&&S.compare.map2){ res(); }else{ setTimeout(chk,80); } }; chk(); });
     S.map.invalidateSize();
-    if(S.compare.map2) S.compare.map2.invalidateSize();
+    S.compare.map2.invalidateSize();
     await new Promise(res=>setTimeout(res,300));
     _renderCompareIntAtual();
   }catch(e){ console.warn('compare Int vs Atual erro:',e); }
