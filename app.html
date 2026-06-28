@@ -1628,7 +1628,21 @@ async function reativarConfirmar(){
   toast('Reativado ✅'); rvClose(); carregarInativos(); carregarDashboard();
 }
 
-// ── Modal de edição do cliente (cadastro + fazendas + talhões) ──
+// ── Listener de mensagens do viewer (iframe) ──
+window.addEventListener('message', (ev)=>{
+  if(!ev.data||ev.data.type!=='cg_dessel_int') return;
+  const tokInt=ev.data.tokInt;
+  if(!tokInt) return;
+  // desmarca o checkbox do talhão Int no seletor multi-talhão
+  document.querySelectorAll('.mv-tal-chk').forEach(async c=>{
+    if(!c.checked) return;
+    const tk=await tokenDoTalhao(c.value).catch(()=>null);
+    if(tk===tokInt){ c.checked=false; mvCheckChange(); }
+  });
+  // recarrega com só o talhão atual
+  const marc=document.querySelectorAll('.mv-tal-chk:checked');
+  if(marc.length===1){ carregarTalhaoNoMapa(marc[0].value, marc[0].dataset.nome); }
+});
 let EDIT_CLI=null;
 function attr(s){ return String(s??'').replace(/"/g,'&quot;'); }
 function val(id){ const e=document.getElementById(id); return e?e.value.trim():''; }
@@ -1965,6 +1979,7 @@ function toast(msg,ic='✅'){
   <div id="iv-acao-wrap" style="display:none;margin-top:14px;display:flex;flex-direction:column;gap:8px">
     <button class="btn sec" id="iv-so-inativar" style="width:100%">📦 Só Inativar<br><small style="font-weight:400;opacity:.8">Arquiva o estudo em Inativos</small></button>
     <button class="btn pri" id="iv-duplicar" style="width:100%">📦 Inativar e Duplicar<br><small style="font-weight:400;opacity:.8">Arquiva + cria novo estudo vazio no lugar</small></button>
+    <button class="btn sec" onclick="ivClose()" style="width:100%;margin-top:4px">Cancelar</button>
   </div>
   <div id="iv-continuar-wrap" style="margin-top:10px">
     <div class="cbtns"><button class="btn sec" onclick="ivClose()">Cancelar</button><button class="btn pri" id="iv-ok">Continuar →</button></div>

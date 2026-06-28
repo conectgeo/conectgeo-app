@@ -589,32 +589,13 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       <div class="toggle" id="compare-toggle"></div>
     </div>
     <div id="compare-pickers">
-      <!-- modo normal: duas profundidades -->
-      <div id="cmp-depth-pickers">
-        <div class="ctrl">
-          <div class="ctrl-label"><span class="side-tag">Acima</span> Profundidade menor</div>
-          <select id="sel-depth-left"></select>
-        </div>
-        <div class="ctrl">
-          <div class="ctrl-label"><span class="side-tag">Abaixo</span> Profundidade maior</div>
-          <select id="sel-depth-right"></select>
-        </div>
+      <div class="ctrl">
+        <div class="ctrl-label"><span class="side-tag">Acima</span> Profundidade menor</div>
+        <select id="sel-depth-left"></select>
       </div>
-      <!-- modo Int vs Atual: dois talhões -->
-      <div id="cmp-talhao-pickers" style="display:none">
-        <div style="font-size:11px;color:var(--muted);margin-bottom:6px">Selecione os dois talhões a comparar:</div>
-        <div class="ctrl">
-          <div class="ctrl-label"><span class="side-tag" style="background:#2a6e00">Atual</span> Talhão atual</div>
-          <select id="sel-tal-left"></select>
-        </div>
-        <div class="ctrl">
-          <div class="ctrl-label"><span class="side-tag" style="background:#8b6914">Int</span> Talhão antigo</div>
-          <select id="sel-tal-right"></select>
-        </div>
-        <div class="ctrl" style="margin-top:4px">
-          <div class="ctrl-label">Profundidade</div>
-          <select id="sel-tal-depth"></select>
-        </div>
+      <div class="ctrl">
+        <div class="ctrl-label"><span class="side-tag">Abaixo</span> Profundidade maior</div>
+        <select id="sel-depth-right"></select>
       </div>
     </div>
     <div class="depth-grid" id="depth-grid"></div>
@@ -713,7 +694,6 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <button class="mode-btn active" id="mode-nutrientes" onclick="setMapMode('nutrientes')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><circle cx="9" cy="9" r="1"/><circle cx="19" cy="7" r="1"/><circle cx="14" cy="15" r="1"/><path d="M10.16 10.62l2.34 3.38"/><path d="M15.088 13.328l3.012 -4.928"/></svg><span data-i18n="modoNutrientes">Nutrientes</span></button>
     <button class="mode-btn" id="mode-coleta" onclick="setMapMode('coleta')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6 -3l6 3l6 -3v13l-6 3l-6 -3l-6 3v-13"/><path d="M9 4v13"/><path d="M15 7v13"/></svg><span data-i18n="modoColeta">Coleta de Solo</span></button>
     <button class="mode-btn" id="mode-recomendacao" onclick="setMapMode('recomendacao')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="10" r="2"/><path d="M6 4v4"/><path d="M6 12v8"/><circle cx="12" cy="16" r="2"/><path d="M12 4v10"/><path d="M12 18v2"/><circle cx="18" cy="7" r="2"/><path d="M18 4v1"/><path d="M18 9v11"/></svg><span data-i18n="modoRecomendacao">Recomendação</span></button>
-    <button class="mode-btn" id="btn-projetos-ant" onclick="abrirProjetosAnteriores()" style="display:none;background:#fff7e0;border-color:#c8a83c;color:#7a6000">📦 <span>Projetos Anteriores</span></button>
   </div>
   <div class="rec-edit-float" id="rec-edit-float">
     <button class="rec-edit-btn" id="btn-rec-editar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg><span>Editar</span></button>
@@ -1546,7 +1526,10 @@ function renderZonasVazias(){
   if(S.extras && S.extras.length) multiRenderExtrasNutrient();
 }
 function renderMap(){
-  if(S.compare && S.compare.on){ renderCompare(); return; }
+  if(S.compare && S.compare.on){
+    if(S.cmpIntPar && S.cmpIntPar.on){ _renderCompareIntAtual(); return; }
+    renderCompare(); return;
+  }
   if(!S.geoData) return;
   if(!S.colorCol){ renderZonasVazias(); return; }
   // Modelo B / depthByName: se o nutriente escolhido pertence a outra profundidade,
@@ -1653,201 +1636,102 @@ function largestPart(geom){
   return best;
 }
 // ── Compare Int vs Atual: dois talhões lado a lado ──
-// Detecta se há talhões (Int ano) disponíveis e configura os seletores
-let CMP_INT_MODE = false; // true = Int vs Atual, false = profundidade normal
-
+let CMP_INT_MODE = false;
 function _temTalhaoInt(nome){ return /\(Int\s+\d{4}\)/i.test(nome||''); }
+function _sbClient(){ return window.sb || window.supabase; }
+function _extIsCsv(url){ return /\.csv(\?|$)/i.test(url); }
 
-async function _verificarTalhoesInt(){
-  // Busca todos os talhões (Int) do mesmo cliente (via consultor / link)
-  const talhaoAtual = S.talhaoToken || S.params?.t;
-  if(!talhaoAtual) return [];
+async function _ativarCompareIntAtual(tokAtual, tokInt, nAtual, nInt){
+  await new Promise(res=>{ const t=setInterval(()=>{ if(S.geoData){ clearInterval(t); res(); } },120); setTimeout(()=>{ clearInterval(t); res(); },8000); });
   try{
-    const { data } = await _sbClient().from('talhoes')
-      .select('id,nome,inativo,fazendas!inner(id,nome,clientes!inner(id,nome))')
-      .eq('inativo',false)
-      .filter('nome','ilike','%(Int %');
-    return data||[];
-  }catch(e){ return []; }
+    const { data:dInt } = await sb.rpc('get_link_data',{ p_token: tokInt });
+    if(!dInt) return;
+    let geoInt=null, csvInt=[], fieldsInt=[];
+    if(dInt.zonas_geojson_url){ const r=await fetch(dInt.zonas_geojson_url+'?v='+Date.now()); geoInt=await r.json(); }
+    const planUrl=dInt.planilha_url||(dInt.analises&&dInt.analises[0]&&dInt.analises[0].planilha_url);
+    if(planUrl){
+      const r=await fetch(planUrl); const buf=await r.arrayBuffer();
+      const p=_extIsCsv(planUrl)?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
+      csvInt=p.rows||[]; fieldsInt=p.fields||[];
+    }
+    S.cmpIntPar={ on:true, tokAtual, tokInt, nAtual, nInt, geoInt, csvInt, fieldsInt };
+    ensureCompareMap();
+    S.compare.on=true;
+    document.getElementById('compare-row').classList.add('on');
+    document.getElementById('compare-toggle').classList.add('on');
+    document.getElementById('compare-pickers').classList.add('show');
+    document.getElementById('depth-grid').style.display='none';
+    document.querySelector('.map-wrap').classList.add('compare-on');
+    document.getElementById('cmp-depth-pickers').style.display='none';
+    document.getElementById('cmp-talhao-pickers').style.display='none';
+    const lL=document.querySelector('#cmp-depth-pickers .ctrl:first-child .ctrl-label');
+    const lR=document.querySelector('#cmp-depth-pickers .ctrl:last-child .ctrl-label');
+    if(lL) lL.innerHTML='<span class="side-tag" style="background:#2a6e00">Atual</span> '+(nAtual||'');
+    if(lR) lR.innerHTML='<span class="side-tag" style="background:#8b6914">Int</span> '+(nInt||'');
+    setTimeout(()=>{ S.map.invalidateSize(); if(S.compare.map2) S.compare.map2.invalidateSize(); _renderCompareIntAtual(); },250);
+  }catch(e){ console.warn('compare Int vs Atual erro:',e); }
 }
 
-function _sbClient(){ return window.sb || window.supabase; }
+function _renderCompareIntAtual(){
+  if(!S.cmpIntPar||!S.cmpIntPar.on||!S.geoData||!S.colorCol) return;
+  ensureCompareMap();
+  const { geoInt, csvInt, fieldsInt, nAtual, nInt } = S.cmpIntPar;
+  const depth=S.activeDepth||'00-20';
+  const colNut=S.colorCol;
+  const colL=S.depthByName?_colNaProfundidade(colNut,depth):colNut;
+  const rowsL=S.depthCol?S.csvData.filter(r=>normDepth(r[S.depthCol])===normDepth(depth)):S.csvData;
+  const valsL=[]; rowsL.forEach(r=>{const v=parseFloat(r[colL]); if(!isNaN(v)) valsL.push(v);});
+  const depthColR=(fieldsInt||[]).find(f=>_depthFromName(f)||(f||'').toLowerCase().includes('profundidade'));
+  const colRName=(fieldsInt||[]).find(f=>_nutBase(f)===_nutBase(colNut));
+  const rowsR=depthColR?(csvInt||[]).filter(r=>normDepth(r[depthColR])===normDepth(depth)):(csvInt||[]);
+  const valsR=[]; rowsR.forEach(r=>{const v=parseFloat(r[colRName||colNut]); if(!isNaN(v)) valsR.push(v);});
+  const mnL=valsL.length?Math.min(...valsL):0, mxL=valsL.length?Math.max(...valsL):1;
+  const mnR=valsR.length?Math.min(...valsR):0, mxR=valsR.length?Math.max(...valsR):1;
+  const cols=palColors(); const grad='linear-gradient(to right,'+cols.join(',')+')';
+  document.getElementById('ctag-left').textContent=nAtual||'Atual';
+  document.getElementById('ctag-right').textContent=nInt||'(Int)';
+  const _ml=document.getElementById('mleg-left'), _mr=document.getElementById('mleg-right');
+  if(_ml){ _ml.innerHTML='<div class="ml-title">'+( nAtual||'Atual')+' \xb7 '+(colL||colNut)+'</div><div class="ml-bar" style="background:'+grad+'"></div><div class="ml-ticks"><span>'+mnL.toFixed(2)+'</span><span>'+mxL.toFixed(2)+'</span></div>'; _ml.style.display=''; }
+  if(_mr){ _mr.innerHTML=valsR.length?'<div class="ml-title">'+(nInt||'(Int)')+' \xb7 '+(colRName||colNut)+'</div><div class="ml-bar" style="background:'+grad+'"></div><div class="ml-ticks"><span>'+mnR.toFixed(2)+'</span><span>'+mxR.toFixed(2)+'</span></div>':'<div class="ml-title">'+(nInt||'(Int)')+' \u2014 sem dados</div>'; _mr.style.display=''; }
+  clearLabels();
+  if(S.labelLayers2&&S.compare.map2){ S.labelLayers2.forEach(l=>{try{S.compare.map2.removeLayer(l);}catch(e){}}); S.labelLayers2=[]; }
+  _renderSide(S.map,'layer','labelLayers',depth,mnL,mxL,colL);
+  if(geoInt && S.compare.map2){
+    const _go=S.geoData,_co=S.csvData,_fo=S.csvFields,_jo=S.joinGeo,_dco=S.depthCol;
+    S.geoData=geoInt; S.csvData=rowsR; S.csvFields=fieldsInt;
+    S.joinGeo=_zoneField((geoInt.features[0]||{}).properties||{});
+    S.depthCol=depthColR||null;
+    _renderSide(S.compare.map2,'layer2','labelLayers2',depth,mnR,mxR,colRName||colNut);
+    S.geoData=_go; S.csvData=_co; S.csvFields=_fo; S.joinGeo=_jo; S.depthCol=_dco;
+  }
+}
 
 async function _verificarExibeProjetosAnt(){
-  const btn=document.getElementById('btn-projetos-ant');
-  if(!btn) return;
-  // verifica se há talhões Int ativos vinculados ao mesmo cliente
+  const btn=document.getElementById('btn-projetos-ant'); if(!btn) return;
   try{
-    const tId=S.talhaoId;
-    if(!tId){ btn.style.display='none'; return; }
-    const { data } = await _sbClient().from('talhoes')
-      .select('id,nome,fazendas!inner(cliente_id)')
-      .eq('inativo',false)
-      .filter('nome','ilike','%(Int %')
-      .eq('fazendas.cliente_id', S.clienteId||'');
+    if(!S.clienteId){ btn.style.display='none'; return; }
+    const { data }=await _sbClient().from('talhoes').select('id,fazendas!inner(cliente_id)').eq('inativo',false).filter('nome','ilike','%(Int %').eq('fazendas.cliente_id',S.clienteId).limit(1);
     btn.style.display=(data&&data.length)?'':'none';
   }catch(e){ btn.style.display='none'; }
 }
 
-// Modal de Projetos Anteriores (lista talhões Int do cliente)
 async function abrirProjetosAnteriores(){
-  const mo=document.getElementById('pa-modal');
-  if(!mo){ console.warn('pa-modal não encontrado'); return; }
-  document.getElementById('pa-lista').innerHTML='<div style="padding:12px;color:var(--muted)">Carregando…</div>';
+  const mo=document.getElementById('pa-modal'); if(!mo) return;
+  document.getElementById('pa-lista').innerHTML='<div style="padding:12px;color:var(--muted)">Carregando\u2026</div>';
   mo.classList.add('open');
   try{
-    const { data } = await _sbClient().from('talhoes')
-      .select('id,nome,hectares,links_view(token,ativo),fazendas!inner(id,nome,clientes!inner(id,nome))')
-      .eq('inativo',false)
-      .eq('links_view.ativo',true)
-      .filter('nome','ilike','%(Int %')
-      .eq('fazendas.clientes.id', S.clienteId||'');
+    const { data }=await _sbClient().from('talhoes').select('id,nome,hectares,links_view(token,ativo),fazendas!inner(id,nome,clientes!inner(id))').eq('inativo',false).eq('links_view.ativo',true).filter('nome','ilike','%(Int %').eq('fazendas.clientes.id',S.clienteId||'');
     const list=data||[];
-    if(!list.length){
-      document.getElementById('pa-lista').innerHTML='<div style="padding:16px;text-align:center;color:var(--muted)">Nenhum projeto anterior encontrado.</div>';
-      return;
-    }
+    if(!list.length){ document.getElementById('pa-lista').innerHTML='<div style="padding:16px;text-align:center;color:var(--muted)">Nenhum projeto anterior encontrado.</div>'; return; }
     document.getElementById('pa-lista').innerHTML=list.map(t=>{
       const tk=(t.links_view&&t.links_view[0]&&t.links_view[0].token)||'';
       const url=tk?location.href.replace(/[?#].*/,'')+'?t='+tk:'#';
-      const fz=(t.fazendas&&t.fazendas.nome)||'';
-      return `<a href="${url}" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--sand);text-decoration:none;color:inherit">
-        <span style="font-size:20px">📦</span>
-        <div><div style="font-weight:700">${t.nome}</div><div style="font-size:12px;color:var(--muted)">${fz} · ${fmtHa(t.hectares)} ha</div></div>
-        <span style="margin-left:auto;color:var(--leaf);font-size:13px">Abrir →</span>
-      </a>`;
+      return '<a href="'+url+'" target="_blank" style="display:flex;align-items:center;gap:10px;padding:12px;border-bottom:1px solid var(--sand);text-decoration:none;color:inherit"><span style="font-size:20px">\ud83d\udce6</span><div><div style="font-weight:700">'+t.nome+'</div><div style="font-size:12px;color:var(--muted)">'+(t.fazendas&&t.fazendas.nome||'')+'</div></div><span style="margin-left:auto;color:var(--leaf);font-size:13px">Abrir \u2192</span></a>';
     }).join('');
-  }catch(e){
-    document.getElementById('pa-lista').innerHTML='<div style="padding:16px;color:var(--danger)">Erro: '+e.message+'</div>';
-  }
+  }catch(e){ document.getElementById('pa-lista').innerHTML='<div style="padding:16px;color:var(--danger)">Erro: '+e.message+'</div>'; }
 }
 
-// Compare Int vs Atual: popula seletores de talhão
-async function populateCmpTalhaoSelects(){
-  const sbC=_sbClient();
-  if(!sbC || !S.clienteId) return;
-  try{
-    const { data:ativos } = await sbC.from('talhoes')
-      .select('id,nome,links_view(token,ativo),fazendas!inner(cliente_id)')
-      .eq('inativo',false).eq('fazendas.cliente_id',S.clienteId).order('nome');
-    const todos=(ativos||[]);
-    const atuais=todos.filter(t=>!_temTalhaoInt(t.nome));
-    const ints=todos.filter(t=>_temTalhaoInt(t.nome));
-    const selL=document.getElementById('sel-tal-left');
-    const selR=document.getElementById('sel-tal-right');
-    if(selL) selL.innerHTML=atuais.map(t=>`<option value="${t.id}">${t.nome}</option>`).join('');
-    if(selR) selR.innerHTML=ints.map(t=>`<option value="${t.id}">${t.nome}</option>`).join('');
-    // profundidades disponíveis
-    const selD=document.getElementById('sel-tal-depth');
-    if(selD && S.availDepths && S.availDepths.length){
-      selD.innerHTML=S.availDepths.map(d=>`<option value="${d}">${d}</option>`).join('');
-    }
-  }catch(e){}
-}
-
-// Ativa/desativa modo Int vs Atual
-function setCmpIntMode(on){
-  CMP_INT_MODE=on;
-  const dp=document.getElementById('cmp-depth-pickers');
-  const tp=document.getElementById('cmp-talhao-pickers');
-  if(dp) dp.style.display=on?'none':'';
-  if(tp) tp.style.display=on?'':'none';
-  if(on){ populateCmpTalhaoSelects(); }
-}
-
-// Handler: ao mudar talhão no compare Int vs Atual
-async function renderCmpIntAtual(){
-  const selL=document.getElementById('sel-tal-left');
-  const selR=document.getElementById('sel-tal-right');
-  const selD=document.getElementById('sel-tal-depth');
-  if(!selL||!selR||!selD) return;
-  const idL=selL.value, idR=selR.value;
-  const depth=selD.value||S.activeDepth;
-  if(!idL||!idR){ toast('Selecione os dois talhões','wrn'); return; }
-  // carrega dados dos dois talhões e renderiza compare
-  toast('Carregando comparação…','ℹ️');
-  try{
-    // talhão esquerda (atual): já deve estar carregado se for o atual
-    // talhão direita (Int): carrega GeoJSON + planilha via links
-    const { data:talR } = await _sbClient().from('talhoes')
-      .select('id,nome,zonas_geojson_url,analises(planilha_url)')
-      .eq('id',idR).single();
-    if(!talR){ toast('Talhão não encontrado','wrn'); return; }
-    // sinaliza comparação especial: lado esquerdo = dados atuais (S), lado direito = dados do Int
-    S.cmpInt = { on:true, idL, idR, depth, talR };
-    document.getElementById('ctag-left').textContent='Atual';
-    document.getElementById('ctag-right').textContent='(Int)';
-    // carrega dados do talhão Int para o lado direito
-    await _carregarDadosIntParaCmp(talR, depth);
-  }catch(e){ toast('Erro: '+e.message,'wrn'); }
-}
-
-async function _carregarDadosIntParaCmp(talR, depth){
-  // Carrega GeoJSON e planilha do talhão Int de forma isolada
-  try{
-    let geoR=null, csvR=null;
-    if(talR.zonas_geojson_url){
-      const r=await fetch(talR.zonas_geojson_url+'?v='+Date.now());
-      geoR=await r.json();
-    }
-    const planUrl=talR.analises&&talR.analises[0]&&talR.analises[0].planilha_url;
-    if(planUrl){
-      const r=await fetch(planUrl); const buf=await r.arrayBuffer();
-      csvR=await _parseSpreadsheet(buf, planUrl);
-    }
-    S.cmpInt.geoR=geoR;
-    S.cmpInt.csvR=csvR;
-    // renderiza lado esquerdo com dados atuais, lado direito com dados do Int
-    _renderCmpIntSides(depth);
-  }catch(e){ toast('Erro ao carregar dados do talhão Int: '+e.message,'wrn'); }
-}
-
-function _parseSpreadsheet(buf, url){
-  return new Promise((res)=>{
-    try{
-      const wb=XLSX.read(buf,{type:'array'}); const ws=wb.Sheets[wb.SheetNames[0]];
-      res(XLSX.utils.sheet_to_json(ws,{defval:''}));
-    }catch(e){ res([]); }
-  });
-}
-
-function _renderCmpIntSides(depth){
-  ensureCompareMap();
-  const colNut=S.colorCol;
-  // lado esquerdo: dados atuais (S.csvData, S.geoData)
-  const colL=S.depthByName?_colNaProfundidade(colNut,depth):colNut;
-  const rowsL=S.depthCol?S.csvData.filter(r=>normDepth(r[S.depthCol])===normDepth(depth)):S.csvData;
-  const valsL=[]; rowsL.forEach(r=>{const v=parseFloat(r[colL]); if(!isNaN(v)) valsL.push(v);});
-  // lado direito: dados Int (S.cmpInt.csvR, S.cmpInt.geoR)
-  const csvR=S.cmpInt.csvR||[];
-  const fieldsR=csvR.length?Object.keys(csvR[0]):[];
-  const depthColR=fieldsR.find(f=>_depthFromName(f));
-  const colRName=fieldsR.find(f=>_nutBase(f)===_nutBase(colNut));
-  const rowsR=depthColR?csvR.filter(r=>normDepth(r[depthColR])===normDepth(depth)):csvR;
-  const valsR=[]; rowsR.forEach(r=>{const v=parseFloat(r[colRName||colNut]); if(!isNaN(v)) valsR.push(v);});
-  const mnL=valsL.length?Math.min(...valsL):0, mxL=valsL.length?Math.max(...valsL):1;
-  const mnR=valsR.length?Math.min(...valsR):0, mxR=valsR.length?Math.max(...valsR):1;
-  const cols=palColors();
-  const grad=`linear-gradient(to right,${cols.join(',')})`;
-  const _ml=document.getElementById('mleg-left'), _mr=document.getElementById('mleg-right');
-  if(_ml){ _ml.innerHTML=`<div class="ml-title">Atual · ${colL||colNut}</div><div class="ml-bar" style="background:${grad}"></div><div class="ml-ticks"><span>${mnL.toFixed(2)}</span><span>${mxL.toFixed(2)}</span></div>`; _ml.style.display=''; }
-  if(_mr){ _mr.innerHTML=valsR.length?`<div class="ml-title">(Int) · ${colRName||colNut}</div><div class="ml-bar" style="background:${grad}"></div><div class="ml-ticks"><span>${mnR.toFixed(2)}</span><span>${mxR.toFixed(2)}</span></div>`:`<div class="ml-title">(Int) — sem dados para este nutriente/profundidade</div>`; _mr.style.display=''; }
-  clearLabels();
-  if(S.labelLayers2&&S.compare.map2){ S.labelLayers2.forEach(l=>{try{S.compare.map2.removeLayer(l);}catch(e){}}); S.labelLayers2=[]; }
-  // renderiza lado esquerdo (atual) com S.geoData
-  _renderSide(S.map,'layer','labelLayers',depth,mnL,mxL,colL);
-  // renderiza lado direito (Int) com geoR isolado
-  if(S.cmpInt.geoR && S.compare.map2){
-    const _geoOrig=S.geoData, _csvOrig=S.csvData, _csvFOrig=S.csvFields, _jgOrig=S.joinGeo;
-    S.geoData=S.cmpInt.geoR;
-    S.csvData=rowsR; S.csvFields=fieldsR;
-    S.joinGeo=_zoneField((S.cmpInt.geoR.features[0]||{}).properties||{});
-    _renderSide(S.compare.map2,'layer2','labelLayers2',depth,mnR,mxR,colRName||colNut);
-    S.geoData=_geoOrig; S.csvData=_csvOrig; S.csvFields=_csvFOrig; S.joinGeo=_jgOrig;
-  }
-  document.getElementById('ctag-left').textContent='Atual';
-  document.getElementById('ctag-right').textContent='(Int)';
-}
+// ── Mapbox polylabel: pole of inaccessibility (true visual center of a polygon) ──
 // Compact embedded implementation (MIT, github.com/mapbox/polylabel) + tiny binary heap.
 function _TinyQueue(data, compare){
   this.data=data||[]; this.length=this.data.length; this.compare=compare||((a,b)=>a-b);
@@ -5084,6 +4968,25 @@ async function loadFromURL(){
   if(multi){
     const toks=multi.split(',').map(s=>s.trim()).filter(Boolean);
     if(toks.length===1) return await loadFromToken(toks[0], params);
+    if(toks.length===2){
+      // detecta se é um par Int vs Atual: carrega nomes dos dois talhões
+      try{
+        const [d0,d1]=await Promise.all(toks.map(t=>sb.rpc('get_link_data',{p_token:t}).then(r=>r.data)));
+        const n0=d0&&(d0.nome_talhao||d0.nome||''), n1=d1&&(d1.nome_talhao||d1.nome||'');
+        const int0=_temTalhaoInt(n0), int1=_temTalhaoInt(n1);
+        if((int0&&!int1)||(int1&&!int0)){
+          // par Int vs Atual: atual primeiro, Int depois
+          const [tokAtual,tokInt]=int1?[toks[0],toks[1]]:[toks[1],toks[0]];
+          const [nAtual,nInt]=int1?[n0,n1]:[n1,n0];
+          S.multiTokens=toks;
+          S.cmpIntPar={on:true,tokAtual,tokInt,nAtual,nInt};
+          const ok=await loadFromToken(tokAtual,params);
+          // carrega o Int como extra mas hidden — compare vai renderizar separado
+          await _ativarCompareIntAtual(tokAtual,tokInt,nAtual,nInt);
+          return ok;
+        }
+      }catch(e){}
+    }
     if(toks.length>1){
       S.multiTokens=toks;
       const ok=await loadFromToken(toks[0], params); // 1º talhão: viewer completo (todas as funções)
@@ -5326,6 +5229,18 @@ function setCompareMode(on){
     if(S.layer2 && S.compare.map2){ try{S.compare.map2.removeLayer(S.layer2);}catch(e){} S.layer2=null; }
     if(S.labelLayers2 && S.compare.map2){ S.labelLayers2.forEach(l=>{try{S.compare.map2.removeLayer(l);}catch(e){}}); S.labelLayers2=[]; }
     if(S.depthByName && (S.csvData||[]).length){ try{ applyActiveDepth(); }catch(e){} }
+    // modo Int vs Atual: limpa o par e volta para visualização única
+    if(S.cmpIntPar && S.cmpIntPar.on){
+      S.cmpIntPar.on=false;
+      // restaura labels dos pickers
+      document.getElementById('cmp-depth-pickers').style.display='';
+      const lL=document.querySelector('#cmp-depth-pickers .ctrl:first-child .ctrl-label');
+      const lR=document.querySelector('#cmp-depth-pickers .ctrl:last-child .ctrl-label');
+      if(lL) lL.innerHTML='<span class="side-tag">Acima</span> Profundidade menor';
+      if(lR) lR.innerHTML='<span class="side-tag">Abaixo</span> Profundidade maior';
+      // notifica o app.html (parent) para desselecionar o talhão Int
+      try{ window.parent.postMessage({type:'cg_dessel_int', tokInt:S.cmpIntPar.tokInt},'*'); }catch(e){}
+    }
     setTimeout(()=>{ S.map.invalidateSize(); renderMap(); }, 60);
   }
 }
@@ -5333,22 +5248,6 @@ document.getElementById('compare-row').addEventListener('click',(e)=>{
   if(e.target.tagName==='SELECT') return;
   setCompareMode(!S.compare.on);
 });
-// Botão para alternar entre modo profundidade e modo Int vs Atual
-(()=>{
-  const wrap=document.getElementById('compare-pickers');
-  const btn=document.createElement('button');
-  btn.id='btn-cmp-int';
-  btn.className='btn sec sm';
-  btn.style='margin-top:8px;width:100%;font-size:12px';
-  btn.textContent='🔄 Alternar: Int vs Atual';
-  btn.onclick=()=>setCmpIntMode(!CMP_INT_MODE);
-  wrap.appendChild(btn);
-  // handlers dos seletores Int vs Atual
-  ['sel-tal-left','sel-tal-right','sel-tal-depth'].forEach(id=>{
-    const el=document.getElementById(id);
-    if(el) el.addEventListener('change', renderCmpIntAtual);
-  });
-})();
 document.getElementById('sel-depth-left').addEventListener('change',function(){
   S.compare.left=this.value;
   if(depthNum(S.compare.left) > depthNum(S.compare.right)){
@@ -5370,18 +5269,5 @@ document.getElementById('sel-depth-right').addEventListener('change',function(){
 });
 
 </script>
-<!-- Modal: Projetos Anteriores -->
-<div id="pa-modal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(0,0,0,.45);align-items:center;justify-content:center" onclick="if(event.target===this)this.classList.remove('open')">
-  <div style="background:#fff;border-radius:14px;width:min(440px,96vw);max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.25)">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 18px 10px;border-bottom:1px solid var(--sand)">
-      <div style="font-weight:800;font-size:16px">📦 Projetos Anteriores</div>
-      <button onclick="document.getElementById('pa-modal').classList.remove('open')" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--muted)">✕</button>
-    </div>
-    <div id="pa-lista" style="overflow-y:auto;flex:1"></div>
-  </div>
-</div>
-<style>
-#pa-modal.open{display:flex!important;}
-</style>
 </body>
 </html>
