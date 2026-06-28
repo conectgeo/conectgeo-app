@@ -1536,9 +1536,21 @@ let REATIVAR_CTX=null;
 function rvClose(){ document.getElementById('reativar-modal').classList.remove('open'); }
 async function abrirReativarCliente(clienteId, ano){
   const { data:cli } = await sb.from('clientes').select('id,nome,inativo,consultor_id').eq('id',clienteId).single();
+  
+  // Busca os registros de inativação do cliente neste ANO específico
+  const { data: inativs } = await sb.from('inativacoes')
+    .select('id').eq('cliente_id', clienteId).eq('ano', ano);
+  const inativIds = (inativs||[]).map(i => i.id);
+  
+  if(!inativIds.length){
+    toast('Nenhum estudo inativo neste ano para este cliente','ℹ️'); return;
+  }
+  
+  // Busca os talhões inativados APENAS neste ano
   const { data } = await sb.from('talhoes')
-    .select('id,nome,fazendas!inner(id,nome,cliente_id),inativacoes(ano)')
-    .eq('inativo',true).eq('fazendas.cliente_id', clienteId);
+    .select('id,nome,fazendas!inner(id,nome,cliente_id)')
+    .eq('inativo',true).eq('fazendas.cliente_id', clienteId).in('inativacao_id', inativIds);
+  
   const tals=data||[];
   let temCorrespondente=false;
   if(cli && cli.inativo){
@@ -1548,9 +1560,9 @@ async function abrirReativarCliente(clienteId, ano){
   REATIVAR_CTX={clienteId};
   document.getElementById('rv-title').textContent='Reativar — '+((cli&&cli.nome)||'');
   const porFaz={}; tals.forEach(t=>{ const fn=(t.fazendas&&t.fazendas.nome)||'—'; (porFaz[fn]=porFaz[fn]||[]).push(t); });
-  const anoRef=(tals[0]&&tals[0].inativacoes&&tals[0].inativacoes.ano)||ano;
+  const anoRef=ano;
   let h='';
-  if(!tals.length){ h='<div style="padding:20px">Nada inativo para este cliente.</div>'; }
+  if(!tals.length){ h='<div style="padding:20px">Nada inativo neste ano para este cliente.</div>'; }
   else{
     h += temCorrespondente
       ? `<div style="background:#fff7e6;border:1px solid #f0d9a8;border-radius:8px;padding:10px 12px;font-size:13px;margin-bottom:12px">Já existe um cliente ativo com este nome — os itens reativados serão vinculados a ele com o sufixo <b>(Int ${anoRef})</b> no nome.</div>`
