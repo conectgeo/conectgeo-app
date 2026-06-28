@@ -1701,8 +1701,14 @@ function _renderCompareIntAtual(){
   const joinGeoR=geoInt?_zoneField((geoInt.features[0]||{}).properties||{}):S.joinGeo;
   // joinCsv: usa mesma heurística do viewer principal
   const joinCsvR=_pickZoneField(fieldsInt||[])||(fieldsInt&&fieldsInt[0])||S.joinCsv;
-  // coluna do nutriente na planilha Int (por nome-base, ex: "ph" casa com "pH em H2O Solo")
-  const colRName=(fieldsInt||[]).find(f=>_nutBase(f)===_nutBase(colNut));
+  // coluna do nutriente na planilha Int — tenta múltiplas heurísticas
+  const _norm=s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\([^)]*\)/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+  const _stripDepth=s=>_norm(s).replace(/\b\d{1,2}\s*-?\s*\d{1,2}\s*cm?\b/g,'').replace(/\s+/g,' ').trim();
+  const nutKeyAlvo=_stripDepth(colNut);
+  let colRName=(fieldsInt||[]).find(f=>_nutBase(f)===_nutBase(colNut));
+  if(!colRName) colRName=(fieldsInt||[]).find(f=>_stripDepth(f)===nutKeyAlvo);
+  if(!colRName){ const baseAlvo=_nutBase(colNut); colRName=(fieldsInt||[]).find(f=>_norm(f).split(' ')[0]===baseAlvo); }
+  if(!colRName) colRName=(fieldsInt||[]).find(f=>_stripDepth(f).startsWith(nutKeyAlvo.split(' ')[0])&&nutKeyAlvo.split(' ')[0].length>1);
   // filtra por profundidade
   const allRowsR=csvInt||[];
   const rowsR=depthColR?allRowsR.filter(r=>normDepth(r[depthColR])===normDepth(depth)):allRowsR;
@@ -5207,12 +5213,15 @@ function _renderSideInt(targetMap, layerKey, labelKey, geo, rows, joinGeoKey, jo
   }).addTo(targetMap);
   S[layerKey]=layer;
   if(S.showLabels){
-    // itera direto nas features (mais robusto que eachLayer no Leaflet GeoJSON)
-    (geo.features||[]).forEach(feat=>{
-      if(!_isPoly(feat)) return;
+    // itera nos sub-layers do Leaflet — getBounds() é fallback confiável quando polylabel falha
+    layer.eachLayer(lyr=>{
+      const feat=lyr.feature; if(!feat) return;
       const geoKey=String(feat.properties[joinGeoKey]??'').trim(); if(!geoKey) return;
       try{
-        const pos=_ipCached(feat); if(!pos) return;
+        let pos=null;
+        try{ pos=_ipCached(feat); }catch(e){ pos=null; }
+        if(!pos){ try{ pos=lyr.getBounds().getCenter(); }catch(e){ pos=null; } }
+        if(!pos) return;
         let row=joined[geoKey];
         if(!row && zoneKeys.length){ for(const zk of zoneKeys){ const tmp=(rows||[]).find(r=>String(r[zk]??'').trim()===geoKey); if(tmp){row=tmp;break;} } }
         const v=row?parseFloat(row[col]):NaN;
