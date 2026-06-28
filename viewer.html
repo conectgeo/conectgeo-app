@@ -1674,7 +1674,25 @@ async function _ativarCompareIntAtual(tokAtual, tokInt, nAtual, nInt){
     // get_link_data usa "geojson_url" no carregamento normal; mantém fallback
     // para nomes antigos para não deixar o mapa Int em branco.
     const geoUrl=dInt.geojson_url||dInt.zonas_geojson_url||dInt.zonas_url||'';
-    if(geoUrl){ const r=await fetch(geoUrl+'?v='+Date.now()); geoInt=await r.json(); }
+    if(geoUrl){
+      const r=await fetch(geoUrl+'?v='+Date.now()); geoInt=await r.json();
+      // se o "geojson_url" do Int retornar pontos (coleta de solo), busca o GeoJSON de zonas dedicado
+      const isPolyFeat=f=>{ const t=f&&f.geometry&&f.geometry.type; return t==='Polygon'||t==='MultiPolygon'; };
+      const hasPoly = geoInt && geoInt.features && geoInt.features.some(isPolyFeat);
+      if(!hasPoly){
+        const altUrl = dInt.zonas_geojson_url || dInt.recomendacao_zonas_url || dInt.coleta_zonas_url || '';
+        if(altUrl && altUrl!==geoUrl){
+          try{ const r2=await fetch(altUrl+'?v='+Date.now()); const g2=await r2.json();
+               if(g2 && g2.features && g2.features.some(isPolyFeat)) geoInt=g2;
+          }catch(e){ console.warn('[CmpInt] alt zonas fetch falhou:',e); }
+        }
+      }
+      // filtra para manter somente polígonos (evita renderizar pinos azuis da coleta)
+      if(geoInt && geoInt.features){
+        const polys=geoInt.features.filter(isPolyFeat);
+        if(polys.length) geoInt={...geoInt, features:polys};
+      }
+    }
     const planUrl=dInt.planilha_url||dInt.analises_url||'';
     if(planUrl){
       const r=await fetch(planUrl); const buf=await r.arrayBuffer();
