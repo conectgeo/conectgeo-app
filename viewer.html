@@ -1641,14 +1641,41 @@ function _temTalhaoInt(nome){ return /\(Int\s+\d{4}\)/i.test(nome||''); }
 function _sbClient(){ return window.sb || window.supabase; }
 function _extIsCsv(url){ return /\.csv(\?|$)/i.test(url); }
 
+function _cmpNormName(s){
+  return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[³²]/g,'').replace(/\([^)]*\d{1,2}\s*-\s*\d{1,2}[^)]*\)/g,' ')
+    .replace(/\b\d{1,2}\s*-\s*\d{1,2}\s*cm?\b/gi,' ')
+    .replace(/[^a-z0-9%]+/g,' ').trim();
+}
+function _sameNutrientName(a,b){
+  const ba=_nutBase(a), bb=_nutBase(b);
+  if(ba && bb && ba===bb) return true;
+  const na=_cmpNormName(a), nb=_cmpNormName(b);
+  return !!(na && nb && (na===nb || na.startsWith(nb+' ') || nb.startsWith(na+' ')));
+}
+function _findIntNutrientColumn(fields, refCol, depth, requireDepthInName){
+  const list=(fields||[]).filter(f=>f!==detectDepthColumn(fields||[]));
+  const same=list.filter(f=>_sameNutrientName(f, refCol));
+  if(!same.length) return null;
+  if(depth){
+    const exact=same.find(f=>_sameDepth(_depthFromName(f), depth));
+    if(exact) return exact;
+    if(requireDepthInName && same.some(f=>_depthFromName(f))) return null;
+  }
+  return same[0] || null;
+}
+
 async function _ativarCompareIntAtual(tokAtual, tokInt, nAtual, nInt){
   // S.geoData já está pronto (loadFromToken concluiu antes de chamar esta função)
   try{
     const { data:dInt } = await sb.rpc('get_link_data',{ p_token: tokInt });
     if(!dInt) return;
     let geoInt=null, csvInt=[], fieldsInt=[];
-    if(dInt.zonas_geojson_url){ const r=await fetch(dInt.zonas_geojson_url+'?v='+Date.now()); geoInt=await r.json(); }
-    const planUrl=dInt.planilha_url;
+    // get_link_data usa "geojson_url" no carregamento normal; mantém fallback
+    // para nomes antigos para não deixar o mapa Int em branco.
+    const geoUrl=dInt.geojson_url||dInt.zonas_geojson_url||dInt.zonas_url||'';
+    if(geoUrl){ const r=await fetch(geoUrl+'?v='+Date.now()); geoInt=await r.json(); }
+    const planUrl=dInt.planilha_url||dInt.analises_url||'';
     if(planUrl){
       const r=await fetch(planUrl); const buf=await r.arrayBuffer();
       const p=_extIsCsv(planUrl)?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
@@ -1656,18 +1683,14 @@ async function _ativarCompareIntAtual(tokAtual, tokInt, nAtual, nInt){
     }
     S.cmpIntPar={ on:true, tokAtual, tokInt, nAtual, nInt, geoInt, csvInt, fieldsInt };
 
-    // ativa compare manualmente (sem setCompareMode que tem guard de profundidades)
-    S.compare.on = true;
-    document.getElementById('compare-row').classList.add('on');
-    document.getElementById('compare-toggle').classList.add('on');
-    document.getElementById('compare-pickers').classList.add('show');
-    document.getElementById('depth-grid').style.display='none';
-    document.querySelector('.map-wrap').classList.add('compare-on');
+    // usa setCompareMode(true) para popular selects e criar map2
+    // mas bloqueia renderCompare para não renderizar antes dos dados Int
+    const _origRC=window.renderCompare;
+    window.renderCompare=function(){};
+    setCompareMode(true);
+    window.renderCompare=_origRC;
 
-    // monta o map2
-    ensureCompareMap();
-
-    // mostra nomes dos talhões nos selects (em vez de profundidades)
+    // substitui conteúdo dos selects pelos nomes dos talhões
     const selL=document.getElementById('sel-depth-left');
     const selR=document.getElementById('sel-depth-right');
     if(selL){ selL.disabled=true; selL.innerHTML='<option>'+nAtual+'</option>'; }
@@ -1681,7 +1704,7 @@ async function _ativarCompareIntAtual(tokAtual, tokInt, nAtual, nInt){
     await new Promise(res=>{ const chk=()=>{ if(S.compare&&S.compare.map2){ res(); }else{ setTimeout(chk,80); } }; chk(); });
     S.map.invalidateSize();
     S.compare.map2.invalidateSize();
-    await new Promise(res=>setTimeout(res,350));
+    await new Promise(res=>setTimeout(res,300));
     _renderCompareIntAtual();
   }catch(e){ console.warn('compare Int vs Atual erro:',e); }
 }
@@ -1695,24 +1718,20 @@ function _renderCompareIntAtual(){
   const colNut=S.colorCol;
 
   // --- LADO ESQUERDO: talhão atual (S) ---
-  const colL=S.depthByName?_colNaProfundidade(colNut,depth):colNut;
+  const colL=S.depthByName?(_colNaProfundidade(colNut,depth)||null):colNut;
   const rowsL=S.depthCol?S.csvData.filter(r=>normDepth(r[S.depthCol])===normDepth(depth)):S.csvData;
   const valsL=[]; rowsL.forEach(r=>{const v=parseFloat(r[colL]); if(!isNaN(v)) valsL.push(v);});
   const mnL=valsL.length?Math.min(...valsL):0, mxL=valsL.length?Math.max(...valsL):1;
 
   // --- LADO DIREITO: talhão Int ---
-  const depthColR=(fieldsInt||[]).find(f=>_depthFromName(f)||(f||'').toLowerCase().includes('profundidade')||(f||'').toLowerCase().includes('depth'));
+  const depthColR=detectDepthColumn(fieldsInt||[]);
+  const depthByNameR=!depthColR && (fieldsInt||[]).some(f=>_depthFromName(f));
   const joinGeoR=geoInt?_zoneField((geoInt.features[0]||{}).properties||{}):S.joinGeo;
   // joinCsv: usa mesma heurística do viewer principal
   const joinCsvR=_pickZoneField(fieldsInt||[])||(fieldsInt&&fieldsInt[0])||S.joinCsv;
-  // coluna do nutriente: busca por nome-base (ex: "ph" casa com "pH em H2O Solo")
-  const colRName=(fieldsInt||[]).find(f=>_nutBase(f)===_nutBase(colNut))
-    // fallback: nome exato
-    ||(fieldsInt||[]).find(f=>f===colNut)
-    // fallback 2: contém o nome
-    ||(fieldsInt||[]).find(f=>_primeiraPalavra(f)===_primeiraPalavra(colNut));
-  console.log('[CmpInt nutriente] colNut='+colNut+' colRName='+colRName+' depthColR='+depthColR+' depth='+depth);
-  // filtra por profundidade (se tiver coluna de profundidade)
+  // coluna do nutriente na planilha Int — respeita a profundidade quando ela está no nome da coluna
+  const colRName=_findIntNutrientColumn(fieldsInt||[], colNut, depth, depthByNameR);
+  // filtra por profundidade
   const allRowsR=csvInt||[];
   const rowsR=depthColR?allRowsR.filter(r=>normDepth(r[depthColR])===normDepth(depth)):allRowsR;
   const valsR=[]; rowsR.forEach(r=>{const v=parseFloat(r[colRName||colNut]); if(!isNaN(v)) valsR.push(v);});
@@ -1738,6 +1757,12 @@ function _renderCompareIntAtual(){
       geoInt, rowsR, joinGeoR, joinCsvR,
       colRName||colNut, mnR, mxR
     );
+  }
+  if(!S.pdfMode){
+    let cb=null;
+    try{ if(S.layer) cb=S.layer.getBounds(); }catch(e){}
+    try{ if(S.layer2){ const b2=S.layer2.getBounds(); cb=cb?cb.extend(b2):b2; } }catch(e){}
+    if(cb){ try{ S.map.fitBounds(cb,{padding:[24,24]}); }catch(e){} try{ if(S.compare.map2) S.compare.map2.fitBounds(cb,{padding:[24,24]}); }catch(e){} }
   }
 }
 
@@ -5216,12 +5241,15 @@ function _renderSideInt(targetMap, layerKey, labelKey, geo, rows, joinGeoKey, jo
   }).addTo(targetMap);
   S[layerKey]=layer;
   if(S.showLabels){
-    // itera direto nas features (mais robusto que eachLayer no Leaflet GeoJSON)
-    (geo.features||[]).forEach(feat=>{
-      if(!_isPoly(feat)) return;
+    // itera nos sub-layers do Leaflet — getBounds() é fallback confiável quando polylabel falha
+    layer.eachLayer(lyr=>{
+      const feat=lyr.feature; if(!feat) return;
       const geoKey=String(feat.properties[joinGeoKey]??'').trim(); if(!geoKey) return;
       try{
-        const pos=_ipCached(feat); if(!pos) return;
+        let pos=null;
+        try{ pos=_ipCached(feat); }catch(e){ pos=null; }
+        if(!pos){ try{ pos=lyr.getBounds().getCenter(); }catch(e){ pos=null; } }
+        if(!pos) return;
         let row=joined[geoKey];
         if(!row && zoneKeys.length){ for(const zk of zoneKeys){ const tmp=(rows||[]).find(r=>String(r[zk]??'').trim()===geoKey); if(tmp){row=tmp;break;} } }
         const v=row?parseFloat(row[col]):NaN;
@@ -5312,7 +5340,8 @@ function setCompareMode(on){
     setTimeout(()=>{
       S.map.invalidateSize();
       if(S.compare.map2) S.compare.map2.invalidateSize();
-      renderCompare();
+      if(S.cmpIntPar && S.cmpIntPar.on){ _renderCompareIntAtual(); }
+      else { renderCompare(); }
     }, 60);
   } else {
     // remove second-map layers visually
