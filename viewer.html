@@ -1642,7 +1642,7 @@ function _sbClient(){ return window.sb || window.supabase; }
 function _extIsCsv(url){ return /\.csv(\?|$)/i.test(url); }
 
 async function _ativarCompareIntAtual(tokAtual, tokInt, nAtual, nInt){
-  await new Promise(res=>{ const t=setInterval(()=>{ if(S.geoData){ clearInterval(t); res(); } },120); setTimeout(()=>{ clearInterval(t); res(); },8000); });
+  // S.geoData já está pronto (loadFromToken concluiu antes de chamar esta função)
   try{
     const { data:dInt } = await sb.rpc('get_link_data',{ p_token: tokInt });
     if(!dInt) return;
@@ -1668,7 +1668,15 @@ async function _ativarCompareIntAtual(tokAtual, tokInt, nAtual, nInt){
     const lR=document.querySelector('#cmp-depth-pickers .ctrl:last-child .ctrl-label');
     if(lL) lL.innerHTML='<span class="side-tag" style="background:#2a6e00">Atual</span> '+(nAtual||'');
     if(lR) lR.innerHTML='<span class="side-tag" style="background:#8b6914">Int</span> '+(nInt||'');
-    setTimeout(()=>{ S.map.invalidateSize(); if(S.compare.map2) S.compare.map2.invalidateSize(); _renderCompareIntAtual(); },250);
+    // espera o mapa 2 estar pronto antes de renderizar
+    await new Promise(res=>{
+      const check=()=>{ if(S.compare&&S.compare.map2){ res(); } else { setTimeout(check,80); } };
+      check();
+    });
+    S.map.invalidateSize();
+    if(S.compare.map2) S.compare.map2.invalidateSize();
+    await new Promise(res=>setTimeout(res,300));
+    _renderCompareIntAtual();
   }catch(e){ console.warn('compare Int vs Atual erro:',e); }
 }
 
@@ -4972,20 +4980,21 @@ async function loadFromURL(){
       // detecta se é um par Int vs Atual: carrega nomes dos dois talhões
       try{
         const [d0,d1]=await Promise.all(toks.map(t=>sb.rpc('get_link_data',{p_token:t}).then(r=>r.data)));
-        const n0=d0&&(d0.nome_talhao||d0.nome||''), n1=d1&&(d1.nome_talhao||d1.nome||'');
+        const n0=d0&&(d0.talhao||d0.nome||''), n1=d1&&(d1.talhao||d1.nome||'');
         const int0=_temTalhaoInt(n0), int1=_temTalhaoInt(n1);
         if((int0&&!int1)||(int1&&!int0)){
           // par Int vs Atual: atual primeiro, Int depois
           const [tokAtual,tokInt]=int1?[toks[0],toks[1]]:[toks[1],toks[0]];
           const [nAtual,nInt]=int1?[n0,n1]:[n1,n0];
           S.multiTokens=toks;
-          S.cmpIntPar={on:true,tokAtual,tokInt,nAtual,nInt};
+          S.cmpIntPar={on:false,tokAtual,tokInt,nAtual,nInt};
+          // carrega talhão atual normalmente e SÓ ENTÃO ativa o compare
           const ok=await loadFromToken(tokAtual,params);
-          // carrega o Int como extra mas hidden — compare vai renderizar separado
+          // agora S.geoData já está pronto — ativa compare
           await _ativarCompareIntAtual(tokAtual,tokInt,nAtual,nInt);
           return ok;
         }
-      }catch(e){}
+      }catch(e){ console.warn('detecção Int vs Atual falhou:',e); }
     }
     if(toks.length>1){
       S.multiTokens=toks;
