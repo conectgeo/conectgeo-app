@@ -1104,7 +1104,7 @@ async function salvarTalhao(){
     // 1. cliente
     // reaproveita cliente com o mesmo nome (não duplica o produtor)
     if(!clienteId && novoClienteNome){
-      const { data: jaCli } = await sb.from('clientes').select('id').eq('consultor_id',USER.id).ilike('nome', novoClienteNome).limit(1);
+      const { data: jaCli } = await sb.from('clientes').select('id').eq('consultor_id',USER.id).eq('inativo',false).ilike('nome', novoClienteNome).limit(1);
       if(jaCli && jaCli.length){ clienteId=jaCli[0].id; }
     }
     if(!clienteId){
@@ -1121,7 +1121,7 @@ async function salvarTalhao(){
     // 2. fazenda
     // bloqueia cliente+fazenda duplicados: o mesmo produtor não pode ter duas fazendas iguais
     if(!fazendaId && novaFazendaNome && clienteId){
-      const { data: jaFaz } = await sb.from('fazendas').select('id').eq('cliente_id', clienteId).ilike('nome', novaFazendaNome).limit(1);
+      const { data: jaFaz } = await sb.from('fazendas').select('id').eq('cliente_id', clienteId).eq('inativo',false).ilike('nome', novaFazendaNome).limit(1);
       if(jaFaz && jaFaz.length){
         toast('Esse produtor já tem a fazenda "'+novaFazendaNome+'". Selecione-a na lista para adicionar o talhão.','⚠️');
         return;
