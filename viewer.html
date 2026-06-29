@@ -1051,14 +1051,30 @@ function parseCSVText(text){
   }
   return {rows,fields:headers};
 }
-function parseXLSX(buf){
-  const wb=XLSX.read(buf,{type:'array',codepage:1252});
-  const ws=wb.Sheets[wb.SheetNames[0]];
+function _xlsxSheetByKeyword(wb, keywords){
+  // acha a primeira aba cujo nome contenha alguma das palavras-chave (case-insensitive)
+  return wb.SheetNames.find(n=>keywords.some(k=>n.toLowerCase().includes(k))) || null;
+}
+function _parseSheet(wb, sheetName){
+  const ws=wb.Sheets[sheetName||wb.SheetNames[0]];
   const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
   rows.forEach(r=>Object.keys(r).forEach(k=>{
     if(typeof r[k]==='string'){const n=parseFloat(r[k].replace(',','.'));if(r[k].trim()!==''&&!isNaN(n)&&/^-?[\d.,]+$/.test(r[k].trim()))r[k]=n;}
   }));
   return {rows,fields:rows.length?Object.keys(rows[0]):[]};
+}
+function parseXLSX(buf){
+  const wb=XLSX.read(buf,{type:'array',codepage:1252});
+  // detecta abas nutri e rec
+  const nutriName=_xlsxSheetByKeyword(wb,['nutri','analise','solo','quimica']);
+  const recName=_xlsxSheetByKeyword(wb,['rec','dose','insumo','corretivo','recomend']);
+  const hasBothSheets = nutriName && recName && nutriName!==recName;
+  const main=_parseSheet(wb, nutriName||wb.SheetNames[0]);
+  if(hasBothSheets){
+    const rec=_parseSheet(wb, recName);
+    return {...main, recRows:rec.rows, recFields:rec.fields, hasRecSheet:true};
+  }
+  return {...main, recRows:null, recFields:null, hasRecSheet:false};
 }
 
 // ══ COLOR ══
@@ -1352,7 +1368,16 @@ function applyCsvData(rows, fields, fileName){
   if(S.modeloB && S.modeloB.on){ _mbRecomputeDepthsFromNames(); }
   document.getElementById('sec-depth').style.display='';
   renderDepthGrid();
-  S.joinCsv = _pickZoneField(fields)||fields[0];
+  // detecção inteligente da coluna de zona (compara com GeoJSON se disponível)
+  const geoProps=S.geoData?(S.geoData.features||[]).map(f=>f.properties||{}):[];
+  const zoneDetect=geoProps.length?_detectZoneCol(fields,rows,geoProps):null;
+  S.joinCsv = (zoneDetect&&zoneDetect.col) || _pickZoneField(fields)||fields[0];
+  // feedback de casamento
+  if(zoneDetect&&zoneDetect.col){
+    const pct=Math.round(zoneDetect.score*100);
+    if(pct>=100) toast(`✅ Coluna "${zoneDetect.col}" detectada — ${zoneDetect.matched}/${zoneDetect.total} zonas casadas`,'ok');
+    else if(pct>=60) toast(`⚠️ Coluna "${zoneDetect.col}" detectada — ${zoneDetect.matched}/${zoneDetect.total} zonas casadas`,'wrn');
+  }
 }
 
 document.getElementById('f-csv').addEventListener('change',function(e){
@@ -1366,7 +1391,26 @@ document.getElementById('f-csv').addEventListener('change',function(e){
   };
   const r=new FileReader();
   if(ext==='csv'){r.onload=ev=>{try{const text=decodeBuffer(ev.target.result);const {rows,fields}=parseCSVText(text);done(rows,fields);}catch(err){toast('Erro CSV: '+err.message,'err');}};r.readAsArrayBuffer(file);}
-  else{r.onload=ev=>{try{const {rows,fields}=parseXLSX(ev.target.result);done(rows,fields);}catch(err){toast('Erro Excel: '+err.message,'err');}};r.readAsArrayBuffer(file);}
+  else{r.onload=ev=>{try{
+    const parsed=parseXLSX(ev.target.result);
+    done(parsed.rows,parsed.fields);
+    // se encontrou aba "rec" separada, carrega a recomendação automaticamente
+    if(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length){
+      setTimeout(()=>{
+        const recZone=_pickZoneField(parsed.recFields)||parsed.recFields[0];
+        const recCols=detectInsumoCols(parsed.recFields, parsed.recRows);
+        S.rec.rows=parsed.recRows; S.rec.fields=parsed.recFields;
+        S.rec.col=recCols[0]||null; S.rec.insumoCols=recCols;
+        S.rec.zone=recZone; S.rec.loaded=true;
+        const selR=document.getElementById('sel-insumo');
+        if(selR){ selR.innerHTML=recCols.map(c=>`<option value="${c}">${c}</option>`).join(''); }
+        const modeRec=document.getElementById('mode-recomendacao');
+        if(modeRec) modeRec.style.display='';
+        const ms=document.getElementById('mode-switch'); if(ms) ms.style.display='flex';
+        toast(`✅ Aba "rec" detectada — ${parsed.recRows.length} zonas de recomendação carregadas`,'ok');
+      },200);
+    }
+  }catch(err){toast('Erro Excel: '+err.message,'err');}};r.readAsArrayBuffer(file);}
 });
 
 // ══ DEPTH GRID ══
@@ -1446,8 +1490,8 @@ function applyActiveDepth(){
   const cjSel=document.getElementById('sel-csvf');
   cjSel.innerHTML=S.csvFields.map(f=>`<option value="${f}">${f}</option>`).join('');
   cjSel.value=S.csvFields.includes(S.joinCsv)?S.joinCsv:(S.joinCsv=S.csvFields[0]);
-  // numeric color columns (exclude join + depth)
-  let numCols=S.csvFields.filter(f=>f!==S.joinCsv&&f!==S.depthCol&&rows.some(r=>typeof r[f]==='number'));
+  // numeric color columns (exclude join + depth + área em ha)
+  let numCols=S.csvFields.filter(f=>f!==S.joinCsv&&f!==S.depthCol&&!_isAreaCol(f)&&rows.some(r=>typeof r[f]==='number'));
   // Relatório B: o seletor de nutrientes vai só até o último Enxofre (insumos ficam na Recomendação)
   if(S.modeloB&&S.modeloB.on){ const li=_lastEnxofreIdx(S.csvFields); if(li>=0){ const ok=new Set(S.csvFields.slice(0,li+1)); numCols=numCols.filter(c=>ok.has(c)); } }
   // profundidade pelo nome das colunas
@@ -1510,8 +1554,16 @@ function joinData(){
   const rows=getActiveRows();
   if(!S.geoData||!rows.length) return;
   S.joined={};
-  rows.forEach(r=>{const k=String(r[S.joinCsv]??'').trim();if(k)S.joined[k]=r;});
+  // índice normalizado: "ZG 01" e "1" e "01" → todos viram "1"
+  rows.forEach(r=>{
+    const raw=String(r[S.joinCsv]??'').trim();
+    const norm=_normZoneVal(raw);
+    S.joined[norm]=r;
+    if(raw!==norm) S.joined[raw]=r; // mantém chave original também
+  });
 }
+// normaliza chave do GeoJSON para busca no joined
+function _geoZoneKey(props){ return _normZoneVal(String(props[S.joinGeo]??'').trim()); }
 
 // ══ RENDER MAP ══
 function clearLabels(){S.labelLayers.forEach(l=>S.map.removeLayer(l));S.labelLayers=[];}
@@ -1566,7 +1618,7 @@ function renderMap(){
   if(S.layer) S.map.removeLayer(S.layer);
   clearLabels();
   const vals=[];
-  S.geoData.features.forEach(f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[effectiveCol]):NaN;if(!isNaN(v))vals.push(v);});
+  S.geoData.features.forEach(f=>{const key=_normZoneVal(String(f.properties[S.joinGeo]??'').trim());const row=S.joined[key]||S.joined[String(f.properties[S.joinGeo]??'').trim()];const v=row?parseFloat(row[effectiveCol]):NaN;if(!isNaN(v))vals.push(v);});
   if(!vals.length){ renderZonasVazias(); return; }
 
   const mn=Math.min(...vals),mx=Math.max(...vals);
@@ -1595,9 +1647,9 @@ function renderMap(){
 
   const legendItems=[];
   S.layer=L.geoJSON(S.geoData,{
-    style:f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[effectiveCol]):NaN;return{fillColor:corDe(v),color:'#333',weight:S.pdfMode?0:1.2,stroke:!S.pdfMode,fillOpacity:S.opacity};},
+    style:f=>{const key=_normZoneVal(String(f.properties[S.joinGeo]??'').trim());const row=S.joined[key]||S.joined[String(f.properties[S.joinGeo]??'').trim()];const v=row?parseFloat(row[effectiveCol]):NaN;return{fillColor:corDe(v),color:'#333',weight:S.pdfMode?0:1.2,stroke:!S.pdfMode,fillOpacity:S.opacity};},
     onEachFeature:(f,layer)=>{
-      const key=String(f.properties[S.joinGeo]??'').trim();const row=S.joined[key];const v=row?parseFloat(row[effectiveCol]):NaN;
+      const key=_normZoneVal(String(f.properties[S.joinGeo]??'').trim());const row=S.joined[key]||S.joined[String(f.properties[S.joinGeo]??'').trim()];const v=row?parseFloat(row[effectiveCol]):NaN;
       legendItems.push({key,v,color:corDe(v)});
       const valStr=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
       layer.bindTooltip(`<div class="tt-head">Zona ${key||'—'}</div><div class="tt-col">${effectiveCol}</div><div class="tt-val">${valStr}</div>`,{sticky:true,opacity:1,permanent:false});
@@ -2685,7 +2737,7 @@ function isInsumoConvertivel(name){
 function detectInsumoCols(fields, rows){
   const zoneF=_pickZoneField(fields);
   const depthF=detectDepthColumn(fields);
-  return fields.filter(f=>{ if(f===zoneF||f===depthF) return false; return rows.some(r=>!isNaN(recNum(r[f]))); });
+  return fields.filter(f=>{ if(f===zoneF||f===depthF||_isAreaCol(f)) return false; return rows.some(r=>!isNaN(recNum(r[f]))); });
 }
 // fator de conversão da coluna: tonelada -> kg (×1000) quando os valores são pequenos
 function recFatorColuna(col){
@@ -4632,6 +4684,40 @@ async function _buildRaster(url,fitBounds){
     return _makeColetaRasterLayer(gr,{fitBounds});
   }catch(e){ return null; }
 }
+// detecta se uma coluna representa área em hectares (deve ser excluída dos seletores de nutriente/taxa)
+function _isAreaCol(f){ const kn=String(f).toLowerCase().replace(/[^a-z0-9]/g,''); return /^(areaha|areha|hectares?|ha|supha)$/.test(kn)||/hectare/.test(kn); }
+
+// normaliza valor de zona: extrai só dígitos e remove zeros à esquerda
+// "ZG 01" → "1" | "ZONA 02" → "2" | "ID 015" → "15" | 01 → "1"
+function _normZoneVal(v){
+  const s=String(v==null?'':v).trim();
+  const digits=s.replace(/[^0-9]/g,'');
+  if(!digits) return s.toLowerCase(); // sem dígitos: retorna como está (ex: "A", "B")
+  return String(parseInt(digits,10));  // remove zeros à esquerda
+}
+
+// detecta a coluna de zona da planilha testando casamento com as zonas do GeoJSON
+// geoProps: array de objects (feature.properties de cada zona)
+// fields + rows: da planilha
+// retorna: { col, score, matched, total }
+function _detectZoneCol(fields, rows, geoProps){
+  if(!fields||!fields.length||!rows||!rows.length||!geoProps||!geoProps.length) return null;
+  // chaves do GeoJSON normalizadas
+  const geoKeys=new Set();
+  geoProps.forEach(p=>{ Object.values(p||{}).forEach(v=>geoKeys.add(_normZoneVal(v))); });
+  let best={col:null,score:0,matched:0,total:geoProps.length};
+  // testa as primeiras 6 colunas (zona quase sempre está no início)
+  const candidates=fields.slice(0,6);
+  for(const col of candidates){
+    if(_isAreaCol(col)) continue;
+    const vals=rows.map(r=>_normZoneVal(r[col]));
+    const uniq=new Set(vals.filter(v=>v!==''));
+    const matched=[...uniq].filter(v=>geoKeys.has(v)).length;
+    const score=geoKeys.size?matched/geoKeys.size:0;
+    if(score>best.score){ best={col,score,matched,total:geoKeys.size}; }
+  }
+  return best.score>=0.6?best:null; // mínimo 60% de match
+}
 function _pickZoneField(fields){
   // heurística por NOME (preferência); se nada casar, retorna null e o chamador usa a 1ª coluna
   if(!fields||!fields.length) return null;
@@ -5050,8 +5136,23 @@ async function loadFromToken(token, params){
       const csvBuf=await fetchBuf(data.planilha_url);
       const ext=data.planilha_url.split('?')[0].split('.').pop().toLowerCase();
       let rows,fields;
-      if(ext==='csv'){({rows,fields}=parseCSVText(decodeBuffer(csvBuf)));}
-      else{({rows,fields}=parseXLSX(csvBuf));}
+            if(ext==='csv'){({rows,fields}=parseCSVText(decodeBuffer(csvBuf)));}
+      else{
+        const parsed=parseXLSX(csvBuf);
+        rows=parsed.rows; fields=parsed.fields;
+        if(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length && !data.recomendacao_url){
+          const recZone=_pickZoneField(parsed.recFields)||parsed.recFields[0];
+          const recCols=detectInsumoCols(parsed.recFields, parsed.recRows);
+          S.rec.rows=parsed.recRows; S.rec.fields=parsed.recFields;
+          S.rec.col=recCols[0]||null; S.rec.insumoCols=recCols;
+          S.rec.zone=recZone; S.rec.loaded=true;
+          const selR=document.getElementById('sel-insumo');
+          if(selR){ selR.innerHTML=recCols.map(c=>`<option value="${c}">${c}</option>`).join(''); }
+          const modeRec=document.getElementById('mode-recomendacao');
+          if(modeRec) modeRec.style.display='';
+          const ms=document.getElementById('mode-switch'); if(ms) ms.style.display='flex';
+        }
+      }
       applyCsvData(rows,fields,(data.talhao||'analises'));
 
       // profundidade/nutriente via parâmetros opcionais (?depth= ?nut=)
