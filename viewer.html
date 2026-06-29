@@ -737,6 +737,10 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
         <input class="full" type="text" id="pdf-fazenda" data-i18n-ph="phFazenda" placeholder="Nome da Fazenda / Talhão" autocomplete="off">
         <input type="text" id="pdf-produtor" data-i18n-ph="phProdutor" placeholder="Produtor" autocomplete="off">
         <input type="text" id="pdf-resp" data-i18n-ph="phResp" placeholder="Responsável Técnico" autocomplete="off">
+        <select id="pdf-orient" style="grid-column:1/-1;padding:8px 10px;border:1px solid #ccc;border-radius:6px;font:inherit;background:#fff;">
+          <option value="landscape" selected>Orientação: Paisagem (mapas lado a lado)</option>
+          <option value="portrait">Orientação: Retrato (mapas empilhados)</option>
+        </select>
       </div>
 
       <span class="mlabel" data-i18n="mLogo">Logotipo do relatório</span>
@@ -2265,8 +2269,11 @@ async function generatePDF(nutrients){
 
   try{
     const {jsPDF}=window.jspdf;
-    const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
-    const PW=297, PH=210, pageW=1123, pageH=794;
+    const orient=((document.getElementById('pdf-orient')||{}).value)||'landscape';
+    const isLand=(orient!=='portrait');
+    const doc=new jsPDF({orientation:isLand?'landscape':'portrait',unit:'mm',format:'a4'});
+    const PW=isLand?297:210, PH=isLand?210:297;
+    const pageW=isLand?1123:794, pageH=isLand?794:1123;
 
     // logo source
     let logoSrc=null;
@@ -2284,15 +2291,24 @@ async function generatePDF(nutrients){
       const auto=autoPalette(nut);
       if(auto){S.pal=auto.pal;S.invert=auto.invert;} else {S.pal='rdylgn';S.invert=false;}
 
-      // list of depths to render (max 2 side-by-side)
+      // list of depths to render (max 2)
       const depths=(S.depthCol && (S.availDepths||[]).length) ? S.availDepths.slice(0,2) : [S.activeDepth||''];
 
-      // layout cells
-      const RX=760, RW=336, marg=24, gap=14, topY=90;
+      // layout cells — landscape: side by side; portrait: stacked vertically
+      const marg=24, gap=14, topY=isLand?90:80;
+      const RW=isLand?336:240;
+      const RX=pageW-RW-marg;
       const mapAreaW=RX-marg-12;
+      const mapAreaH=pageH-topY-60;
       const nCells=depths.length;
-      const cellW=Math.floor((mapAreaW - (nCells-1)*gap)/nCells);
-      const cellH=pageH-topY-60;
+      let cellW, cellH;
+      if(isLand){
+        cellW=Math.floor((mapAreaW-(nCells-1)*gap)/nCells);
+        cellH=mapAreaH;
+      } else {
+        cellW=mapAreaW;
+        cellH=Math.floor((mapAreaH-(nCells-1)*gap)/nCells);
+      }
 
       const caps=[];
       for(let i=0;i<depths.length;i++){
@@ -2325,17 +2341,18 @@ async function generatePDF(nutrients){
 
       // header
       const logoHTML=logoSrc?'<img src="'+logoSrc+'" style="max-height:54px;max-width:170px;object-fit:contain;display:block;">':'';
-      const headerHTML='<div style="position:absolute;left:0;top:0;width:'+pageW+'px;height:78px;background:#fff;">'
+      const headerHTML='<div style="position:absolute;left:0;top:0;width:'+pageW+'px;height:'+(isLand?78:70)+'px;background:#fff;">'
         +'<div style="position:absolute;left:30px;top:12px;">'+logoHTML+'</div>'
-        +'<div style="position:absolute;left:220px;right:160px;top:24px;text-align:center;font-size:22px;font-weight:700;color:#222;">'+titleTxt+'</div>'
+        +'<div style="position:absolute;left:220px;right:160px;top:24px;text-align:center;font-size:'+(isLand?22:18)+'px;font-weight:700;color:#222;">'+titleTxt+'</div>'
         +'<div style="position:absolute;right:30px;top:26px;font-size:12px;color:#777;text-align:right;">'+dataVal+'</div>'
         +'<div style="position:absolute;left:24px;right:24px;bottom:6px;height:2px;background:#7cc242;"></div></div>';
 
       // map cells
       let mapsHTML='';
       caps.forEach((cap,i)=>{
-        const cx=marg+i*(cellW+gap);
-        mapsHTML+='<div style="position:absolute;left:'+cx+'px;top:'+topY+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #cfcabb;background:#fff;overflow:hidden;border-radius:4px;">'
+        const cx=isLand?(marg+i*(cellW+gap)):marg;
+        const cy=isLand?topY:(topY+i*(cellH+gap));
+        mapsHTML+='<div style="position:absolute;left:'+cx+'px;top:'+cy+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #cfcabb;background:#fff;overflow:hidden;border-radius:4px;">'
           +'<img src="'+cap.img+'" style="width:100%;height:100%;object-fit:cover;display:block;">'
           +pill(cap.depth)
           +(i===caps.length-1?northHTML:'')
@@ -2385,7 +2402,7 @@ async function generatePDF(nutrients){
       });
       legHTML+='</div>';
 
-      const rightHTML='<div style="position:absolute;left:'+RX+'px;top:'+topY+'px;width:'+RW+'px;height:'+cellH+'px;border:1px solid #444;border-radius:3px;padding:14px 16px;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;">'
+      const rightHTML='<div style="position:absolute;left:'+RX+'px;top:'+topY+'px;width:'+RW+'px;height:'+mapAreaH+'px;border:1px solid #444;border-radius:3px;padding:14px 16px;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;">'
         +dadosHTML+statHTML+legHTML+'</div>';
 
       const footerHTML='<div style="position:absolute;left:0;bottom:0;width:'+pageW+'px;height:30px;background:#4a4a4a;color:rgba(255,255,255,.82);font-size:11px;display:flex;align-items:center;justify-content:space-between;padding:0 30px;box-sizing:border-box;">'
