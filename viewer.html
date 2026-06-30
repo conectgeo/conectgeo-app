@@ -194,6 +194,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 .mbtn.cancel:hover{border-color:var(--danger);color:var(--danger);}
 .mbtn.go{background:var(--leaf);color:#fff;}
 .mbtn.go:hover{background:#5e9636;box-shadow:0 4px 14px rgba(111,174,63,.3);}
+#mb-toggle-all:hover{background:var(--leaf) !important;color:#fff !important;box-shadow:0 3px 10px rgba(108,179,45,.35);}
 .modal-meta{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:20px;}
 .modal-meta input{width:100%;background:var(--panel);border:1.5px solid var(--border);border-radius:8px;padding:9px 12px;font-size:12px;color:var(--ink);outline:none;transition:.15s;cursor:text;}
 .modal-meta input:focus{border-color:var(--leaf);}
@@ -868,7 +869,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div class="modal-head">
       <div class="modal-title">Relatório de Nutrientes</div>
       <div class="modal-sub">Confira o Nível Ideal de cada nutriente (salvo por cliente)</div>
-      <div style="margin-top:8px"><button type="button" id="mb-toggle-all" class="mbtn cancel" style="padding:5px 12px;font-size:12px">Desmarcar todos</button></div>
+      <div style="margin-top:8px"><button type="button" id="mb-toggle-all" class="mbtn" style="padding:6px 14px;font-size:12px;font-weight:700;background:var(--accent3);border:1.5px solid var(--leaf);color:var(--accent2)">Desmarcar todos</button></div>
     </div>
     <div class="modal-body">
       <div id="mb-variant-row" style="display:none;align-items:center;gap:10px;margin-bottom:12px;padding:10px;background:#f7f7f8;border:1px solid var(--border);border-radius:8px;">
@@ -3173,6 +3174,20 @@ function openMbModal(){
          '<input type="text" class="mb-uni" value="'+String(uni).replace(/"/g,'&quot;')+'"></div>';
     });
     grid.innerHTML=h;
+    // linha extra: Índices de Vegetação (rasters EVI/NDMI/Textura) — só aparece se houver algum salvo
+    const zonasUrls=(S.modeloB&&S.modeloB.zonas)||{};
+    const temRaster=!!(zonasUrls.evi||zonasUrls.ndmi||zonasUrls.textura);
+    if(temRaster){
+      const checkedRel=(S.modeloB.niveis&&S.modeloB.niveis._imprimirIndices===false)?'':'checked';
+      const relRow=document.createElement('div');
+      relRow.className='mb-row';
+      relRow.id='mb-row-indices';
+      relRow.style.cssText='display:grid;grid-template-columns:24px 1.4fr 1fr 0.8fr;align-items:center;gap:8px;border-top:1.5px dashed var(--border);padding-top:9px;margin-top:2px';
+      relRow.innerHTML='<input type="checkbox" class="mb-sel" id="mb-sel-indices" '+checkedRel+'>'+
+        '<label style="font-weight:700">Índices de Vegetação<br><span style="font-weight:400;font-size:11px;color:var(--muted)">Página com EVI / NDMI / Textura</span></label>'+
+        '<span style="font-size:12px;color:var(--muted)">—</span><span></span>';
+      grid.appendChild(relRow);
+    }
   }
   // restaura variante escolhida anteriormente (persistida junto com os níveis)
   const sel=document.getElementById('mb-variant');
@@ -3184,22 +3199,29 @@ function openMbModal(){
 }
 function _mbCollect(){
   const map={};
-  document.querySelectorAll('#mb-grid .mb-row').forEach(r=>{
+  document.querySelectorAll('#mb-grid .mb-row[data-key]').forEach(r=>{
     const chk=r.querySelector('.mb-sel');
     map[r.dataset.key]={ valor:(r.querySelector('.mb-val').value||'').trim(), unidade:(r.querySelector('.mb-uni').value||'').trim(), sel: chk?chk.checked:true };
   });
   const sel=document.getElementById('mb-variant');
   map._variant=(sel&&MB_LAYOUTS[sel.value])?sel.value:'1';
+  const ri=document.getElementById('mb-sel-indices');
+  map._imprimirIndices = ri ? ri.checked : true;
   return map;
 }
 // retorna só as keys marcadas (selecionadas) no grid
 function _mbSelectedKeys(){
   const keys=[];
-  document.querySelectorAll('#mb-grid .mb-row').forEach(r=>{
+  document.querySelectorAll('#mb-grid .mb-row[data-key]').forEach(r=>{
     const chk=r.querySelector('.mb-sel');
     if(!chk || chk.checked) keys.push(r.dataset.key);
   });
   return keys;
+}
+// imprimir índices de vegetação? (checkbox separado, fora da lista de nutrientes)
+function _mbImprimirIndices(){
+  const ri=document.getElementById('mb-sel-indices');
+  return ri ? ri.checked : true;
 }
 async function _mbSalvarNiveis(map){
   S.modeloB.niveis=map;
@@ -3369,7 +3391,7 @@ async function _geotiffToPng(url){
   }catch(e){ console.warn('geotiff→png falhou:', e); return ''; }
 }
 
-async function generateModeloB(idealMap, selKeys){
+async function generateModeloB(idealMap, selKeys, imprimirIndices){
   let matched=modeloBMatch();
   if(!matched.length){ toast('Nenhum nutriente reconhecido para o Modelo B','wrn'); return; }
   if(selKeys && selKeys.length){
@@ -3457,10 +3479,10 @@ async function generateModeloB(idealMap, selKeys){
       if(!first) doc.addPage(); first=false;
       if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
     }
-    // página final "Zonas de Manejo" (Biomassa/Umidade/Textura) — só renderiza se houver URLs configuradas
+    // página final "Zonas de Manejo" (Biomassa/Umidade/Textura) — só renderiza se houver URLs configuradas E o consultor não desmarcou
     const zonasUrls=(S.modeloB&&S.modeloB.zonas)||{};
     const _relNomes={evi:'Biomassa', ndmi:'Umidade na Planta', textura:'Textura do Solo'};
-    let zonasItens=['evi','ndmi','textura'].map(k=>({key:k, nome:_relNomes[k], url:zonasUrls[k]||''})).filter(z=>z.url);
+    let zonasItens=(imprimirIndices===false) ? [] : ['evi','ndmi','textura'].map(k=>({key:k, nome:_relNomes[k], url:zonasUrls[k]||''})).filter(z=>z.url);
     // converte cada GeoTIFF colorido em PNG (fora do talhão fica transparente)
     for(const z of zonasItens){
       try{ z.img = await _geotiffToPng(z.url); }
@@ -3513,10 +3535,10 @@ async function generateModeloB(idealMap, selKeys){
 
 // wiring da tela de conferência do Modelo B
 (function(){
-  const go=document.getElementById('mb-go'); if(go) go.addEventListener('click', async()=>{ const map=_mbCollect(); const selKeys=_mbSelectedKeys(); document.getElementById('mb-modal').classList.remove('show'); await _mbSalvarNiveis(map); generateModeloB(map, selKeys); });
+  const go=document.getElementById('mb-go'); if(go) go.addEventListener('click', async()=>{ const map=_mbCollect(); const selKeys=_mbSelectedKeys(); const imprimirIndices=_mbImprimirIndices(); document.getElementById('mb-modal').classList.remove('show'); await _mbSalvarNiveis(map); generateModeloB(map, selKeys, imprimirIndices); });
   const lp=document.getElementById('mb-limpar'); if(lp) lp.addEventListener('click', async()=>{ document.querySelectorAll('#mb-grid .mb-row .mb-val').forEach(inp=>{ inp.value=''; }); await _mbSalvarNiveis(_mbCollect()); toast('Níveis ideais limpos','ok'); });
   const ta=document.getElementById('mb-toggle-all'); if(ta) ta.addEventListener('click', ()=>{
-    const boxes=[...document.querySelectorAll('#mb-grid .mb-sel')];
+    const boxes=[...document.querySelectorAll('#mb-grid .mb-sel')]; // inclui o checkbox de Índices também
     const allChecked=boxes.every(b=>b.checked);
     boxes.forEach(b=>b.checked=!allChecked);
     ta.textContent=allChecked?'Selecionar todos':'Desmarcar todos';
