@@ -187,6 +187,7 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 .nut-name{font-size:11px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .modal-tools{display:flex;gap:8px;margin-bottom:18px;}
 .mtool{padding:6px 13px;background:var(--panel);border:1.5px solid var(--border);border-radius:7px;font-size:10px;color:var(--muted);cursor:pointer;transition:.15s;}
+.mtool.on{background:var(--accent3);border-color:var(--leaf);color:var(--leaf);font-weight:700;}
 .mtool:hover{border-color:var(--leaf);color:var(--accent2);}
 .modal-foot{padding:16px 26px;border-top:1px solid var(--border);display:flex;gap:11px;justify-content:flex-end;background:var(--panel);}
 .mbtn{padding:11px 22px;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;border:none;transition:.18s;}
@@ -790,7 +791,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="modal">
     <div class="modal-head">
       <div class="modal-title">Exportar prescrição</div>
-      <div class="modal-sub">Um shapefile por insumo, na estrutura de pastas do monitor</div>
+      <div class="modal-sub" id="rec-export-sub">Um shapefile por insumo, na estrutura de pastas do monitor</div>
     </div>
     <div class="modal-body">
       <span class="mlabel">Modelo (monitor)</span>
@@ -806,7 +807,9 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       <div class="modal-tools">
         <div class="mtool" id="rec-exp-all">Selecionar todos</div>
         <div class="mtool" id="rec-exp-none">Limpar</div>
+        <div class="mtool" id="rec-exp-unif" style="display:none;" title="Funde as zonas de todos os talhões selecionados em um único shapefile por insumo">🔗 Exportar unificado</div>
       </div>
+      <div id="rec-exp-unif-hint" style="display:none;font-size:11px;color:var(--muted);margin:-10px 0 14px;"></div>
       <div class="nut-grid" id="rec-exp-insumos"></div>
 
       <span class="mlabel" style="margin-top:14px">Estrutura de pastas</span>
@@ -1001,7 +1004,12 @@ function _primeiraPalavra(col){ const s=String(col).normalize('NFD').replace(/[\
 const _NUT_SINON={al:'aluminio',aluminio:'aluminio',ca:'calcio',calcio:'calcio',mg:'magnesio',magnesio:'magnesio',k:'potassio',potassio:'potassio',p:'fosforo',fosforo:'fosforo',s:'enxofre',enxofre:'enxofre',b:'boro',boro:'boro',cu:'cobre',cobre:'cobre',fe:'ferro',ferro:'ferro',mn:'manganes',manganes:'manganes',zn:'zinco',zinco:'zinco',na:'sodio',sodio:'sodio'};
 // chave canônica do nutriente (aplica sinônimos sobre a primeira palavra)
 function _nutBase(col){ const w=_primeiraPalavra(col); return _NUT_SINON[w]||w; }
-function normDepth(v){ return String(v).trim().toLowerCase().replace(/\s+/g,'').replace('cm',''); }
+function normDepth(v){
+  const s=String(v).trim().toLowerCase().replace(/\s+/g,'').replace('cm','');
+  // normaliza zeros à esquerda: "0-20" → "00-20", "0-10" → "00-10"
+  // (planilhas ora escrevem "0-20" ora "00-20" — ambas devem casar)
+  return s.replace(/\b(\d)\b-(\d)/g,'0$1-$2').replace(/(\d)-\b(\d)\b/g,'$1-0$2');
+}
 function _sameDepth(a,b){ return !!a && !!b && normDepth(a)===normDepth(b); }
 function _colNaProfundidade(refCol, depth){ const w=_nutBase(refCol); const cands=(S.csvFields||[]).filter(f=>_sameDepth(_depthFromName(f), depth) && _nutBase(f)===w); return cands.length?cands[0]:null; }
 // Relatório B: força a leitura de profundidades pelos nomes das colunas (ex.: "Cálcio (00-20cm)")
@@ -3849,21 +3857,55 @@ function _buildDbf(fieldName, values){
   buf[off]=0x1A;
   return buf;
 }
-function _shapefileInsumo(insumoCol){
+// extrai {records, values} de UM insumo para UM alvo (talhão) — usado tanto isolado quanto fundido
+function _shpRecordsFromAlvo(alvo, insumoCol){
   const fator=recFatorColuna(insumoCol);
-  const zoneF=_pickZoneField(S.rec.fields)||S.rec.fields[0];
-  const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
-  const joinGeo=S.joinGeo||_zoneField(recGeo().features[0].properties);
+  const zoneF=alvo.zoneF || _pickZoneField(alvo.rows && alvo.rows.length ? Object.keys(alvo.rows[0]) : [])||null;
+  const joined={}; (alvo.rows||[]).forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
+  const geo=alvo.geo; if(!geo || !geo.features || !geo.features.length) return {records:[],values:[]};
+  const joinGeo=alvo.joinGeo||_zoneField(geo.features[0].properties);
   const records=[], values=[];
-  recGeo().features.forEach(f=>{ if(!f.geometry||(f.geometry.type!=='Polygon'&&f.geometry.type!=='MultiPolygon')) return;
+  geo.features.forEach(f=>{ if(!f.geometry||(f.geometry.type!=='Polygon'&&f.geometry.type!=='MultiPolygon')) return;
     const rec=_shpRecord(f.geometry); if(!rec) return;
     const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k];
     let dval=row?recNum(row[insumoCol]):NaN; if(!isNaN(dval)) dval*=fator;
     records.push(rec); values.push(isNaN(dval)?null:dval); });
+  return {records, values};
+}
+// monta o {shp,shx,dbf,prj} a partir de records/values já extraídos (1 talhão ou vários fundidos)
+function _shpFromRecords(insumoCol, records, values){
   if(!records.length) return null;
   const {shp,shx}=_buildShp(records);
   const dbf=_buildDbf(_dbfField(insumoCol), values);
   return {shp,shx,dbf,prj:PRJ_WGS84};
+}
+// alvo único (talhão primário) — mantido para compatibilidade
+function _shapefileInsumo(insumoCol){
+  const alvo={geo:recGeo(), joinGeo:S.joinGeo, rows:S.rec.rows, zoneF:_pickZoneField(S.rec.fields)||S.rec.fields[0]};
+  const {records,values}=_shpRecordsFromAlvo(alvo, insumoCol);
+  return _shpFromRecords(insumoCol, records, values);
+}
+// lista de talhões disponíveis para exportação: primário + extras com recomendação carregada
+function _exportAlvos(){
+  const alvos=[];
+  if(S.rec && S.rec.rows && S.rec.rows.length){
+    alvos.push({
+      nome:(S.linkData&&S.linkData.talhao)||'talhao',
+      geo:recGeo(), joinGeo:S.joinGeo, rows:S.rec.rows,
+      zoneF:_pickZoneField(S.rec.fields)||S.rec.fields[0]
+    });
+  }
+  (S.extras||[]).forEach(ex=>{
+    if(ex.rec && ex.rec.rows && ex.rec.rows.length){
+      alvos.push({
+        nome: ex.nome||'talhao',
+        geo: (ex.geo && ex.geo.features && ex.geo.features.length) ? ex.geo : null,
+        joinGeo: ex.joinGeo, rows: ex.rec.rows,
+        zoneF: ex.rec.zone || _pickZoneField(ex.rec.fields)||ex.rec.fields[0]
+      });
+    }
+  });
+  return alvos;
 }
 // ----- modal -----
 function recExpRenderInsumos(){
@@ -3880,15 +3922,48 @@ function recExpSelected(){ return Array.from(document.querySelectorAll('#rec-exp
 function recExpPreview(){
   const pre=document.getElementById('rec-exp-preview'); if(!pre) return;
   const modelo=REC_MODELOS[document.getElementById('rec-exp-modelo').value]||REC_MODELOS.raiz;
-  const sel=recExpSelected(); const talhao=_normNome((S.linkData&&S.linkData.talhao)||'talhao');
+  const sel=recExpSelected();
+  const alvos=_exportAlvos();
+  const unif = !!(S.recExp && S.recExp.unificado) && alvos.length>1;
   const exemplo = sel.length?sel : ((S.rec.insumoCols||[]).slice(0,1));
+  const itens = exemplo.length?exemplo:['(nenhum)'];
+
+  // subtítulo + hint conforme o cenário
+  const sub=document.getElementById('rec-export-sub');
+  const hint=document.getElementById('rec-exp-unif-hint');
+  if(alvos.length<=1){
+    if(sub) sub.textContent='Um shapefile por insumo, na estrutura de pastas do monitor';
+    if(hint) hint.style.display='none';
+  } else if(unif){
+    if(sub) sub.textContent=alvos.length+' talhões · shapefiles fundidos, um por insumo';
+    if(hint){ hint.style.display=''; hint.textContent='As zonas de '+alvos.map(a=>a.nome).join(', ')+' serão fundidas em um único shapefile por insumo.'; }
+  } else {
+    if(sub) sub.textContent=alvos.length+' talhões selecionados · uma pasta por talhão';
+    if(hint){ hint.style.display=''; hint.textContent='Sem "Exportar unificado": o zip terá uma pasta para cada talhão ('+alvos.map(a=>a.nome).join(', ')+'), cada uma com a estrutura abaixo.'; }
+  }
+
   let txt='';
-  (exemplo.length?exemplo:['(nenhum)']).forEach(col=>{
-    if(col==='(nenhum)'){ txt+='(selecione ao menos um insumo)'; return; }
-    const ins=_normNome(col); txt+=ins+'/\n'; let ind='  ';
-    modelo.subs.forEach((s,i)=>{ txt+=ind.repeat(i+1)+s+'/\n'; });
-    txt+=ind.repeat(modelo.subs.length+1)+ins+'_'+talhao+'.shp (.shx .dbf .prj)\n';
-  });
+  if(alvos.length>1 && !unif){
+    // múltiplos talhões, modo padrão: mostra a estrutura de 1 talhão como exemplo, com a pasta do talhão envolvendo tudo
+    const nomeEx=_normNome(alvos[0].nome||'talhao');
+    txt+=nomeEx+'/\n';
+    (itens.length?itens:['(nenhum)']).forEach(col=>{
+      if(col==='(nenhum)'){ txt+='  (selecione ao menos um insumo)\n'; return; }
+      const ins=_normNome(col); txt+='  '+ins+'/\n'; let ind='  ';
+      modelo.subs.forEach((s,i)=>{ txt+=ind.repeat(i+2)+s+'/\n'; });
+      txt+=ind.repeat(modelo.subs.length+2)+ins+'_'+nomeEx+'.shp (.shx .dbf .prj)\n';
+    });
+    txt+='  ...\n'+_normNome(alvos[1]?alvos[1].nome:'talhao_2')+'/\n  ...';
+  } else {
+    // 1 talhão, OU múltiplos unificados: sem pasta de talhão, 1 shapefile por insumo
+    const nomeArq = unif ? 'unificado' : _normNome(alvos[0]?alvos[0].nome:((S.linkData&&S.linkData.talhao)||'talhao'));
+    itens.forEach(col=>{
+      if(col==='(nenhum)'){ txt+='(selecione ao menos um insumo)'; return; }
+      const ins=_normNome(col); txt+=ins+'/\n'; let ind='  ';
+      modelo.subs.forEach((s,i)=>{ txt+=ind.repeat(i+1)+s+'/\n'; });
+      txt+=ind.repeat(modelo.subs.length+1)+ins+'_'+nomeArq+'.shp (.shx .dbf .prj)\n';
+    });
+  }
   pre.textContent=txt.trim();
 }
 async function exportarTabelasExcel(){
@@ -3913,34 +3988,93 @@ async function exportarTabelasExcel(){
 function openRecExport(){
   if(!recGeo()){ toast('Carregue as zonas do talhão primeiro','wrn'); return; }
   if(!S.rec.rows.length || !(S.rec.insumoCols||[]).length){ toast('Envie a planilha de recomendação primeiro','wrn'); return; }
+  S.recExp = S.recExp || {}; S.recExp.unificado=false; // sempre abre no modo padrão (1 pasta por talhão)
+  const alvos=_exportAlvos();
+  const unifBtn=document.getElementById('rec-exp-unif');
+  if(unifBtn) unifBtn.style.display = (alvos.length>1) ? '' : 'none';
+  if(unifBtn) unifBtn.classList.remove('on');
+  const hint=document.getElementById('rec-exp-unif-hint'); if(hint) hint.style.display='none';
   recExpRenderInsumos(); recExpPreview();
   document.getElementById('rec-export-modal').classList.add('show');
+}
+function toggleRecExpUnificado(){
+  S.recExp = S.recExp || {}; S.recExp.unificado = !S.recExp.unificado;
+  const unifBtn=document.getElementById('rec-exp-unif'); if(unifBtn) unifBtn.classList.toggle('on', S.recExp.unificado);
+  recExpPreview();
 }
 async function doRecExport(){
   const sel=recExpSelected();
   if(!sel.length){ toast('Selecione ao menos um insumo','wrn'); return; }
   if(!window.JSZip){ toast('Biblioteca de zip indisponível','err'); return; }
   const modelo=REC_MODELOS[document.getElementById('rec-exp-modelo').value]||REC_MODELOS.raiz;
-  const talhao=_normNome((S.linkData&&S.linkData.talhao)||'talhao');
+  const modeloKey=document.getElementById('rec-exp-modelo').value;
+  const alvos=_exportAlvos();
+  const unif = !!(S.recExp && S.recExp.unificado) && alvos.length>1;
   const goBtn=document.getElementById('rec-exp-go'); goBtn.disabled=true; const txt0=goBtn.textContent; goBtn.textContent='Gerando…';
   try{
     const zip=new JSZip();
     let ok=0;
-    sel.forEach(col=>{
-      const sf=_shapefileInsumo(col); if(!sf) return;
-      const ins=_normNome(col);
-      let dir=zip.folder(ins); modelo.subs.forEach(s=>{ dir=dir.folder(s); });
-      const base=ins+'_'+talhao;
-      dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
-      ok++;
-    });
+
+    if(alvos.length<=1){
+      // ── comportamento original: 1 talhão, 1 shapefile por insumo, sem pasta de talhão ──
+      const talhao=_normNome(alvos[0]?alvos[0].nome:((S.linkData&&S.linkData.talhao)||'talhao'));
+      sel.forEach(col=>{
+        const sf=_shapefileInsumo(col); if(!sf) return;
+        const ins=_normNome(col);
+        let dir=zip.folder(ins); modelo.subs.forEach(s=>{ dir=dir.folder(s); });
+        const base=ins+'_'+talhao;
+        dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
+        ok++;
+      });
+
+    } else if(unif){
+      // ── unificado: SEM pasta de talhão — 1 shapefile por insumo, fundindo as zonas de TODOS os talhões ──
+      sel.forEach(col=>{
+        let records=[], values=[];
+        alvos.forEach(alvo=>{
+          if(!alvo.geo) return; // talhão sem geojson próprio (não deveria ocorrer, mas protege)
+          const r=_shpRecordsFromAlvo(alvo, col);
+          records=records.concat(r.records); values=values.concat(r.values);
+        });
+        const sf=_shpFromRecords(col, records, values); if(!sf) return;
+        const ins=_normNome(col);
+        let dir=zip.folder(ins); modelo.subs.forEach(s=>{ dir=dir.folder(s); });
+        const base=ins+'_unificado';
+        dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
+        ok++;
+      });
+
+    } else {
+      // ── padrão multi-talhão: 1 pasta por talhão, cada uma com a estrutura completa (insumo > equipamento) ──
+      alvos.forEach(alvo=>{
+        const talhao=_normNome(alvo.nome||'talhao');
+        const talDir=zip.folder(talhao);
+        sel.forEach(col=>{
+          if(!alvo.geo) return;
+          const {records,values}=_shpRecordsFromAlvo(alvo, col);
+          const sf=_shpFromRecords(col, records, values); if(!sf) return;
+          const ins=_normNome(col);
+          let dir=talDir.folder(ins); modelo.subs.forEach(s=>{ dir=dir.folder(s); });
+          const base=ins+'_'+talhao;
+          dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
+          ok++;
+        });
+      });
+    }
+
     if(!ok){ toast('Nada para exportar','wrn'); goBtn.disabled=false; goBtn.textContent=txt0; return; }
     const blob=await zip.generateAsync({type:'blob'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-    a.download='prescricao_'+talhao+'_'+document.getElementById('rec-exp-modelo').value+'.zip';
+    const sufixo = alvos.length<=1 ? _normNome(alvos[0]?alvos[0].nome:((S.linkData&&S.linkData.talhao)||'talhao'))
+                  : unif ? 'unificado'
+                  : alvos.length+'talhoes';
+    a.download='prescricao_'+sufixo+'_'+modeloKey+'.zip';
     document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
     document.getElementById('rec-export-modal').classList.remove('show');
-    toast('Exportação concluída ('+ok+' insumo'+(ok>1?'s':'')+')','ok');
+    const okMsg = (alvos.length>1)
+      ? 'Exportação concluída ('+sel.length+' insumo'+(sel.length>1?'s':'')+' · '+alvos.length+' talhões'+(unif?' fundidos':' em pastas separadas')+')'
+      : 'Exportação concluída ('+ok+' insumo'+(ok>1?'s':'')+')';
+    toast(okMsg,'ok');
   }catch(e){ toast('Erro na exportação: '+e.message,'err'); }
   goBtn.disabled=false; goBtn.textContent=txt0;
 }
@@ -4603,6 +4737,7 @@ function wireColetaControls(){
   const reAll=document.getElementById('rec-exp-all'); if(reAll) reAll.addEventListener('click',()=>{ document.querySelectorAll('#rec-exp-insumos .nut-chip').forEach(c=>c.classList.add('sel')); recExpPreview(); });
   const reNone=document.getElementById('rec-exp-none'); if(reNone) reNone.addEventListener('click',()=>{ document.querySelectorAll('#rec-exp-insumos .nut-chip').forEach(c=>c.classList.remove('sel')); recExpPreview(); });
   const reMod=document.getElementById('rec-exp-modelo'); if(reMod) reMod.addEventListener('change', recExpPreview);
+  const reUnif=document.getElementById('rec-exp-unif'); if(reUnif) reUnif.addEventListener('click', toggleRecExpUnificado);
   const reBg=document.getElementById('rec-export-modal'); if(reBg) reBg.addEventListener('click',(e)=>{ if(e.target===reBg) reBg.classList.remove('show'); });
   // edição de doses
   const bEdit=document.getElementById('btn-rec-editar'); if(bEdit) bEdit.addEventListener('click',()=>setRecEditMode(true));

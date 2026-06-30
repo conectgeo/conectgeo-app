@@ -1402,6 +1402,9 @@ async function mvAbrirSelecionados(){
 
 async function carregarTalhaoNoMapa(talhaoId, nome){
   document.getElementById('mapa-sub').textContent=nome||'';
+  // atualiza o título com a fazenda atual (corrige bug de título preso na sessão anterior)
+  const fazAtual=MV_FAZENDAS.find(f=>f.id===MAPA_CTX.fazendaId);
+  document.getElementById('mapa-title').textContent=(fazAtual&&fazAtual.nome)||document.getElementById('mapa-title').textContent||'Mapa';
   MAPA_CTX.talhaoAtivo=talhaoId;
   const token=await tokenDoTalhao(talhaoId);
   if(!token) return;
