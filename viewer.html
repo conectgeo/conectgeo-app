@@ -866,8 +866,9 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 <div class="modal-bg" id="mb-modal">
   <div class="modal" style="max-width:560px;">
     <div class="modal-head">
-      <div class="modal-title">Relatório de Nutrientes — Modelo B</div>
+      <div class="modal-title">Relatório de Nutrientes</div>
       <div class="modal-sub">Confira o Nível Ideal de cada nutriente (salvo por cliente)</div>
+      <div style="margin-top:8px"><button type="button" id="mb-toggle-all" class="mbtn cancel" style="padding:5px 12px;font-size:12px">Desmarcar todos</button></div>
     </div>
     <div class="modal-body">
       <div id="mb-variant-row" style="display:none;align-items:center;gap:10px;margin-bottom:12px;padding:10px;background:#f7f7f8;border:1px solid var(--border);border-radius:8px;">
@@ -3158,12 +3159,16 @@ function openMbModal(){
   if(!matched.length){
     grid.innerHTML='<div style="color:var(--muted);font-size:13px;padding:10px;">Nenhum nutriente reconhecido nesta planilha para o Modelo B. (Verifique os nomes das colunas.)</div>';
   } else {
-    let h='<div class="mb-head"><span>Nutriente</span><span>Nível ideal</span><span>Unidade</span></div>';
+    let h='<div class="mb-head" style="grid-template-columns:24px 1.4fr 1fr 0.8fr"><span></span><span>Nutriente</span><span>Nível ideal</span><span>Unidade</span></div>';
     matched.forEach(m=>{
       const niv=(S.modeloB.niveis&&S.modeloB.niveis[m.def.key])||{};
       const val=(niv.valor!=null?niv.valor:''); const uni=(niv.unidade!=null?niv.unidade:m.def.uid);
       const prof=m.prof==='20-40'?' (20-40)':'';
-      h+='<div class="mb-row" data-key="'+m.def.key+'"><label>'+m.def.nome+prof+'</label>'+
+      // marca como selecionado por padrão, exceto se o consultor desmarcou anteriormente (persistido)
+      const checked=(niv.sel===false)?'':'checked';
+      h+='<div class="mb-row" data-key="'+m.def.key+'" style="display:grid;grid-template-columns:24px 1.4fr 1fr 0.8fr;align-items:center;gap:8px">'+
+         '<input type="checkbox" class="mb-sel" '+checked+'>'+
+         '<label>'+m.def.nome+prof+'</label>'+
          '<input type="text" class="mb-val" value="'+String(val).replace(/"/g,'&quot;')+'" placeholder="ex: 5">'+
          '<input type="text" class="mb-uni" value="'+String(uni).replace(/"/g,'&quot;')+'"></div>';
     });
@@ -3180,11 +3185,21 @@ function openMbModal(){
 function _mbCollect(){
   const map={};
   document.querySelectorAll('#mb-grid .mb-row').forEach(r=>{
-    map[r.dataset.key]={ valor:(r.querySelector('.mb-val').value||'').trim(), unidade:(r.querySelector('.mb-uni').value||'').trim() };
+    const chk=r.querySelector('.mb-sel');
+    map[r.dataset.key]={ valor:(r.querySelector('.mb-val').value||'').trim(), unidade:(r.querySelector('.mb-uni').value||'').trim(), sel: chk?chk.checked:true };
   });
   const sel=document.getElementById('mb-variant');
   map._variant=(sel&&MB_LAYOUTS[sel.value])?sel.value:'1';
   return map;
+}
+// retorna só as keys marcadas (selecionadas) no grid
+function _mbSelectedKeys(){
+  const keys=[];
+  document.querySelectorAll('#mb-grid .mb-row').forEach(r=>{
+    const chk=r.querySelector('.mb-sel');
+    if(!chk || chk.checked) keys.push(r.dataset.key);
+  });
+  return keys;
 }
 async function _mbSalvarNiveis(map){
   S.modeloB.niveis=map;
@@ -3354,9 +3369,15 @@ async function _geotiffToPng(url){
   }catch(e){ console.warn('geotiff→png falhou:', e); return ''; }
 }
 
-async function generateModeloB(idealMap){
-  const matched=modeloBMatch();
+async function generateModeloB(idealMap, selKeys){
+  let matched=modeloBMatch();
   if(!matched.length){ toast('Nenhum nutriente reconhecido para o Modelo B','wrn'); return; }
+  if(selKeys && selKeys.length){
+    const selSet=new Set(selKeys);
+    const filtered=matched.filter(m=>selSet.has(m.def.key));
+    if(!filtered.length){ toast('Selecione ao menos um nutriente','wrn'); return; }
+    matched=filtered;
+  }
   const saved={col:S.colorCol,pal:S.pal,inv:S.invert,labels:S.showLabels,depth:S.activeDepth};
   const savedSnapMB=(S.map&&S.map.options)?S.map.options.zoomSnap:1;
   const _baseRestore=_pdfBaseHide();
@@ -3492,8 +3513,14 @@ async function generateModeloB(idealMap){
 
 // wiring da tela de conferência do Modelo B
 (function(){
-  const go=document.getElementById('mb-go'); if(go) go.addEventListener('click', async()=>{ const map=_mbCollect(); document.getElementById('mb-modal').classList.remove('show'); await _mbSalvarNiveis(map); generateModeloB(map); });
+  const go=document.getElementById('mb-go'); if(go) go.addEventListener('click', async()=>{ const map=_mbCollect(); const selKeys=_mbSelectedKeys(); document.getElementById('mb-modal').classList.remove('show'); await _mbSalvarNiveis(map); generateModeloB(map, selKeys); });
   const lp=document.getElementById('mb-limpar'); if(lp) lp.addEventListener('click', async()=>{ document.querySelectorAll('#mb-grid .mb-row .mb-val').forEach(inp=>{ inp.value=''; }); await _mbSalvarNiveis(_mbCollect()); toast('Níveis ideais limpos','ok'); });
+  const ta=document.getElementById('mb-toggle-all'); if(ta) ta.addEventListener('click', ()=>{
+    const boxes=[...document.querySelectorAll('#mb-grid .mb-sel')];
+    const allChecked=boxes.every(b=>b.checked);
+    boxes.forEach(b=>b.checked=!allChecked);
+    ta.textContent=allChecked?'Selecionar todos':'Desmarcar todos';
+  });
   const cc=document.getElementById('mb-cancel'); if(cc) cc.addEventListener('click',()=>document.getElementById('mb-modal').classList.remove('show'));
   const bg=document.getElementById('mb-modal'); if(bg) bg.addEventListener('click',e=>{ if(e.target===bg) bg.classList.remove('show'); });
 })();
