@@ -3165,8 +3165,8 @@ function openMbModal(){
       const niv=(S.modeloB.niveis&&S.modeloB.niveis[m.def.key])||{};
       const val=(niv.valor!=null?niv.valor:''); const uni=(niv.unidade!=null?niv.unidade:m.def.uid);
       const prof=m.prof==='20-40'?' (20-40)':'';
-      // marca como selecionado por padrão, exceto se o consultor desmarcou anteriormente (persistido)
-      const checked=(niv.sel===false)?'':'checked';
+      // a seleção de impressão NUNCA é persistida — toda vez que o modal abre, vem tudo marcado
+      const checked='checked';
       h+='<div class="mb-row" data-key="'+m.def.key+'" style="display:grid;grid-template-columns:24px 1.4fr 1fr 0.8fr;align-items:center;gap:8px">'+
          '<input type="checkbox" class="mb-sel" '+checked+'>'+
          '<label>'+m.def.nome+prof+'</label>'+
@@ -3178,7 +3178,7 @@ function openMbModal(){
     const zonasUrls=(S.modeloB&&S.modeloB.zonas)||{};
     const temRaster=!!(zonasUrls.evi||zonasUrls.ndmi||zonasUrls.textura);
     if(temRaster){
-      const checkedRel=(S.modeloB.niveis&&S.modeloB.niveis._imprimirIndices===false)?'':'checked';
+      const checkedRel='checked';
       const relRow=document.createElement('div');
       relRow.className='mb-row';
       relRow.id='mb-row-indices';
@@ -3200,13 +3200,10 @@ function openMbModal(){
 function _mbCollect(){
   const map={};
   document.querySelectorAll('#mb-grid .mb-row[data-key]').forEach(r=>{
-    const chk=r.querySelector('.mb-sel');
-    map[r.dataset.key]={ valor:(r.querySelector('.mb-val').value||'').trim(), unidade:(r.querySelector('.mb-uni').value||'').trim(), sel: chk?chk.checked:true };
+    map[r.dataset.key]={ valor:(r.querySelector('.mb-val').value||'').trim(), unidade:(r.querySelector('.mb-uni').value||'').trim() };
   });
   const sel=document.getElementById('mb-variant');
   map._variant=(sel&&MB_LAYOUTS[sel.value])?sel.value:'1';
-  const ri=document.getElementById('mb-sel-indices');
-  map._imprimirIndices = ri ? ri.checked : true;
   return map;
 }
 // retorna só as keys marcadas (selecionadas) no grid
@@ -3406,10 +3403,12 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
   try{ if(S.map&&S.map.options){ S.map.options.zoomSnap=0; S.map.options.zoomDelta=0.25; } }catch(e){}
   showLoading('Preparando relatório…');
   S.pdfMode=true; S.showLabels=true;
+  document.body.classList.add('pdf-no-id');
   const logoSrc=S.consultorLogo||LOGO_DATA;
   const restore=()=>{
     if(_baseRestore) _baseRestore();
     try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnapMB; }catch(e){}
+    document.body.classList.remove('pdf-no-id');
     S.colorCol=saved.col;S.pal=saved.pal;S.invert=saved.inv;S.showLabels=saved.labels;S.pdfMode=false;
     if(saved.depth && S.depthCol && normDepth(S.activeDepth)!==normDepth(saved.depth)){ S.activeDepth=saved.depth; applyActiveDepth(); }
     else { try{ renderMap(); }catch(e){} }
