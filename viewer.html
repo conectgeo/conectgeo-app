@@ -4993,34 +4993,61 @@ function _zkey(v){
   if(/^-?\d+(?:\.\d+)?$/.test(num)){ const n=parseFloat(num); if(!isNaN(n)) return String(n); }
   return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');
 }
+// resolve a coluna equivalente no extra ao colorCol do primário.
+// Trata 3 casos: (a) coluna idêntica; (b) profundidade em coluna própria (ex.depthCol);
+// (c) depthByName — profundidade embutida no nome (ex: "M.O (00-20cm)").
+// Retorna { col, useRows } ou null se não houver correspondência.
+function _exResolveCol(ex, colorCol, depthLabel){
+  if(!ex||!ex.fields||!ex.rows) return null;
+  const colDepth=_depthFromName(colorCol);
+  const wantDepth = depthLabel || colDepth;
+  const base = _nutBase(colorCol);
+  // (c) depthByName: se o nome do nutriente carrega profundidade, resolve pela profundidade PEDIDA
+  // (antes de aceitar a coluna idêntica, que pode ser de outra profundidade)
+  if(wantDepth && colDepth){
+    const cand = ex.fields.find(f=>_sameDepth(_depthFromName(f), wantDepth) && _nutBase(f)===base);
+    if(cand) return { col:cand, useRows:ex.rows };
+    // pediu uma profundidade que este extra não tem por nome → sem dados
+    if(ex.fields.some(f=>_depthFromName(f) && _nutBase(f)===base)) return null;
+  }
+  // (a) coluna idêntica presente (sem depthByName)
+  if(ex.fields.indexOf(colorCol)>=0){
+    let useRows=ex.rows;
+    if(ex.depthCol && depthLabel){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel)); if(!fr.length) return null; useRows=fr; }
+    return { col:colorCol, useRows };
+  }
+  // (b)/fallback: mesmo nome-base ignorando profundidade (ex sem depthByName)
+  const cand2 = ex.fields.find(f=>_nutBase(f)===base) || ex.fields.find(f=>f.trim()===colorCol.trim());
+  if(cand2){
+    let useRows=ex.rows;
+    if(ex.depthCol && depthLabel){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel)); if(fr.length) useRows=fr; else return null; }
+    return { col:cand2, useRows };
+  }
+  return null;
+}
 function _extraNutVals(ex, colorCol, depthLabel){
   try{
     if(!ex.geo||!ex.rows||!ex.rows.length||!colorCol) return [];
-    if(ex.fields.indexOf(colorCol)<0) return [];
-    let useRows=ex.rows;
-    if(ex.depthCol && depthLabel){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel)); if(fr.length) useRows=fr; else return []; }
+    const res=_exResolveCol(ex, colorCol, depthLabel); if(!res) return [];
+    const useCol=res.col, useRows=res.useRows;
     const joined={}; useRows.forEach(r=>{ joined[_zkey(r[ex.sheetZone])]=r; });
-    const out=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; if(!isNaN(v)) out.push(v); });
+    const out=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; if(!isNaN(v)) out.push(v); });
     return out;
   }catch(e){ return []; }
 }
 function _extraNutLayer(ex, colorCol, depthLabel, scaleOverride){
   try{
     if(!ex.geo||!ex.rows||!ex.rows.length||!colorCol) return null;
-    if(ex.fields.indexOf(colorCol)<0) return null;            // não tem esse nutriente → cinza
-    let useRows=ex.rows;
-    if(ex.depthCol && depthLabel){
-      const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel));
-      if(fr.length) useRows=fr; else return null;             // não tem essa profundidade → cinza
-    }
+    const res=_exResolveCol(ex, colorCol, depthLabel); if(!res) return null;   // não tem esse nutriente/profundidade → cinza
+    const useCol=res.col, useRows=res.useRows;
     const joined={}; useRows.forEach(r=>{ joined[_zkey(r[ex.sheetZone])]=r; });
-    const vals=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; if(!isNaN(v)) vals.push(v); });
+    const vals=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; if(!isNaN(v)) vals.push(v); });
     if(!vals.length) return null;
     const sorted=[...vals].sort((a,b)=>a-b);
     const lay=L.geoJSON(ex.geo,{
-      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; const _mbHide=(S.pdfMode&&S.modeloB&&S.modeloB.on); return {fillColor:isNaN(v)?'#bbb':(scaleOverride?getColor(v,scaleOverride.mn,scaleOverride.mx):(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted))),color:'#333',weight:_mbHide?0:1.1,stroke:!_mbHide,fillOpacity:(S.opacity||0.85)}; },
-      onEachFeature:(f,l)=>{ const kraw=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[colorCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
-        l.bindTooltip('<div class="tt-head">Zona '+(kraw||'—')+'</div><div class="tt-col">'+colorCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1});
+      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; const _mbHide=(S.pdfMode&&S.modeloB&&S.modeloB.on); return {fillColor:isNaN(v)?'#bbb':(scaleOverride?getColor(v,scaleOverride.mn,scaleOverride.mx):(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted))),color:'#333',weight:_mbHide?0:1.1,stroke:!_mbHide,fillOpacity:(S.opacity||0.85)}; },
+      onEachFeature:(f,l)=>{ const kraw=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[useCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
+        l.bindTooltip('<div class="tt-head">Zona '+(kraw||'—')+'</div><div class="tt-col">'+useCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1});
         l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
         l.on('mouseout',function(){ if(lay) lay.resetStyle(this); });
       }
@@ -5178,16 +5205,16 @@ function multiRenderExtrasCompare(L1, R1, sL, sR){
 }
 function _ipCached(f){ if(f.__ip!==undefined) return f.__ip; let p=null; try{ p=interiorPoint(f.geometry); }catch(e){ p=null; } f.__ip=p; return p; }
 function _drawExtraLabels(ex, targetMap, depth, store){
-  if(!S.showLabels || !ex.geo || ex.fields.indexOf(S.colorCol)<0) return;
-  let useRows=ex.rows;
-  if(ex.depthCol && depth){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depth)); if(fr.length) useRows=fr; else return; }
+  if(!S.showLabels || !ex.geo) return;
+  const res=_exResolveCol(ex, S.colorCol, depth); if(!res) return;
+  const useCol=res.col, useRows=res.useRows;
   const joined={}; useRows.forEach(r=>{ joined[_zkey(r[ex.sheetZone])]=r; });
   const {idSize, valSize} = _pdfLabelSize(targetMap, S.layer);
   const vsNum=parseFloat(valSize);
   ex.geo.features.forEach(f=>{
     try{
       const kraw=String(f.properties[ex.joinGeo]??'').trim(); if(!kraw) return;
-      const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[S.colorCol]):NaN;
+      const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[useCol]):NaN;
       const valText=isNaN(v)?'—':(Number.isInteger(v)?String(v):v.toFixed(2));
       const pos=_ipCached(f); if(!pos) return;
       const idHtml = S.pdfMode ? '' : '<span class="zone-label-id" style="font-size:'+idSize+'px">'+kraw+'</span>';
