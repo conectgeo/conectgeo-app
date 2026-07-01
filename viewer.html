@@ -1378,17 +1378,7 @@ function applyCsvData(rows, fields, fileName){
   if(S.modeloB && S.modeloB.on){ _mbRecomputeDepthsFromNames(); }
   document.getElementById('sec-depth').style.display='';
   renderDepthGrid();
-  // detecção inteligente da coluna de zona (compara com GeoJSON se disponível)
-  const geoProps=S.geoData?(S.geoData.features||[]).map(f=>f.properties||{}):[];
-  const zoneDetect=geoProps.length?_detectZoneCol(fields,rows,geoProps):null;
-  S.joinCsv = (zoneDetect&&zoneDetect.col) || _pickZoneField(fields)||fields[0];
-  // feedback de casamento
-  if(zoneDetect&&zoneDetect.col){
-    const pct=Math.round(zoneDetect.score*100);
-    const isMulti=!!(S.extras&&S.extras.length);
-    if(pct>=100) toast(`✅ Coluna "${zoneDetect.col}" detectada — ${zoneDetect.matched}/${zoneDetect.total} zonas casadas`,'ok');
-    else if(pct>=60 && !isMulti) toast(`⚠️ Coluna "${zoneDetect.col}" detectada — ${zoneDetect.matched}/${zoneDetect.total} zonas casadas`,'wrn');
-  }
+  S.joinCsv = _pickZoneField(fields)||fields[0];
 }
 
 document.getElementById('f-csv').addEventListener('change',function(e){
@@ -1670,11 +1660,7 @@ function renderMap(){
       layer.on('mouseout',function(){S.layer.resetStyle(this);this.closeTooltip();});
     }
   }).addTo(S.map);
-  if(!S.pdfMode){
-    let _fb=S.layer.getBounds();
-    try{ (S.extras||[]).forEach(ex=>{ if(ex && ex.bounds){ _fb = _fb.extend(ex.bounds); } }); }catch(e){}
-    try{ S.map.fitBounds(_fb,{padding:[24,24]}); }catch(e){}
-  }
+  if(!S.pdfMode) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
   if(S.showLabels) drawLabels();
   document.getElementById('empty-msg').style.display='none';
   document.body.classList.add('has-data');
@@ -4282,13 +4268,6 @@ function setMapMode(mode){
   }else{
     Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
     S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l));
-    // limpa qualquer camada de coleta ainda pendurada nos extras (evita "bleed" p/ Nutrientes)
-    if(S.extras && S.extras.length){
-      S.extras.forEach(ex=>{
-        try{ [ex.coleta && ex.coleta.raster, ex.coleta && ex.coleta.zonas, ex.coleta && ex.coleta.pontos].forEach(l=>{ if(l){ try{S.map.removeLayer(l);}catch(e){} } }); }catch(e){}
-        try{ if(typeof _extraClearZonaLabels==='function') _extraClearZonaLabels(ex); }catch(e){}
-      });
-    }
     document.getElementById('mleg-left').style.display='';
     document.body.classList.remove('mode-coleta');
     if(S.layer) S.layer.addTo(S.map);
@@ -4989,45 +4968,31 @@ function _zkey(v){
 function _extraNutVals(ex, colorCol, depthLabel){
   try{
     if(!ex.geo||!ex.rows||!ex.rows.length||!colorCol) return [];
-    // resolução resiliente de coluna (igual a _extraNutLayer)
-    let useCol=colorCol;
-    if(ex.fields.indexOf(colorCol)<0){
-      const base=_nutBase(colorCol);
-      const found=ex.fields.find(f=>_nutBase(f)===base || f.trim()===colorCol.trim());
-      if(!found) return [];
-      useCol=found;
-    }
+    if(ex.fields.indexOf(colorCol)<0) return [];
     let useRows=ex.rows;
     if(ex.depthCol && depthLabel){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel)); if(fr.length) useRows=fr; else return []; }
     const joined={}; useRows.forEach(r=>{ joined[_zkey(r[ex.sheetZone])]=r; });
-    const out=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; if(!isNaN(v)) out.push(v); });
+    const out=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; if(!isNaN(v)) out.push(v); });
     return out;
   }catch(e){ return []; }
 }
 function _extraNutLayer(ex, colorCol, depthLabel, scaleOverride){
   try{
     if(!ex.geo||!ex.rows||!ex.rows.length||!colorCol) return null;
-    // busca a coluna no extra: primeiro exata, depois por nome-base normalizado (resiliente a case/encoding)
-    let useCol=colorCol;
-    if(ex.fields.indexOf(colorCol)<0){
-      const base=_nutBase(colorCol);
-      const found=ex.fields.find(f=>_nutBase(f)===base || f.trim()===colorCol.trim());
-      if(!found) return null;   // não tem esse nutriente → cinza
-      useCol=found;
-    }
+    if(ex.fields.indexOf(colorCol)<0) return null;            // não tem esse nutriente → cinza
     let useRows=ex.rows;
     if(ex.depthCol && depthLabel){
       const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel));
       if(fr.length) useRows=fr; else return null;             // não tem essa profundidade → cinza
     }
     const joined={}; useRows.forEach(r=>{ joined[_zkey(r[ex.sheetZone])]=r; });
-    const vals=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; if(!isNaN(v)) vals.push(v); });
+    const vals=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; if(!isNaN(v)) vals.push(v); });
     if(!vals.length) return null;
     const sorted=[...vals].sort((a,b)=>a-b);
     const lay=L.geoJSON(ex.geo,{
-      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; return {fillColor:isNaN(v)?'#bbb':(scaleOverride?getColor(v,scaleOverride.mn,scaleOverride.mx):(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted))),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
-      onEachFeature:(f,l)=>{ const kraw=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[useCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
-        l.bindTooltip('<div class="tt-head">Zona '+(kraw||'—')+'</div><div class="tt-col">'+useCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1});
+      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; return {fillColor:isNaN(v)?'#bbb':(scaleOverride?getColor(v,scaleOverride.mn,scaleOverride.mx):(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted))),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+      onEachFeature:(f,l)=>{ const kraw=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[colorCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
+        l.bindTooltip('<div class="tt-head">Zona '+(kraw||'—')+'</div><div class="tt-col">'+colorCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1});
         l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
         l.on('mouseout',function(){ if(lay) lay.resetStyle(this); });
       }
@@ -5082,11 +5047,11 @@ async function buildExtras(allTokens){
   async function carregar(tok, i){
     try{
       const { data } = await sb.rpc('get_link_data',{ p_token: tok });
-      if(!data || data.erro){ console.warn('[extras] token sem dados', tok, data&&data.erro); return null; }
+      if(!data || data.erro) return null;
       const nome=data.talhao||'Talhão';
       if(i===0) return { primary:true, nome };
-      if(!data.geojson_url){ console.warn('[extras] sem geojson_url:', nome, tok); return null; }
-      let geoRaw=null; try{ const r=await fetch(data.geojson_url); geoRaw=await r.json(); }catch(e){ console.warn('[extras] fetch geojson falhou:', nome, e); return null; }
+      if(!data.geojson_url) return null;
+      let geoRaw=null; try{ const r=await fetch(data.geojson_url); geoRaw=await r.json(); }catch(e){ return null; }
       const _isPoly=f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon');
       const _isPt=f=>f&&f.geometry&&(f.geometry.type==='Point'||f.geometry.type==='MultiPoint');
       const allF=(geoRaw&&geoRaw.features)||[];
@@ -5101,33 +5066,13 @@ async function buildExtras(allTokens){
           const ext=(data.planilha_url.split('?')[0].split('.').pop()||'').toLowerCase();
           const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
           rows=parsed.rows||[]; fields=parsed.fields||[];
-          // usa _detectZoneCol (cruzamento real de valores) igual ao talhão primário
-          const geoProps=(geo.features||[]).map(f=>f.properties||{});
-          const zoneDetect=geoProps.length?_detectZoneCol(fields,rows,geoProps):null;
-          sheetZone=(zoneDetect&&zoneDetect.col)||_pickZoneField(fields)||fields[0];
+          sheetZone=_pickZoneField(fields)||fields[0];
           depthCol=detectDepthColumn(fields);
-        }catch(e){ console.warn('[extras] planilha falhou:', nome, e); }
+        }catch(e){}
       }
-      // joinGeo simétrico: escolhe a PROPRIEDADE do geojson cujos valores casem melhor com sheetZone
-      let joinGeo=_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties);
-      try{
-        if(rows.length && sheetZone && geo.features && geo.features.length){
-          const sheetKeys=new Set(rows.map(r=>_zkey(r[sheetZone])).filter(v=>v!==''));
-          const geoKeys=Object.keys(geo.features[0].properties||{});
-          let best={key:joinGeo,score:-1};
-          for(const gk of geoKeys){
-            let m=0, tot=0;
-            for(const f of geo.features){ const v=_zkey((f.properties||{})[gk]); if(v===''){continue;} tot++; if(sheetKeys.has(v)) m++; }
-            const sc = tot ? m/tot : 0;
-            if(sc>best.score){ best={key:gk,score:sc}; }
-          }
-          if(best.score>0.2) joinGeo=best.key;
-          console.info('[extras]', nome, 'joinGeo=', joinGeo, 'score=', (best.score*100|0)+'%', 'sheetZone=', sheetZone);
-        }
-      }catch(e){}
       const temColeta = !!(data.tem_coleta_solo || data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url || geoPoints);
       const coleta = temColeta ? await _buildColeta(data, geo, geoPoints) : {raster:null,zonas:null,pontos:null};
-      let bounds=null; try{ bounds=L.geoJSON(geo).getBounds(); if(!bounds.isValid()) bounds=null; }catch(e){ bounds=null; }
+      let bounds=null; try{ bounds=L.geoJSON(geo).getBounds(); }catch(e){}
       let recRows=[], recFields=[], recZone=null, recInsumoCols=[], recUrl=null;
       try{
         recUrl=data.recomendacao_url;
@@ -5141,10 +5086,9 @@ async function buildExtras(allTokens){
           recInsumoCols=detectInsumoCols(recFields, recRows);
         }
       }catch(e){}
-      return { nome, ex:{ nome, token:tok, geo, joinGeo, rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,url:recUrl,_layer:null,_dirty:false} } };
-    }catch(e){ console.warn('[extras] carregar falhou:', tok, e); return null; }
+      return { nome, ex:{ nome, token:tok, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,url:recUrl,_layer:null,_dirty:false} } };
+    }catch(e){ return null; }
   }
-
   // carrega TODOS os talhões em paralelo (muito mais rápido que em série)
   const results = await Promise.all(allTokens.map((tok,i)=>carregar(tok,i)));
   results.forEach(res=>{
@@ -5206,15 +5150,7 @@ function multiRenderExtrasCompare(L1, R1, sL, sR){
 }
 function _ipCached(f){ if(f.__ip!==undefined) return f.__ip; let p=null; try{ p=interiorPoint(f.geometry); }catch(e){ p=null; } f.__ip=p; return p; }
 function _drawExtraLabels(ex, targetMap, depth, store){
-  if(!S.showLabels || !ex.geo) return;
-  // resolução resiliente da coluna do nutriente (case/encoding/espacos)
-  let useCol=S.colorCol;
-  if(!ex.fields || ex.fields.indexOf(useCol)<0){
-    const base=(typeof _nutBase==='function')?_nutBase(useCol):(useCol||'').toLowerCase().trim();
-    const found=(ex.fields||[]).find(f=>((typeof _nutBase==='function')?_nutBase(f):(f||'').toLowerCase().trim())===base || (f||'').trim().toLowerCase()===(useCol||'').trim().toLowerCase());
-    if(!found) return;
-    useCol=found;
-  }
+  if(!S.showLabels || !ex.geo || ex.fields.indexOf(S.colorCol)<0) return;
   let useRows=ex.rows;
   if(ex.depthCol && depth){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depth)); if(fr.length) useRows=fr; else return; }
   const joined={}; useRows.forEach(r=>{ joined[_zkey(r[ex.sheetZone])]=r; });
@@ -5222,7 +5158,7 @@ function _drawExtraLabels(ex, targetMap, depth, store){
   const vsNum=parseFloat(valSize);
   ex.geo.features.forEach(f=>{
     const kraw=String(f.properties[ex.joinGeo]??'').trim(); if(!kraw) return;
-    const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[useCol]):NaN;
+    const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[S.colorCol]):NaN;
     const valText=isNaN(v)?'—':(Number.isInteger(v)?String(v):v.toFixed(2));
     const pos=_ipCached(f); if(!pos) return;
     const lblW=Math.max(valText.length*vsNum*0.6, 16);
