@@ -1670,7 +1670,11 @@ function renderMap(){
       layer.on('mouseout',function(){S.layer.resetStyle(this);this.closeTooltip();});
     }
   }).addTo(S.map);
-  if(!S.pdfMode) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
+  if(!S.pdfMode){
+    let _fb=S.layer.getBounds();
+    try{ (S.extras||[]).forEach(ex=>{ if(ex && ex.bounds){ _fb = _fb.extend(ex.bounds); } }); }catch(e){}
+    try{ S.map.fitBounds(_fb,{padding:[24,24]}); }catch(e){}
+  }
   if(S.showLabels) drawLabels();
   document.getElementById('empty-msg').style.display='none';
   document.body.classList.add('has-data');
@@ -4278,6 +4282,13 @@ function setMapMode(mode){
   }else{
     Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
     S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l));
+    // limpa qualquer camada de coleta ainda pendurada nos extras (evita "bleed" p/ Nutrientes)
+    if(S.extras && S.extras.length){
+      S.extras.forEach(ex=>{
+        try{ [ex.coleta && ex.coleta.raster, ex.coleta && ex.coleta.zonas, ex.coleta && ex.coleta.pontos].forEach(l=>{ if(l){ try{S.map.removeLayer(l);}catch(e){} } }); }catch(e){}
+        try{ if(typeof _extraClearZonaLabels==='function') _extraClearZonaLabels(ex); }catch(e){}
+      });
+    }
     document.getElementById('mleg-left').style.display='';
     document.body.classList.remove('mode-coleta');
     if(S.layer) S.layer.addTo(S.map);
@@ -5177,7 +5188,15 @@ function multiRenderExtrasCompare(L1, R1, sL, sR){
 }
 function _ipCached(f){ if(f.__ip!==undefined) return f.__ip; let p=null; try{ p=interiorPoint(f.geometry); }catch(e){ p=null; } f.__ip=p; return p; }
 function _drawExtraLabels(ex, targetMap, depth, store){
-  if(!S.showLabels || !ex.geo || ex.fields.indexOf(S.colorCol)<0) return;
+  if(!S.showLabels || !ex.geo) return;
+  // resolução resiliente da coluna do nutriente (case/encoding/espacos)
+  let useCol=S.colorCol;
+  if(!ex.fields || ex.fields.indexOf(useCol)<0){
+    const base=(typeof _nutBase==='function')?_nutBase(useCol):(useCol||'').toLowerCase().trim();
+    const found=(ex.fields||[]).find(f=>((typeof _nutBase==='function')?_nutBase(f):(f||'').toLowerCase().trim())===base || (f||'').trim().toLowerCase()===(useCol||'').trim().toLowerCase());
+    if(!found) return;
+    useCol=found;
+  }
   let useRows=ex.rows;
   if(ex.depthCol && depth){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depth)); if(fr.length) useRows=fr; else return; }
   const joined={}; useRows.forEach(r=>{ joined[_zkey(r[ex.sheetZone])]=r; });
@@ -5185,7 +5204,7 @@ function _drawExtraLabels(ex, targetMap, depth, store){
   const vsNum=parseFloat(valSize);
   ex.geo.features.forEach(f=>{
     const kraw=String(f.properties[ex.joinGeo]??'').trim(); if(!kraw) return;
-    const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[S.colorCol]):NaN;
+    const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[useCol]):NaN;
     const valText=isNaN(v)?'—':(Number.isInteger(v)?String(v):v.toFixed(2));
     const pos=_ipCached(f); if(!pos) return;
     const lblW=Math.max(valText.length*vsNum*0.6, 16);
