@@ -5082,11 +5082,11 @@ async function buildExtras(allTokens){
   async function carregar(tok, i){
     try{
       const { data } = await sb.rpc('get_link_data',{ p_token: tok });
-      if(!data || data.erro) return null;
+      if(!data || data.erro){ console.warn('[extras] token sem dados', tok, data&&data.erro); return null; }
       const nome=data.talhao||'Talhão';
       if(i===0) return { primary:true, nome };
-      if(!data.geojson_url) return null;
-      let geoRaw=null; try{ const r=await fetch(data.geojson_url); geoRaw=await r.json(); }catch(e){ return null; }
+      if(!data.geojson_url){ console.warn('[extras] sem geojson_url:', nome, tok); return null; }
+      let geoRaw=null; try{ const r=await fetch(data.geojson_url); geoRaw=await r.json(); }catch(e){ console.warn('[extras] fetch geojson falhou:', nome, e); return null; }
       const _isPoly=f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon');
       const _isPt=f=>f&&f.geometry&&(f.geometry.type==='Point'||f.geometry.type==='MultiPoint');
       const allF=(geoRaw&&geoRaw.features)||[];
@@ -5106,11 +5106,28 @@ async function buildExtras(allTokens){
           const zoneDetect=geoProps.length?_detectZoneCol(fields,rows,geoProps):null;
           sheetZone=(zoneDetect&&zoneDetect.col)||_pickZoneField(fields)||fields[0];
           depthCol=detectDepthColumn(fields);
-        }catch(e){}
+        }catch(e){ console.warn('[extras] planilha falhou:', nome, e); }
       }
+      // joinGeo simétrico: escolhe a PROPRIEDADE do geojson cujos valores casem melhor com sheetZone
+      let joinGeo=_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties);
+      try{
+        if(rows.length && sheetZone && geo.features && geo.features.length){
+          const sheetKeys=new Set(rows.map(r=>_zkey(r[sheetZone])).filter(v=>v!==''));
+          const geoKeys=Object.keys(geo.features[0].properties||{});
+          let best={key:joinGeo,score:-1};
+          for(const gk of geoKeys){
+            let m=0, tot=0;
+            for(const f of geo.features){ const v=_zkey((f.properties||{})[gk]); if(v===''){continue;} tot++; if(sheetKeys.has(v)) m++; }
+            const sc = tot ? m/tot : 0;
+            if(sc>best.score){ best={key:gk,score:sc}; }
+          }
+          if(best.score>0.2) joinGeo=best.key;
+          console.info('[extras]', nome, 'joinGeo=', joinGeo, 'score=', (best.score*100|0)+'%', 'sheetZone=', sheetZone);
+        }
+      }catch(e){}
       const temColeta = !!(data.tem_coleta_solo || data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url || geoPoints);
       const coleta = temColeta ? await _buildColeta(data, geo, geoPoints) : {raster:null,zonas:null,pontos:null};
-      let bounds=null; try{ bounds=L.geoJSON(geo).getBounds(); }catch(e){}
+      let bounds=null; try{ bounds=L.geoJSON(geo).getBounds(); if(!bounds.isValid()) bounds=null; }catch(e){ bounds=null; }
       let recRows=[], recFields=[], recZone=null, recInsumoCols=[], recUrl=null;
       try{
         recUrl=data.recomendacao_url;
@@ -5124,9 +5141,10 @@ async function buildExtras(allTokens){
           recInsumoCols=detectInsumoCols(recFields, recRows);
         }
       }catch(e){}
-      return { nome, ex:{ nome, token:tok, geo, joinGeo:_zoneField(geo.features&&geo.features[0]&&geo.features[0].properties), rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,url:recUrl,_layer:null,_dirty:false} } };
-    }catch(e){ return null; }
+      return { nome, ex:{ nome, token:tok, geo, joinGeo, rows, fields, sheetZone, depthCol, coleta, hasColeta: !!(coleta.raster||coleta.pontos||coleta.zonas), bounds, _nut:null, _empty:null, _cmpL:null, _cmpR:null, _zonaLabels:[], _valLabels:[], rec:{rows:recRows,fields:recFields,zone:recZone,insumoCols:recInsumoCols,url:recUrl,_layer:null,_dirty:false} } };
+    }catch(e){ console.warn('[extras] carregar falhou:', tok, e); return null; }
   }
+
   // carrega TODOS os talhões em paralelo (muito mais rápido que em série)
   const results = await Promise.all(allTokens.map((tok,i)=>carregar(tok,i)));
   results.forEach(res=>{
