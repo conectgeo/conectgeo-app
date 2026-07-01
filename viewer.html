@@ -1385,8 +1385,9 @@ function applyCsvData(rows, fields, fileName){
   // feedback de casamento
   if(zoneDetect&&zoneDetect.col){
     const pct=Math.round(zoneDetect.score*100);
+    const isMulti=!!(S.extras&&S.extras.length);
     if(pct>=100) toast(`✅ Coluna "${zoneDetect.col}" detectada — ${zoneDetect.matched}/${zoneDetect.total} zonas casadas`,'ok');
-    else if(pct>=60) toast(`⚠️ Coluna "${zoneDetect.col}" detectada — ${zoneDetect.matched}/${zoneDetect.total} zonas casadas`,'wrn');
+    else if(pct>=60 && !isMulti) toast(`⚠️ Coluna "${zoneDetect.col}" detectada — ${zoneDetect.matched}/${zoneDetect.total} zonas casadas`,'wrn');
   }
 }
 
@@ -4977,11 +4978,18 @@ function _zkey(v){
 function _extraNutVals(ex, colorCol, depthLabel){
   try{
     if(!ex.geo||!ex.rows||!ex.rows.length||!colorCol) return [];
-    if(ex.fields.indexOf(colorCol)<0) return [];
+    // resolução resiliente de coluna (igual a _extraNutLayer)
+    let useCol=colorCol;
+    if(ex.fields.indexOf(colorCol)<0){
+      const base=_nutBase(colorCol);
+      const found=ex.fields.find(f=>_nutBase(f)===base || f.trim()===colorCol.trim());
+      if(!found) return [];
+      useCol=found;
+    }
     let useRows=ex.rows;
     if(ex.depthCol && depthLabel){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel)); if(fr.length) useRows=fr; else return []; }
     const joined={}; useRows.forEach(r=>{ joined[_zkey(r[ex.sheetZone])]=r; });
-    const out=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; if(!isNaN(v)) out.push(v); });
+    const out=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; if(!isNaN(v)) out.push(v); });
     return out;
   }catch(e){ return []; }
 }
@@ -5082,7 +5090,10 @@ async function buildExtras(allTokens){
           const ext=(data.planilha_url.split('?')[0].split('.').pop()||'').toLowerCase();
           const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
           rows=parsed.rows||[]; fields=parsed.fields||[];
-          sheetZone=_pickZoneField(fields)||fields[0];
+          // usa _detectZoneCol (cruzamento real de valores) igual ao talhão primário
+          const geoProps=(geo.features||[]).map(f=>f.properties||{});
+          const zoneDetect=geoProps.length?_detectZoneCol(fields,rows,geoProps):null;
+          sheetZone=(zoneDetect&&zoneDetect.col)||_pickZoneField(fields)||fields[0];
           depthCol=detectDepthColumn(fields);
         }catch(e){}
       }
