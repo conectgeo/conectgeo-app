@@ -1415,8 +1415,34 @@ document.getElementById('f-csv').addEventListener('change',function(e){
 });
 
 // ══ DEPTH GRID ══
+function _extraCountForDepth(label){
+  // soma as zonas/análises dos talhões extras para uma dada profundidade
+  let n=0;
+  (S.extras||[]).forEach(ex=>{
+    if(!ex||!ex.rows||!ex.rows.length) return;
+    if(ex.depthCol){
+      n += ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(label)).length;
+    } else if(_exUsaDepthByName(ex)){
+      // extra com profundidade no nome das colunas: só conta se tiver ESTA profundidade
+      if(_exHasDepthByName(ex, label)) n += (ex.geo&&ex.geo.features?ex.geo.features.length:ex.rows.length);
+    } else {
+      // sem info de profundidade no extra: assume que todas as linhas valem para a profundidade ativa
+      n += ex.rows.length;
+    }
+  });
+  return n;
+}
+// o extra tem alguma coluna com profundidade embutida no nome? (usa depthByName)
+function _exUsaDepthByName(ex){
+  try{ return (ex.fields||[]).some(f=>_depthFromName(f)!=null); }catch(e){ return false; }
+}
+// o extra tem coluna com ESTA profundidade específica no nome?
+function _exHasDepthByName(ex, label){
+  try{ return (ex.fields||[]).some(f=>_sameDepth(_depthFromName(f), label)); }catch(e){ return false; }
+}
 function renderDepthGrid(){
   const g=document.getElementById('depth-grid'); g.innerHTML='';
+  const _temExtras=!!(S.extras&&S.extras.length);
   // determine which standard labels are available
   DEPTH_LABELS.forEach(label=>{
     const cell=document.createElement('div');
@@ -1431,6 +1457,8 @@ function renderDepthGrid(){
       isAvail = (normDepth(S.manualDepth)===normDepth(label));
       count = isAvail ? S.csvData.length : 0;
     }
+    // multi-talhão: soma as zonas dos extras à contagem exibida
+    if(_temExtras && isAvail){ count += _extraCountForDepth(label); }
     cell.className='depth-cell'+(_sameDepth(label,S.activeDepth)?' active':'')+(isAvail?' avail':'')+(!isAvail&&(S.depthCol||S.depthByName)?' disabled':'');
     cell.innerHTML=`<div class="dlabel">${label}</div><div class="dstate">${isAvail?count+' zonas':((S.depthCol||S.depthByName)?'sem dados':'—')}</div>`;
     if(isAvail || (!S.depthCol && !S.depthByName)){
@@ -5152,6 +5180,7 @@ async function buildExtras(allTokens){
     if(res.ex){ addLeg(res.nome); S.extras.push(res.ex); }
   });
   multiApplyMode(S.mapMode||'nutrientes');
+  try{ renderDepthGrid(); }catch(e){}   // atualiza contadores de zona (soma dos talhões)
   setTimeout(()=>{ try{ S.map.invalidateSize(true); multiFitAll(); }catch(e){} }, 350);
 }
 function _extraClearZonaLabels(ex){ (ex._zonaLabels||[]).forEach(m=>{ try{S.map.removeLayer(m);}catch(e){} }); ex._zonaLabels=[]; }
