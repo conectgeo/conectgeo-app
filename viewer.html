@@ -2003,6 +2003,14 @@ function _pdfFontSizeFromMinSide(minSide, scl){
   const base=Math.max(8, Math.min(15, minSide * 0.42 * scl));
   return {idSize:(base*0.75).toFixed(1), valSize:base.toFixed(1)};
 }
+// menor lado de zona considerando o talhão primário + TODOS os extras visíveis no mapa
+// (garante que a fonte uniforme cabe na menor zona de qualquer talhão, evitando sobreposição)
+function _pdfMinSideAllVisible(map){
+  const sides=[];
+  try{ if(S.layer){ const m=_pdfLayerMinSide(map, S.layer); if(m!=null) sides.push(m); } }catch(e){}
+  try{ (S.extras||[]).forEach(ex=>{ if(ex._nut){ const m=_pdfLayerMinSide(map, ex._nut); if(m!=null) sides.push(m); } }); }catch(e){}
+  return sides.length ? Math.min(...sides) : null;
+}
 function _pdfUniformFontSize(map, layerObj, scaleOverride){
   const scl = (scaleOverride!=null) ? scaleOverride : S.labelScale;
   const fallback={idSize:(9*scl).toFixed(1), valSize:(12*scl).toFixed(1)};
@@ -2400,10 +2408,11 @@ async function generatePDF(nutrients){
       }
 
       // pré-medição: tamanho de fonte ÚNICO para o nutriente, baseado na união
-      // das zonas de TODAS as profundidades (evita 00-20cm e 20-40cm saírem
-      // com tamanhos diferentes, já que cada profundidade tem seu próprio zoom/layer)
+      // das zonas de TODAS as profundidades E de todos os talhões (primário + extras)
+      // (evita profundidades/talhões com tamanhos diferentes e rótulos sobrepostos)
       S._pdfFixedFontSize=null; // garante medição "crua" durante a pré-medição
-      if(depths.length>1){
+      const _temExtras=!!(S.extras&&S.extras.length);
+      if(depths.length>1 || _temExtras){
         const minSides=[];
         for(let i=0;i<depths.length;i++){
           const d=depths[i];
@@ -2416,7 +2425,9 @@ async function generatePDF(nutrients){
           let b=null; try{ if(S.layer) b=S.layer.getBounds(); }catch(e){}
           if(S.extras) S.extras.forEach(ex=>{ try{ if(ex.bounds) b=b?b.extend(ex.bounds):L.latLngBounds(ex.bounds.getSouthWest(),ex.bounds.getNorthEast()); }catch(e){} });
           try{ if(b) S.map.fitBounds(b,{padding:[20,20],animate:false}); }catch(e){}
-          const ms=_pdfLayerMinSide(S.map, S.layer);
+          // garante que os extras estejam renderizados para entrarem na medição do menor lado
+          try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); }catch(e){}
+          const ms=_pdfMinSideAllVisible(S.map);
           if(ms!=null) minSides.push(ms);
         }
         if(minSides.length){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(Math.min(...minSides), S.labelScale); }
