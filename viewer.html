@@ -3180,9 +3180,25 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
   try{
     try{ S.map.invalidateSize(true); }catch(e){}
     renderMap();
-    try{ if(S.layer) S.map.fitBounds(S.layer.getBounds(),{padding:[14,14],animate:false}); }catch(e){}
+    // multi-talhão: garante que os extras estejam desenhados para este nutriente/profundidade
+    try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); }catch(e){}
+    // enquadra o conjunto TODO (primário + extras), não só o primário
+    let b=null; try{ if(S.layer) b=S.layer.getBounds(); }catch(e){}
+    if(S.extras) S.extras.forEach(ex=>{ try{ if(ex.bounds) b=b?b.extend(ex.bounds):L.latLngBounds(ex.bounds.getSouthWest(),ex.bounds.getNorthEast()); }catch(e){} });
+    try{ if(b) S.map.fitBounds(b,{padding:[14,14],animate:false}); }catch(e){}
     // afasta ~15% (conteúdo a 85% do tamanho) para dar mais margem
     try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.85),{animate:false}); }catch(e){}
+    // dimensionamento dinâmico dos rótulos: mede a menor zona entre TODOS os talhões
+    // e fixa um único tamanho (evita rótulos grandes se sobrepondo em talhões estreitos)
+    if(S.extras && S.extras.length){
+      S._pdfFixedFontSize=null;
+      try{
+        const ms=_pdfMinSideAllVisible(S.map);
+        if(ms!=null){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(ms, S.labelScale); }
+      }catch(e){}
+      // re-renderiza rótulos com o tamanho fixo já definido
+      try{ multiRenderExtrasNutrient(); if(S.showLabels){ clearLabels(); drawLabels(); } }catch(e){}
+    }
     await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1200:520));
     const _timeout=(ms)=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout captura')),ms));
     const _h2c=async()=>{ const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); return cv.toDataURL('image/jpeg',0.95); };
@@ -3196,6 +3212,7 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
     }
   } finally {
     mapEl.style.width=orig.w; mapEl.style.height=orig.h; mapEl.style.flex=orig.f; if(wrap) wrap.style.width=orig.ww;
+    S._pdfFixedFontSize=null; // libera para o próximo nutriente/página recalcular
     try{ S.map.invalidateSize(true); }catch(e){}
   }
   return img;
@@ -3458,7 +3475,7 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
     if(_baseRestore) _baseRestore();
     try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnapMB; }catch(e){}
     document.body.classList.remove('pdf-no-id');
-    S.colorCol=saved.col;S.pal=saved.pal;S.invert=saved.inv;S.showLabels=saved.labels;S.pdfMode=false;
+    S.colorCol=saved.col;S.pal=saved.pal;S.invert=saved.inv;S.showLabels=saved.labels;S.pdfMode=false;S._pdfFixedFontSize=null;
     if(saved.depth && S.depthCol && normDepth(S.activeDepth)!==normDepth(saved.depth)){ S.activeDepth=saved.depth; applyActiveDepth(); }
     else { try{ renderMap(); }catch(e){} }
   };
@@ -5001,7 +5018,7 @@ function _extraNutLayer(ex, colorCol, depthLabel, scaleOverride){
     if(!vals.length) return null;
     const sorted=[...vals].sort((a,b)=>a-b);
     const lay=L.geoJSON(ex.geo,{
-      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; return {fillColor:isNaN(v)?'#bbb':(scaleOverride?getColor(v,scaleOverride.mn,scaleOverride.mx):(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted))),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; const _mbHide=(S.pdfMode&&S.modeloB&&S.modeloB.on); return {fillColor:isNaN(v)?'#bbb':(scaleOverride?getColor(v,scaleOverride.mn,scaleOverride.mx):(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted))),color:'#333',weight:_mbHide?0:1.1,stroke:!_mbHide,fillOpacity:(S.opacity||0.85)}; },
       onEachFeature:(f,l)=>{ const kraw=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[colorCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
         l.bindTooltip('<div class="tt-head">Zona '+(kraw||'—')+'</div><div class="tt-col">'+colorCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1});
         l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
