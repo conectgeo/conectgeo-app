@@ -2266,6 +2266,8 @@ function _pdfBaseHide(){
 
 async function generatePDF(nutrients){
   showLoading(t('loadingPrep'));
+  // garante que extras estejam no modo nutrientes (sem camadas de coleta/recomendação)
+  if(S.extras && S.extras.length){ try{ multiApplyMode('nutrientes'); }catch(e){} }
   const savedCol=S.colorCol, savedPal=S.pal, savedInv=S.invert, savedLabels=S.showLabels, savedTouched=S.userTouchedPal;
   const savedDepth=S.activeDepth;
   const savedSnap=(S.map&&S.map.options)?S.map.options.zoomSnap:1;
@@ -3440,6 +3442,8 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
     if(!filtered.length){ toast('Selecione ao menos um nutriente','wrn'); return; }
     matched=filtered;
   }
+  // garante que extras estejam no modo nutrientes (sem camadas de coleta/recomendação)
+  if(S.extras && S.extras.length){ try{ multiApplyMode('nutrientes'); }catch(e){} }
   const saved={col:S.colorCol,pal:S.pal,inv:S.invert,labels:S.showLabels,depth:S.activeDepth};
   const savedSnapMB=(S.map&&S.map.options)?S.map.options.zoomSnap:1;
   const _baseRestore=_pdfBaseHide();
@@ -4250,7 +4254,7 @@ function setMapMode(mode){
     document.getElementById('mleg-left').style.display='none';
     document.getElementById('empty-msg').style.display='none';
     document.body.classList.add('mode-coleta');
-    carregarColeta().then(()=>{ renderZonaLabels(); });
+    carregarColeta().then(()=>{ if(S.mapMode==='coleta') renderZonaLabels(); });
   }else if(mode==='recomendacao'){
     // colapsa o comparação de nutrientes, se estiver ligado
     if(S.compare && S.compare.on){
@@ -4984,20 +4988,27 @@ function _extraNutVals(ex, colorCol, depthLabel){
 function _extraNutLayer(ex, colorCol, depthLabel, scaleOverride){
   try{
     if(!ex.geo||!ex.rows||!ex.rows.length||!colorCol) return null;
-    if(ex.fields.indexOf(colorCol)<0) return null;            // não tem esse nutriente → cinza
+    // busca a coluna no extra: primeiro exata, depois por nome-base normalizado (resiliente a case/encoding)
+    let useCol=colorCol;
+    if(ex.fields.indexOf(colorCol)<0){
+      const base=_nutBase(colorCol);
+      const found=ex.fields.find(f=>_nutBase(f)===base || f.trim()===colorCol.trim());
+      if(!found) return null;   // não tem esse nutriente → cinza
+      useCol=found;
+    }
     let useRows=ex.rows;
     if(ex.depthCol && depthLabel){
       const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel));
       if(fr.length) useRows=fr; else return null;             // não tem essa profundidade → cinza
     }
     const joined={}; useRows.forEach(r=>{ joined[_zkey(r[ex.sheetZone])]=r; });
-    const vals=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; if(!isNaN(v)) vals.push(v); });
+    const vals=[]; ex.geo.features.forEach(f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; if(!isNaN(v)) vals.push(v); });
     if(!vals.length) return null;
     const sorted=[...vals].sort((a,b)=>a-b);
     const lay=L.geoJSON(ex.geo,{
-      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[colorCol]):NaN; return {fillColor:isNaN(v)?'#bbb':(scaleOverride?getColor(v,scaleOverride.mn,scaleOverride.mx):(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted))),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
-      onEachFeature:(f,l)=>{ const kraw=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[colorCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
-        l.bindTooltip('<div class="tt-head">Zona '+(kraw||'—')+'</div><div class="tt-col">'+colorCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1});
+      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; return {fillColor:isNaN(v)?'#bbb':(scaleOverride?getColor(v,scaleOverride.mn,scaleOverride.mx):(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted))),color:'#333',weight:1.1,fillOpacity:(S.opacity||0.85)}; },
+      onEachFeature:(f,l)=>{ const kraw=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[useCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
+        l.bindTooltip('<div class="tt-head">Zona '+(kraw||'—')+'</div><div class="tt-col">'+useCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1});
         l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
         l.on('mouseout',function(){ if(lay) lay.resetStyle(this); });
       }
