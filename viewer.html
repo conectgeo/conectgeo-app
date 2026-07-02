@@ -2911,7 +2911,14 @@ async function loadRecData(){
     const resp=await fetch(url); const buf=await resp.arrayBuffer();
     const ext=(url.split('?')[0].split('.').pop()||'').toLowerCase();
     const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
-    S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[]; S.rec.loaded=true;
+    // planilha combinada (abas "nutri" e "rec"): a recomendação vem da aba REC,
+    // não do main (aba nutri). Mesmo tratamento do upload.
+    if(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length){
+      S.rec.rows=parsed.recRows; S.rec.fields=parsed.recFields;
+    } else {
+      S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[];
+    }
+    S.rec.loaded=true;
   }catch(e){}
 }
 function niceStep(rough){ if(!(rough>0)) return 1; const pow=Math.pow(10,Math.floor(Math.log10(rough))); const f=rough/pow; let nf; if(f<1.5)nf=1; else if(f<3)nf=2; else if(f<7)nf=5; else nf=10; return nf*pow; }
@@ -5192,7 +5199,12 @@ async function buildExtras(allTokens){
           const respR=await fetch(recUrl); const bufR=await respR.arrayBuffer();
           const extR=(recUrl.split('?')[0].split('.').pop()||'').toLowerCase();
           const parsedR=(extR==='csv')?parseCSVText(decodeBuffer(bufR)):parseXLSX(bufR);
-          recRows=parsedR.rows||[]; recFields=parsedR.fields||[];
+          // planilha combinada: a recomendação vem da aba REC (não do main/aba nutri)
+          if(parsedR.hasRecSheet && parsedR.recRows && parsedR.recRows.length){
+            recRows=parsedR.recRows; recFields=parsedR.recFields;
+          } else {
+            recRows=parsedR.rows||[]; recFields=parsedR.fields||[];
+          }
           recZone=_pickZoneField(recFields)||recFields[0];
           recInsumoCols=detectInsumoCols(recFields, recRows);
         }
