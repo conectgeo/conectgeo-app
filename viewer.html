@@ -2907,6 +2907,7 @@ async function loadRecData(){
   }
   if(!url) return;
   S.rec.url=url;
+  console.log('[recLoad] carregando recomendação de:', url);
   try{
     const resp=await fetch(url); const buf=await resp.arrayBuffer();
     const ext=(url.split('?')[0].split('.').pop()||'').toLowerCase();
@@ -2919,7 +2920,8 @@ async function loadRecData(){
       S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[];
     }
     S.rec.loaded=true;
-  }catch(e){}
+    console.log('[recLoad] carregado:', S.rec.rows.length, 'linhas | campos:', S.rec.fields, '| 1ª linha:', S.rec.rows[0]);
+  }catch(e){ console.error('[recLoad] erro:', e); }
 }
 function niceStep(rough){ if(!(rough>0)) return 1; const pow=Math.pow(10,Math.floor(Math.log10(rough))); const f=rough/pow; let nf; if(f<1.5)nf=1; else if(f<3)nf=2; else if(f<7)nf=5; else nf=10; return nf*pow; }
 function clearRecLabels(){ if(!S.rec) return; S.rec.labels.forEach(l=>{ try{S.map.removeLayer(l);}catch(e){} try{ if(S.compare&&S.compare.map2) S.compare.map2.removeLayer(l);}catch(e){} }); S.rec.labels=[]; }
@@ -4210,6 +4212,7 @@ function _buildRecCSVFrom(fields, rows){
 async function recEditSalvar(){
   const dirtyPrim = !!S.rec._dirty;
   const dirtyExtras = (S.extras||[]).filter(ex=>ex.rec && ex.rec._dirty && ex.token);
+  console.log('[recSave] início — dirtyPrim:', dirtyPrim, '| tokenAtual:', S.tokenAtual, '| dirtyExtras:', dirtyExtras.length, '| sb?', !!sb);
   S.rec._backup=null; S.rec._dirty=false;
   (S.extras||[]).forEach(ex=>{ if(ex.rec){ ex.rec._backup=null; } });
   S.rec.editing=false;
@@ -4228,17 +4231,23 @@ async function recEditSalvar(){
       try{
         const csv=buildRecCSV(); const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
         const path='recomendacao/'+S.tokenAtual+'/rec_'+Date.now()+'.csv';
+        console.log('[recSave] subindo CSV para:', path, '| tamanho:', csv.length, 'chars');
         const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv'});
+        console.log('[recSave] resposta upload:', up);
         if(up && up.error){ errCount++; lastErr='upload: '+(up.error.message||up.error); }
         else {
           const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
           S.rec.url=url;
+          console.log('[recSave] chamando atualizar_recomendacao — token:', S.tokenAtual, '| url:', url);
           const rpc=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
+          console.log('[recSave] resposta RPC:', rpc);
           if(rpc && rpc.error){ errCount++; lastErr='rpc: '+(rpc.error.message||rpc.error); }
           else if(rpc && rpc.data && rpc.data.erro){ errCount++; lastErr='rpc: '+rpc.data.erro; }
           else { okCount++; }
         }
-      }catch(e){ errCount++; lastErr=String(e&&e.message||e); }
+      }catch(e){ errCount++; lastErr=String(e&&e.message||e); console.error('[recSave] exceção:', e); }
+    } else {
+      console.warn('[recSave] NÃO salvou primário — dirtyPrim:', dirtyPrim, '| tokenAtual:', S.tokenAtual);
     }
     for(const ex of dirtyExtras){
       try{
