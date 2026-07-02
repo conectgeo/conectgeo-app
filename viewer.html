@@ -2896,6 +2896,33 @@ function _deriveRecFromNutri(){
   S.rec.rows=rows.map(r=>{ const o={}; recFields.forEach(c=>{ o[c]=r[c]; }); return o; });
   return true;
 }
+// consulta a data de modificação de um arquivo público do Storage (HEAD; fallback GET parcial)
+async function _recHeadLastMod(url){
+  try{
+    const clean=url.split('?')[0];
+    let r=await fetch(clean+'?h='+Date.now(), {method:'HEAD', cache:'no-store'});
+    if(!r.ok){
+      try{ r=await fetch(clean+'?h='+Date.now(), {method:'GET', headers:{'Range':'bytes=0-0'}, cache:'no-store'}); }catch(e){ return null; }
+      if(!r.ok) return null;
+    }
+    const lm=r.headers.get('last-modified');
+    return { ok:true, time: lm ? new Date(lm).getTime() : 0 };
+  }catch(e){ return null; }
+}
+// Escolhe a URL de recomendação mais RECENTE entre a URL registrada no banco e o CSV
+// gravado pelas edições (recomendacao/{token}/planilha.csv). Assim, mesmo que a RPC
+// atualizar_recomendacao falhe ou não exista, as edições salvas NUNCA se perdem no reload.
+async function _freshestRecUrl(token, dbUrl){
+  if(!sb || !token) return dbUrl||null;
+  let csvUrl=null;
+  try{ csvUrl=sb.storage.from('arquivos').getPublicUrl('recomendacao/'+token+'/planilha.csv').data.publicUrl; }catch(e){}
+  if(!csvUrl) return dbUrl||null;
+  const dbBase=dbUrl ? dbUrl.split('?')[0] : null;
+  if(dbBase && dbBase===csvUrl.split('?')[0]) return dbUrl; // banco já aponta pro CSV editado
+  const [hCsv, hDb]=await Promise.all([ _recHeadLastMod(csvUrl), dbBase?_recHeadLastMod(dbBase):Promise.resolve(null) ]);
+  if(hCsv && (!hDb || hCsv.time >= hDb.time)) return csvUrl + '?t=' + Date.now();
+  return dbUrl||null;
+}
 async function loadRecData(){
   await _loadRecGeo();
   // Relatório B: usa a PRÓPRIA planilha de nutrientes (ZG + colunas após o último Enxofre)
@@ -2906,7 +2933,9 @@ async function loadRecData(){
   if(sb && S.tokenAtual){
     try{ const { data } = await sb.rpc('get_recomendacao_url',{p_token:S.tokenAtual}); if(data && data.recomendacao_url) freshUrl=data.recomendacao_url; }catch(e){}
   }
-  const url = freshUrl || S.rec.url || (S.linkData && S.linkData.recomendacao_url);
+  let url = freshUrl || S.rec.url || (S.linkData && S.linkData.recomendacao_url);
+  // prefere o CSV editado se for mais recente que o arquivo do banco (independe da RPC)
+  try{ const best=await _freshestRecUrl(S.tokenAtual, url); if(best) url=best; }catch(e){}
   if(!url) return;
 
   // se a URL não mudou e já temos dados carregados, não precisa refetchar
@@ -4242,10 +4271,14 @@ async function recEditSalvar(){
         else {
           const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
           S.rec.url=url; S.rec._loadedUrl=url;
-          const rpc=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
-          if(rpc && rpc.error){ errCount++; lastErr='rpc: '+(rpc.error.message||rpc.error); console.error('[rec][save] rpc falhou:', rpc.error); }
-          else if(rpc && rpc.data && rpc.data.erro){ errCount++; lastErr='rpc: '+rpc.data.erro; console.error('[rec][save] rpc retornou erro:', rpc.data); }
-          else { okCount++; }
+          // upload OK => salvo (o loader prioriza o planilha.csv mais recente).
+          // A RPC é apenas para atualizar o registro no banco; falha dela não perde a edição.
+          okCount++;
+          try{
+            const rpc=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
+            if(rpc && rpc.error) console.warn('[rec][save] rpc falhou (edição preservada no CSV):', rpc.error);
+            else if(rpc && rpc.data && rpc.data.erro) console.warn('[rec][save] rpc retornou erro (edição preservada no CSV):', rpc.data);
+          }catch(eRpc){ console.warn('[rec][save] rpc exceção (edição preservada no CSV):', eRpc); }
         }
       }catch(e){ errCount++; lastErr=String(e&&e.message||e); console.error('[rec][save] exceção principal:', e); }
     }
@@ -4258,11 +4291,13 @@ async function recEditSalvar(){
         if(up && up.error){ errCount++; lastErr='upload extra: '+(up.error.message||up.error); console.error('[rec][save] upload extra falhou:', ex.nome, up.error); continue; }
         const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
         ex.rec.url=url; ex.rec._loadedUrl=url;
-        const rpc=await sb.rpc('atualizar_recomendacao',{p_token:ex.token,p_url:url});
-        if(rpc && rpc.error){ errCount++; lastErr='rpc extra: '+(rpc.error.message||rpc.error); console.error('[rec][save] rpc extra falhou:', ex.nome, rpc.error); continue; }
-        if(rpc && rpc.data && rpc.data.erro){ errCount++; lastErr='rpc extra: '+rpc.data.erro; console.error('[rec][save] rpc extra retornou erro:', ex.nome, rpc.data); continue; }
         ex.rec._dirty=false;
-        okCount++;
+        okCount++; // upload OK => salvo (o loader prioriza o planilha.csv mais recente)
+        try{
+          const rpc=await sb.rpc('atualizar_recomendacao',{p_token:ex.token,p_url:url});
+          if(rpc && rpc.error) console.warn('[rec][save] rpc extra falhou (edição preservada no CSV):', ex.nome, rpc.error);
+          else if(rpc && rpc.data && rpc.data.erro) console.warn('[rec][save] rpc extra retornou erro (edição preservada no CSV):', ex.nome, rpc.data);
+        }catch(eRpc){ console.warn('[rec][save] rpc extra exceção (edição preservada no CSV):', ex.nome, eRpc); }
       }catch(e){ errCount++; lastErr=String(e&&e.message||e); console.error('[rec][save] exceção extra:', ex.nome, e); }
     }
     if(okCount===0 && errCount===0){ toast('Nada para salvar','ok'); }
@@ -5209,6 +5244,8 @@ async function buildExtras(allTokens){
       try{
         recUrl=data.recomendacao_url;
         if(!recUrl){ const { data:ru } = await sb.rpc('get_recomendacao_url',{ p_token: tok }); if(ru && ru.recomendacao_url) recUrl=ru.recomendacao_url; }
+        // prefere o CSV editado (planilha.csv) se for mais recente — edições salvas não se perdem
+        try{ const best=await _freshestRecUrl(tok, recUrl); if(best) recUrl=best; }catch(e){}
         if(recUrl){
           const respR=await fetch(recUrl); const bufR=await respR.arrayBuffer();
           const extR=(recUrl.split('?')[0].split('.').pop()||'').toLowerCase();
