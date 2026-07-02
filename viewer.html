@@ -4717,7 +4717,15 @@ function wireColetaControls(){
     try{
       const buf=await f.arrayBuffer(); const ext=(f.name.split('.').pop()||'csv').toLowerCase();
       const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
-      S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[]; S.rec.loaded=true;
+      // planilha combinada (abas "nutri" e "rec"): usa a aba REC para a recomendação,
+      // não o main (que é a aba nutri). Assim funciona igual ao upload pela janela de Nutrientes.
+      if(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length){
+        S.rec.rows=parsed.recRows; S.rec.fields=parsed.recFields;
+        toast(`✅ Aba "rec" detectada — ${parsed.recRows.length} zonas de recomendação carregadas`,'ok');
+      } else {
+        S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[];
+      }
+      S.rec.loaded=true;
       popularInsumos(); renderRecomendacao();
       st.textContent='✅ Recomendação carregada.';
       if(sb && S.tokenAtual){
