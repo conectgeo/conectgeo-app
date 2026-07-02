@@ -4228,7 +4228,8 @@ function setRecEditMode(on){
 }
 function openZoneEdit(zoneKey, latlng, target){
   if(!S.rec.editing || !S.rec.col) return;
-  const insumo=S.rec.col, fator=recFatorColuna(insumo);
+  const insumo=S.rec.col;
+  const fator = (target && target.ex) ? recFatorExtra(target.ex, insumo) : recFatorColuna(insumo);
   const isExtra = !!(target && target.ex);
   const rows   = (target && target.rows)   || S.rec.rows;
   const fields = (target && target.fields) || S.rec.fields;
