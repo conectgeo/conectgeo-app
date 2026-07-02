@@ -4719,7 +4719,8 @@ function wireColetaControls(){
       const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
       // planilha combinada (abas "nutri" e "rec"): usa a aba REC para a recomendação,
       // não o main (que é a aba nutri). Assim funciona igual ao upload pela janela de Nutrientes.
-      if(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length){
+      const _combinada = !!(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length);
+      if(_combinada){
         S.rec.rows=parsed.recRows; S.rec.fields=parsed.recFields;
         toast(`✅ Aba "rec" detectada — ${parsed.recRows.length} zonas de recomendação carregadas`,'ok');
       } else {
@@ -4728,13 +4729,32 @@ function wireColetaControls(){
       S.rec.loaded=true;
       popularInsumos(); renderRecomendacao();
       st.textContent='✅ Recomendação carregada.';
+
+      // planilha combinada: a aba "nutri" também alimenta os NUTRIENTES (em memória + persistência),
+      // espelhando o upload feito pela tela de Nutrientes.
+      if(_combinada && parsed.rows && parsed.rows.length){
+        try{ applyCsvData(parsed.rows, parsed.fields, f.name); joinData(); renderMap(); }catch(e){}
+        if(sb && S.tokenAtual){
+          try{
+            const csvNut=_buildRecCSVFrom(parsed.fields, parsed.rows);
+            const blobNut=new Blob(['\ufeff'+csvNut],{type:'text/csv;charset=utf-8'});
+            const pathNut='nutrientes/'+S.tokenAtual+'/planilha.csv';
+            const upNut=await sb.storage.from('arquivos').upload(pathNut, blobNut, {upsert:true, contentType:'text/csv'});
+            if(!(upNut&&upNut.error)){
+              const urlNut=sb.storage.from('arquivos').getPublicUrl(pathNut).data.publicUrl + '?v=' + Date.now();
+              await sb.rpc('atualizar_nutrientes',{p_token:S.tokenAtual, p_planilha_url:urlNut});
+            }
+          }catch(e){}
+        }
+      }
+
       if(sb && S.tokenAtual){
         try{
           const path='recomendacao/'+S.tokenAtual+'/planilha.'+ext;
           const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
           if(!(up&&up.error)){ const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now(); S.rec.url=url;
             const r=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
-            if(!(r&&r.error)) st.textContent='✅ Recomendação salva!';
+            if(!(r&&r.error)) st.textContent = _combinada ? '✅ Nutrientes e recomendação salvos!' : '✅ Recomendação salva!';
           }
         }catch(e){}
       }
