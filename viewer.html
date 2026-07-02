@@ -4234,34 +4234,36 @@ async function recEditSalvar(){
     if(dirtyPrim && S.tokenAtual){
       try{
         const csv=buildRecCSV(); const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
-        const path='recomendacao/'+S.tokenAtual+'/rec_'+Date.now()+'.csv';
-        const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv'});
-        if(up && up.error){ errCount++; lastErr='upload: '+(up.error.message||up.error); }
+        // caminho FIXO (planilha.csv) com upsert: garante que o mesmo URL sempre serve o CSV mais recente,
+        // mesmo se a RPC atualizar_recomendacao falhar por algum motivo.
+        const path='recomendacao/'+S.tokenAtual+'/planilha.csv';
+        const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv;charset=utf-8'});
+        if(up && up.error){ errCount++; lastErr='upload: '+(up.error.message||up.error); console.error('[rec][save] upload falhou:', up.error); }
         else {
           const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
           S.rec.url=url; S.rec._loadedUrl=url;
           const rpc=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
-          if(rpc && rpc.error){ errCount++; lastErr='rpc: '+(rpc.error.message||rpc.error); }
-          else if(rpc && rpc.data && rpc.data.erro){ errCount++; lastErr='rpc: '+rpc.data.erro; }
+          if(rpc && rpc.error){ errCount++; lastErr='rpc: '+(rpc.error.message||rpc.error); console.error('[rec][save] rpc falhou:', rpc.error); }
+          else if(rpc && rpc.data && rpc.data.erro){ errCount++; lastErr='rpc: '+rpc.data.erro; console.error('[rec][save] rpc retornou erro:', rpc.data); }
           else { okCount++; }
         }
-      }catch(e){ errCount++; lastErr=String(e&&e.message||e); }
+      }catch(e){ errCount++; lastErr=String(e&&e.message||e); console.error('[rec][save] exceção principal:', e); }
     }
     for(const ex of dirtyExtras){
       try{
         const csv=_buildRecCSVFrom(ex.rec.fields, ex.rec.rows);
         const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
-        const path='recomendacao/'+ex.token+'/rec_'+Date.now()+'.csv';
-        const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv'});
-        if(up && up.error){ errCount++; lastErr='upload extra: '+(up.error.message||up.error); continue; }
+        const path='recomendacao/'+ex.token+'/planilha.csv';
+        const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv;charset=utf-8'});
+        if(up && up.error){ errCount++; lastErr='upload extra: '+(up.error.message||up.error); console.error('[rec][save] upload extra falhou:', ex.nome, up.error); continue; }
         const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
         ex.rec.url=url; ex.rec._loadedUrl=url;
         const rpc=await sb.rpc('atualizar_recomendacao',{p_token:ex.token,p_url:url});
-        if(rpc && rpc.error){ errCount++; lastErr='rpc extra: '+(rpc.error.message||rpc.error); continue; }
-        if(rpc && rpc.data && rpc.data.erro){ errCount++; lastErr='rpc extra: '+rpc.data.erro; continue; }
+        if(rpc && rpc.error){ errCount++; lastErr='rpc extra: '+(rpc.error.message||rpc.error); console.error('[rec][save] rpc extra falhou:', ex.nome, rpc.error); continue; }
+        if(rpc && rpc.data && rpc.data.erro){ errCount++; lastErr='rpc extra: '+rpc.data.erro; console.error('[rec][save] rpc extra retornou erro:', ex.nome, rpc.data); continue; }
         ex.rec._dirty=false;
         okCount++;
-      }catch(e){ errCount++; lastErr=String(e&&e.message||e); }
+      }catch(e){ errCount++; lastErr=String(e&&e.message||e); console.error('[rec][save] exceção extra:', ex.nome, e); }
     }
     if(okCount===0 && errCount===0){ toast('Nada para salvar','ok'); }
     else if(errCount===0){ toast('Alterações salvas ('+okCount+' talhão/ões)','ok'); }
@@ -4270,6 +4272,7 @@ async function recEditSalvar(){
     if(saveBtn) saveBtn.disabled=false;
   }
 }
+
 
 function setMapMode(mode){
   S.mapMode=mode;
