@@ -4263,45 +4263,45 @@ async function recEditSalvar(){
   if(!sb){ toast('Alterações aplicadas','ok'); return; }
   if(saveBtn) saveBtn.disabled=true;
   let okCount=0, errCount=0, lastErr='';
+  // Substitui o arquivo-fonte da recomendação: grava o CSV editado no MESMO diretório,
+  // atualiza a URL no banco e apaga o arquivo antigo (se for diferente). O dado novo é o vigente.
+  async function _persistRec(token, prevUrl, csvText){
+    const blob=new Blob(['\ufeff'+csvText],{type:'text/csv;charset=utf-8'});
+    const newPath='recomendacao/'+token+'/planilha.csv';
+    const up=await sb.storage.from('arquivos').upload(newPath, blob, {upsert:true, contentType:'text/csv;charset=utf-8'});
+    if(up && up.error){ throw new Error('upload: '+(up.error.message||up.error)); }
+    const newUrl=sb.storage.from('arquivos').getPublicUrl(newPath).data.publicUrl + '?t=' + Date.now();
+    let rpcOk=false;
+    try{
+      const rpc=await sb.rpc('atualizar_recomendacao',{p_token:token,p_url:newUrl});
+      if(rpc && rpc.error) console.warn('[rec][save] rpc falhou:', rpc.error);
+      else if(rpc && rpc.data && rpc.data.erro) console.warn('[rec][save] rpc retornou erro:', rpc.data);
+      else rpcOk=true;
+    }catch(eRpc){ console.warn('[rec][save] rpc exceção:', eRpc); }
+    // Apaga o arquivo original (fonte antiga) somente se a RPC atualizou o banco,
+    // para nunca deixar o cliente sem referência a um arquivo válido.
+    const oldPath=_storagePathFromPublicUrl(prevUrl);
+    if(rpcOk && oldPath && oldPath!==newPath){
+      try{ await sb.storage.from('arquivos').remove([oldPath]); }
+      catch(e){ console.warn('[rec][save] remove antigo falhou:', e); }
+    }
+    return newUrl;
+  }
   try{
     if(dirtyPrim && S.tokenAtual){
       try{
-        const csv=buildRecCSV(); const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
-        // caminho FIXO (planilha.csv) com upsert: garante que o mesmo URL sempre serve o CSV mais recente,
-        // mesmo se a RPC atualizar_recomendacao falhar por algum motivo.
-        const path='recomendacao/'+S.tokenAtual+'/planilha.csv';
-        const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv;charset=utf-8'});
-        if(up && up.error){ errCount++; lastErr='upload: '+(up.error.message||up.error); console.error('[rec][save] upload falhou:', up.error); }
-        else {
-          const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
-          S.rec.url=url; S.rec._loadedUrl=url;
-          // upload OK => salvo (o loader prioriza o planilha.csv mais recente).
-          // A RPC é apenas para atualizar o registro no banco; falha dela não perde a edição.
-          okCount++;
-          try{
-            const rpc=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
-            if(rpc && rpc.error) console.warn('[rec][save] rpc falhou (edição preservada no CSV):', rpc.error);
-            else if(rpc && rpc.data && rpc.data.erro) console.warn('[rec][save] rpc retornou erro (edição preservada no CSV):', rpc.data);
-          }catch(eRpc){ console.warn('[rec][save] rpc exceção (edição preservada no CSV):', eRpc); }
-        }
+        const csv=buildRecCSV();
+        const newUrl=await _persistRec(S.tokenAtual, S.rec.url, csv);
+        S.rec.url=newUrl; S.rec._loadedUrl=newUrl;
+        okCount++;
       }catch(e){ errCount++; lastErr=String(e&&e.message||e); console.error('[rec][save] exceção principal:', e); }
     }
     for(const ex of dirtyExtras){
       try{
         const csv=_buildRecCSVFrom(ex.rec.fields, ex.rec.rows);
-        const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
-        const path='recomendacao/'+ex.token+'/planilha.csv';
-        const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv;charset=utf-8'});
-        if(up && up.error){ errCount++; lastErr='upload extra: '+(up.error.message||up.error); console.error('[rec][save] upload extra falhou:', ex.nome, up.error); continue; }
-        const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
-        ex.rec.url=url; ex.rec._loadedUrl=url;
-        ex.rec._dirty=false;
-        okCount++; // upload OK => salvo (o loader prioriza o planilha.csv mais recente)
-        try{
-          const rpc=await sb.rpc('atualizar_recomendacao',{p_token:ex.token,p_url:url});
-          if(rpc && rpc.error) console.warn('[rec][save] rpc extra falhou (edição preservada no CSV):', ex.nome, rpc.error);
-          else if(rpc && rpc.data && rpc.data.erro) console.warn('[rec][save] rpc extra retornou erro (edição preservada no CSV):', ex.nome, rpc.data);
-        }catch(eRpc){ console.warn('[rec][save] rpc extra exceção (edição preservada no CSV):', ex.nome, eRpc); }
+        const newUrl=await _persistRec(ex.token, ex.rec.url, csv);
+        ex.rec.url=newUrl; ex.rec._loadedUrl=newUrl; ex.rec._dirty=false;
+        okCount++;
       }catch(e){ errCount++; lastErr=String(e&&e.message||e); console.error('[rec][save] exceção extra:', ex.nome, e); }
     }
     if(okCount===0 && errCount===0){ toast('Nada para salvar','ok'); }
@@ -4311,6 +4311,17 @@ async function recEditSalvar(){
     if(saveBtn) saveBtn.disabled=false;
   }
 }
+
+// Extrai o caminho interno (dentro do bucket "arquivos") a partir da URL pública do Storage.
+function _storagePathFromPublicUrl(url){
+  if(!url) return null;
+  try{
+    const clean=String(url).split('?')[0];
+    const m=clean.match(/\/storage\/v1\/object\/public\/arquivos\/(.+)$/);
+    return m ? decodeURIComponent(m[1]) : null;
+  }catch(e){ return null; }
+}
+
 
 
 function setMapMode(mode){
