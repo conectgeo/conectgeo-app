@@ -2898,18 +2898,24 @@ function _deriveRecFromNutri(){
 }
 async function loadRecData(){
   await _loadRecGeo();
-  if(S.rec.loaded) return;
   // Relatório B: usa a PRÓPRIA planilha de nutrientes (ZG + colunas após o último Enxofre)
   if(S.modeloB && S.modeloB.on && _deriveRecFromNutri()){ S.rec.loaded=true; return; }
-  let url=S.rec.url || (S.linkData && S.linkData.recomendacao_url);
-  if(!url && sb && S.tokenAtual){
-    try{ const { data } = await sb.rpc('get_recomendacao_url',{p_token:S.tokenAtual}); if(data && data.recomendacao_url) url=data.recomendacao_url; }catch(e){}
+
+  // busca SEMPRE a URL mais recente do banco (para pegar edições salvas)
+  let freshUrl=null;
+  if(sb && S.tokenAtual){
+    try{ const { data } = await sb.rpc('get_recomendacao_url',{p_token:S.tokenAtual}); if(data && data.recomendacao_url) freshUrl=data.recomendacao_url; }catch(e){}
   }
+  const url = freshUrl || S.rec.url || (S.linkData && S.linkData.recomendacao_url);
   if(!url) return;
+
+  // se a URL não mudou e já temos dados carregados, não precisa refetchar
+  const sameUrl = S.rec.loaded && S.rec._loadedUrl && (S.rec._loadedUrl.split('?')[0] === url.split('?')[0]);
+  if(sameUrl && S.rec.rows && S.rec.rows.length){ return; }
+
   S.rec.url=url;
-  console.log('[recLoad] carregando recomendação de:', url);
   try{
-    const resp=await fetch(url); const buf=await resp.arrayBuffer();
+    const resp=await fetch(url, {cache:'no-store'}); const buf=await resp.arrayBuffer();
     const ext=(url.split('?')[0].split('.').pop()||'').toLowerCase();
     const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
     // planilha combinada (abas "nutri" e "rec"): a recomendação vem da aba REC,
@@ -2919,9 +2925,8 @@ async function loadRecData(){
     } else {
       S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[];
     }
-    S.rec.loaded=true;
-    console.log('[recLoad] carregado:', S.rec.rows.length, 'linhas | campos:', S.rec.fields, '| 1ª linha:', S.rec.rows[0]);
-  }catch(e){ console.error('[recLoad] erro:', e); }
+    S.rec.loaded=true; S.rec._loadedUrl=url;
+  }catch(e){}
 }
 function niceStep(rough){ if(!(rough>0)) return 1; const pow=Math.pow(10,Math.floor(Math.log10(rough))); const f=rough/pow; let nf; if(f<1.5)nf=1; else if(f<3)nf=2; else if(f<7)nf=5; else nf=10; return nf*pow; }
 function clearRecLabels(){ if(!S.rec) return; S.rec.labels.forEach(l=>{ try{S.map.removeLayer(l);}catch(e){} try{ if(S.compare&&S.compare.map2) S.compare.map2.removeLayer(l);}catch(e){} }); S.rec.labels=[]; }
@@ -4212,7 +4217,6 @@ function _buildRecCSVFrom(fields, rows){
 async function recEditSalvar(){
   const dirtyPrim = !!S.rec._dirty;
   const dirtyExtras = (S.extras||[]).filter(ex=>ex.rec && ex.rec._dirty && ex.token);
-  console.log('[recSave] início — dirtyPrim:', dirtyPrim, '| tokenAtual:', S.tokenAtual, '| dirtyExtras:', dirtyExtras.length, '| sb?', !!sb);
   S.rec._backup=null; S.rec._dirty=false;
   (S.extras||[]).forEach(ex=>{ if(ex.rec){ ex.rec._backup=null; } });
   S.rec.editing=false;
@@ -4231,23 +4235,17 @@ async function recEditSalvar(){
       try{
         const csv=buildRecCSV(); const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
         const path='recomendacao/'+S.tokenAtual+'/rec_'+Date.now()+'.csv';
-        console.log('[recSave] subindo CSV para:', path, '| tamanho:', csv.length, 'chars');
         const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv'});
-        console.log('[recSave] resposta upload:', up);
         if(up && up.error){ errCount++; lastErr='upload: '+(up.error.message||up.error); }
         else {
           const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
-          S.rec.url=url;
-          console.log('[recSave] chamando atualizar_recomendacao — token:', S.tokenAtual, '| url:', url);
+          S.rec.url=url; S.rec._loadedUrl=url;
           const rpc=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
-          console.log('[recSave] resposta RPC:', rpc);
           if(rpc && rpc.error){ errCount++; lastErr='rpc: '+(rpc.error.message||rpc.error); }
           else if(rpc && rpc.data && rpc.data.erro){ errCount++; lastErr='rpc: '+rpc.data.erro; }
           else { okCount++; }
         }
-      }catch(e){ errCount++; lastErr=String(e&&e.message||e); console.error('[recSave] exceção:', e); }
-    } else {
-      console.warn('[recSave] NÃO salvou primário — dirtyPrim:', dirtyPrim, '| tokenAtual:', S.tokenAtual);
+      }catch(e){ errCount++; lastErr=String(e&&e.message||e); }
     }
     for(const ex of dirtyExtras){
       try{
@@ -4257,7 +4255,7 @@ async function recEditSalvar(){
         const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv'});
         if(up && up.error){ errCount++; lastErr='upload extra: '+(up.error.message||up.error); continue; }
         const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?t=' + Date.now();
-        ex.rec.url=url;
+        ex.rec.url=url; ex.rec._loadedUrl=url;
         const rpc=await sb.rpc('atualizar_recomendacao',{p_token:ex.token,p_url:url});
         if(rpc && rpc.error){ errCount++; lastErr='rpc extra: '+(rpc.error.message||rpc.error); continue; }
         if(rpc && rpc.data && rpc.data.erro){ errCount++; lastErr='rpc extra: '+rpc.data.erro; continue; }
