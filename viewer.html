@@ -2824,11 +2824,15 @@ function detectInsumoCols(fields, rows){
   return fields.filter(f=>{ if(f===zoneF||f===depthF||_isAreaCol(f)) return false; return rows.some(r=>!isNaN(recNum(r[f]))); });
 }
 // fator de conversão da coluna: tonelada -> kg (×1000) quando os valores são pequenos
-function recFatorColuna(col){
+// calculado por conjunto de linhas (talhão) — cada talhão pode estar em unidade diferente
+function recFatorRows(col, rows){
   if(!isInsumoConvertivel(col)) return 1;
-  let mx=0; S.rec.rows.forEach(r=>{ const v=recNum(r[col]); if(!isNaN(v)&&v>mx) mx=v; });
+  let mx=0; (rows||[]).forEach(r=>{ const v=recNum(r[col]); if(!isNaN(v)&&v>mx) mx=v; });
   return (mx>0 && mx<100) ? 1000 : 1;
 }
+function recFatorColuna(col){ return recFatorRows(col, S.rec&&S.rec.rows); }
+// fator específico de um talhão extra (usa as próprias linhas dele)
+function recFatorExtra(ex, col){ return recFatorRows(col, ex&&ex.rec&&ex.rec.rows); }
 // área da zona em hectares (usa campo do shapefile se houver; senão calcula da geometria)
 function _ringAreaM2(ring){ const R=6378137,d=Math.PI/180; let a=0; for(let i=0;i<ring.length;i++){ const p1=ring[i],p2=ring[(i+1)%ring.length]; if(!p1||!p2) continue; a+=(p2[0]*d-p1[0]*d)*(2+Math.sin(p1[1]*d)+Math.sin(p2[1]*d)); } return Math.abs(a*R*R/2); }
 function _polyHa(geom){ if(!geom) return 0; let m2=0; const polys=geom.type==='Polygon'?[geom.coordinates]:(geom.type==='MultiPolygon'?geom.coordinates:[]); polys.forEach(poly=>(poly||[]).forEach((ring,ri)=>{ const a=_ringAreaM2(ring); m2+=ri===0?a:-a; })); return m2/10000; }
@@ -3083,7 +3087,7 @@ function _extraRecCmpLayer(ex, col, sc, targetMap){
   if(!rec||!recCol||!rec.rows.length) return null;
   const palRev=[...PALS.rdylgn.c].reverse();
   const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const tt=(sc.mx===sc.mn)?0:(d-sc.mn)/(sc.mx-sc.mn); return lerpColor(palRev,Math.max(0,Math.min(1,tt))); };
-  const fator=recFatorColuna(recCol);
+  const fator=recFatorExtra(ex, recCol);
   const joined={}; rec.rows.forEach(r=>{ joined[_zkey(r[rec.zone])]=r; });
   const jg=ex.joinGeo||_zoneField(ex.geo.features[0].properties);
   const doseDe=(f)=>{ const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[recCol]):NaN; return isNaN(d)?null:d*fator; };
@@ -5393,7 +5397,7 @@ function multiExtrasColeta(kind,on){
 function _extraRecData(ex, col){
   const out={vals:[], recs:[]};
   const rec=ex.rec; if(!rec || !col || (rec.fields||[]).indexOf(col)<0 || !rec.rows.length) return out;
-  const fator=recFatorColuna(col);
+  const fator=recFatorExtra(ex, col);
   const joined={}; rec.rows.forEach(r=>{ joined[_zkey(r[rec.zone])]=r; });
   const jg=ex.joinGeo||_zoneField(ex.geo.features[0].properties);
   (ex.geo.features||[]).forEach(f=>{ if(!_isPoly(f)) return; const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[col]):NaN; d=isNaN(d)?null:d*fator; const ha=zoneHa(f); out.recs.push({d,ha}); if(d!=null) out.vals.push(d); });
@@ -5414,7 +5418,7 @@ function multiRenderExtrasRec(){
     const rec=ex.rec;
     const recCol=(rec && col && (rec.fields||[]).indexOf(col)>=0)?col:null;
     if(!rec || !recCol || !rec.rows.length){ ex._empty=_emptyZonesLayer(ex.geo); ex._empty.addTo(S.map); return; }
-    const fator=recFatorColuna(recCol);
+    const fator=recFatorExtra(ex, recCol);
     const joined={}; rec.rows.forEach(r=>{ joined[_zkey(r[rec.zone])]=r; });
     const jg=ex.joinGeo||_zoneField(ex.geo.features[0].properties);
     const doseDe=(f)=>{ const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[recCol]):NaN; return isNaN(d)?null:d*fator; };
@@ -5450,7 +5454,7 @@ function multiRefreshExtraRecLabels(){
     const rec=ex.rec;
     const recCol=(rec && col && (rec.fields||[]).indexOf(col)>=0)?col:null;
     if(!rec || !recCol || !rec.rows.length) return;
-    const fator=recFatorColuna(recCol);
+    const fator=recFatorExtra(ex, recCol);
     const joined={}; rec.rows.forEach(r=>{ joined[_zkey(r[rec.zone])]=r; });
     const jg=ex.joinGeo||_zoneField(ex.geo.features[0].properties);
     const doseDe=(f)=>{ const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[recCol]):NaN; return isNaN(d)?null:d*fator; };
