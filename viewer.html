@@ -1043,17 +1043,47 @@ function decodeBuffer(buf){
     return new TextDecoder('windows-1252').decode(bytes);
   }
 }
+// divide uma linha CSV respeitando aspas ("a,b" não é separador; "" = aspa literal)
+function _csvSplitLine(line, sep){
+  const out=[]; let cur='', inQ=false;
+  for(let i=0;i<line.length;i++){
+    const ch=line[i];
+    if(inQ){
+      if(ch==='"'){ if(line[i+1]==='"'){ cur+='"'; i++; } else inQ=false; }
+      else cur+=ch;
+    } else {
+      if(ch==='"') inQ=true;
+      else if(ch===sep){ out.push(cur); cur=''; }
+      else cur+=ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+// detecta o separador contando APENAS fora de aspas (vírgula em nome de coluna não engana mais)
+function _csvDetectSep(line){
+  const counts={',':0,';':0,'\t':0}; let inQ=false;
+  for(let i=0;i<line.length;i++){
+    const ch=line[i];
+    if(ch==='"'){ if(inQ && line[i+1]==='"'){ i++; continue; } inQ=!inQ; continue; }
+    if(!inQ && (ch===','||ch===';'||ch==='\t')) counts[ch]++;
+  }
+  if(counts[';']>counts[','] && counts[';']>=counts['\t']) return ';';
+  if(counts['\t']>counts[',']) return '\t';
+  return ',';
+}
 function parseCSVText(text){
-  const first=text.split('\n')[0];
-  const sep=first.includes(';')?';':',';
+  text=String(text||'').replace(/^\ufeff/,'');
   const lines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim().length>0);
-  const headers=lines[0].split(sep).map(h=>h.trim().replace(/^"|"$/g,''));
+  if(!lines.length) return {rows:[],fields:[]};
+  const sep=_csvDetectSep(lines[0]);
+  const headers=_csvSplitLine(lines[0],sep).map(h=>h.trim());
   const rows=[];
   for(let i=1;i<lines.length;i++){
-    const cells=lines[i].split(sep);
+    const cells=_csvSplitLine(lines[i],sep);
     const row={};
     headers.forEach((h,idx)=>{
-      let v=(cells[idx]??'').trim().replace(/^"|"$/g,'');
+      let v=(cells[idx]??'').trim();
       const num=parseFloat(v.replace(',','.'));
       row[h]=(v!==''&&!isNaN(num)&&/^-?[\d.,]+$/.test(v))?num:v;
     });
@@ -2930,7 +2960,8 @@ async function _freshestRecUrl(token, dbUrl){
 async function loadRecData(){
   await _loadRecGeo();
   // Relatório B: usa a PRÓPRIA planilha de nutrientes (ZG + colunas após o último Enxofre)
-  if(S.modeloB && S.modeloB.on && _deriveRecFromNutri()){ S.rec.loaded=true; return; }
+  if(S.modeloB && S.modeloB.on && _deriveRecFromNutri()){ S.rec.loaded=true; S.rec._fromNutri=true; return; }
+  S.rec._fromNutri=false;
 
   // busca SEMPRE a URL mais recente do banco (para pegar edições salvas)
   let freshUrl=null;
@@ -2968,12 +2999,12 @@ function drawRecLabels(){
   if(!S.rec.showLabels) return;
   const joinGeo=S.joinGeo||(recGeo()&&recGeo().features[0]?_zoneField(recGeo().features[0].properties):null);
   const zoneF=_pickZoneField(S.rec.fields)||S.rec.fields[0];
-  const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
+  const joined={}, joinedZ={}; S.rec.rows.forEach(r=>{ const kk=String(r[zoneF]??'').trim(); joined[kk]=r; joinedZ[_zkey(kk)]=r; });
   const drawOn=(map, layer, insumoCol)=>{
     if(!layer || !insumoCol || !joinGeo) return; const fator=recFatorColuna(insumoCol);
     const _sz=_pdfLabelSize(map, layer, S.rec.labelScale||1);
     layer.eachLayer(lyr=>{ const f=lyr.feature; if(!f) return; const key=String(f.properties[joinGeo]??'').trim();
-      try{ const pos=interiorPoint(f.geometry); const row=joined[key]; let d=row?recNum(row[insumoCol]):NaN; if(!isNaN(d))d*=fator;
+      try{ const pos=interiorPoint(f.geometry); const row=joined[key]||joinedZ[_zkey(key)]; let d=row?recNum(row[insumoCol]):NaN; if(!isNaN(d))d*=fator;
         const valText=isNaN(d)?'—':recFmt(d);
         const idSize=_sz.idSize, valSize=_sz.valSize;
         const idHtml=S.rec.labelsHideId?'':'<span class="zone-label-id" style="font-size:'+idSize+'px">'+key+'</span>';
@@ -3003,9 +3034,9 @@ function renderRecomendacao(){
   }
   const col=S.rec.col, fator=recFatorColuna(col);
   const zoneF=_pickZoneField(S.rec.fields)||S.rec.fields[0];
-  const joined={}; S.rec.rows.forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
+  const joined={}, joinedZ={}; S.rec.rows.forEach(r=>{ const kk=String(r[zoneF]??'').trim(); joined[kk]=r; joinedZ[_zkey(kk)]=r; });
   const joinGeo=S.joinGeo||_zoneField(recGeo().features[0].properties);
-  const doseDe=(f)=>{ const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k]; let d=row?recNum(row[col]):NaN; return isNaN(d)?null:d*fator; };
+  const doseDe=(f)=>{ const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k]||joinedZ[_zkey(k)]; let d=row?recNum(row[col]):NaN; return isNaN(d)?null:d*fator; };
   let totalHa=0,totalIns=0,mn=Infinity,mx=-Infinity; const recs=[];
   recGeo().features.forEach(f=>{ const d=doseDe(f), ha=zoneHa(f); recs.push({d,ha}); if(d!=null){ totalHa+=ha; totalIns+=d*ha; if(d<mn)mn=d; if(d>mx)mx=d; } });
   if(S.extras && S.extras.length){ S.extras.forEach(ex=>{ const ed=_extraRecData(ex,col); ed.vals.forEach(v=>{ if(v<mn)mn=v; if(v>mx)mx=v; }); ed.recs.forEach(rc=>{ recs.push(rc); if(rc.d!=null){ totalHa+=rc.ha; totalIns+=rc.d*rc.ha; } }); }); }
@@ -4203,7 +4234,7 @@ function openZoneEdit(zoneKey, latlng, target){
   const fields = (target && target.fields) || S.rec.fields;
   const zoneF  = (target && target.zoneF)  || _pickZoneField(fields) || fields[0];
   const titulo = isExtra ? ((target.ex.nome||'Talhão')+' · Zona '+(zoneKey||'—')) : ('Zona '+(zoneKey||'—'));
-  let row=rows.find(r=>String(r[zoneF]??'').trim()===zoneKey);
+  let row=rows.find(r=>String(r[zoneF]??'').trim()===zoneKey) || rows.find(r=>_zkey(r[zoneF])===_zkey(zoneKey));
   let cur=row?recNum(row[insumo]):NaN; if(!isNaN(cur)) cur*=fator;
   const html='<div class="rzedit-pop"><div style="font-size:12px;font-weight:700;margin-bottom:6px;color:#3a3a3a">'+titulo+' · '+insumo+'</div>'
     +'<div style="display:flex;align-items:center;gap:6px"><input id="rzedit" type="number" step="any" value="'+(isNaN(cur)?'':cur)+'" style="width:110px;padding:6px 8px;border:1.5px solid #ccc;border-radius:7px;font-size:13px"><span style="font-size:11px;color:#777">kg/ha</span></div>'
@@ -4263,9 +4294,19 @@ async function recEditSalvar(){
   if(!sb){ toast('Alterações aplicadas','ok'); return; }
   if(saveBtn) saveBtn.disabled=true;
   let okCount=0, errCount=0, lastErr='';
+  // Valida o roundtrip EM MEMÓRIA: o CSV gerado precisa ser relido pelo MESMO parser
+  // usado no reload, com as mesmas colunas e linhas. Se falhar, NADA é substituído
+  // (protege contra perda de doses por problema de serialização).
+  function _validaCSV(csvText, nFields, nRows){
+    const chk=parseCSVText(csvText);
+    if((chk.fields||[]).length!==nFields || (chk.rows||[]).length!==nRows){
+      throw new Error('validação do CSV falhou ('+(chk.rows||[]).length+'/'+nRows+' linhas, '+(chk.fields||[]).length+'/'+nFields+' colunas) — fonte original preservada');
+    }
+  }
   // Substitui o arquivo-fonte da recomendação: grava o CSV editado no MESMO diretório,
   // atualiza a URL no banco e apaga o arquivo antigo (se for diferente). O dado novo é o vigente.
-  async function _persistRec(token, prevUrl, csvText){
+  async function _persistRec(token, prevUrl, csvText, nFields, nRows){
+    _validaCSV(csvText, nFields, nRows);
     const blob=new Blob(['\ufeff'+csvText],{type:'text/csv;charset=utf-8'});
     const newPath='recomendacao/'+token+'/planilha.csv';
     const up=await sb.storage.from('arquivos').upload(newPath, blob, {upsert:true, contentType:'text/csv;charset=utf-8'});
@@ -4287,19 +4328,51 @@ async function recEditSalvar(){
     }
     return newUrl;
   }
+  // ── MODELO B: a recomendação DERIVA da planilha de NUTRIENTES (colunas após o último
+  // Enxofre). Salvar num planilha.csv de recomendação não adianta — o Modelo B nunca o lê.
+  // Aqui as edições voltam para a fonte real: S.csvData → nutrientes/{token}/planilha.csv.
+  async function _persistModeloB(token){
+    const zoneF=(S.rec.fields||[])[0];
+    const recCols=(S.rec.fields||[]).slice(1);
+    if(!zoneF || !recCols.length) throw new Error('estrutura da recomendação (Modelo B) inválida');
+    // grava os valores editados de volta nas linhas da planilha de nutrientes (join por zona)
+    let aplicadas=0;
+    (S.rec.rows||[]).forEach(r=>{
+      const zk=_zkey(r[zoneF]);
+      const nr=(S.csvData||[]).find(n=>_zkey(n[zoneF])===zk);
+      if(nr){ recCols.forEach(c=>{ nr[c]=r[c]; }); aplicadas++; }
+    });
+    if(!aplicadas) throw new Error('nenhuma zona da recomendação casou com a planilha de nutrientes');
+    const csv=_buildRecCSVFrom(S.csvFields, S.csvData);
+    _validaCSV(csv, (S.csvFields||[]).length, (S.csvData||[]).length);
+    const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+    const path='nutrientes/'+token+'/planilha.csv';
+    const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv;charset=utf-8'});
+    if(up && up.error){ throw new Error('upload: '+(up.error.message||up.error)); }
+    const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
+    try{
+      const r=await sb.rpc('atualizar_nutrientes',{p_token:token, p_planilha_url:url});
+      if(r && r.error) console.warn('[rec][save][modeloB] rpc atualizar_nutrientes falhou:', r.error);
+    }catch(eRpc){ console.warn('[rec][save][modeloB] rpc exceção:', eRpc); }
+    return url;
+  }
   try{
     if(dirtyPrim && S.tokenAtual){
       try{
-        const csv=buildRecCSV();
-        const newUrl=await _persistRec(S.tokenAtual, S.rec.url, csv);
-        S.rec.url=newUrl; S.rec._loadedUrl=newUrl;
+        if(S.modeloB && S.modeloB.on && S.rec._fromNutri){
+          await _persistModeloB(S.tokenAtual);
+        } else {
+          const csv=buildRecCSV();
+          const newUrl=await _persistRec(S.tokenAtual, S.rec.url, csv, (S.rec.fields||[]).length, (S.rec.rows||[]).length);
+          S.rec.url=newUrl; S.rec._loadedUrl=newUrl;
+        }
         okCount++;
       }catch(e){ errCount++; lastErr=String(e&&e.message||e); console.error('[rec][save] exceção principal:', e); }
     }
     for(const ex of dirtyExtras){
       try{
         const csv=_buildRecCSVFrom(ex.rec.fields, ex.rec.rows);
-        const newUrl=await _persistRec(ex.token, ex.rec.url, csv);
+        const newUrl=await _persistRec(ex.token, ex.rec.url, csv, (ex.rec.fields||[]).length, (ex.rec.rows||[]).length);
         ex.rec.url=newUrl; ex.rec._loadedUrl=newUrl; ex.rec._dirty=false;
         okCount++;
       }catch(e){ errCount++; lastErr=String(e&&e.message||e); console.error('[rec][save] exceção extra:', ex.nome, e); }
