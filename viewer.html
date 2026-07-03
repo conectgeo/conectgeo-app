@@ -2415,8 +2415,8 @@ async function generatePDF(nutrients){
     try{ if(b) S.map.fitBounds(b,{padding:[20,20],animate:false}); }catch(e){}
     await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1100:550));
     let img;
-    if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'}); }
-    else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:'#ffffff'}); img=cv.toDataURL('image/jpeg',0.95); }
+    if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/png'}); }
+    else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:Math.max(3,(window.devicePixelRatio||1)*2),logging:false,backgroundColor:'#ffffff'}); img=cv.toDataURL('image/png'); }
     // combined stats across primary + extras for this depth
     const st=computeCombinedStats();
     return {img, st};
@@ -2437,6 +2437,10 @@ async function generatePDF(nutrients){
     else if(S.logoChoice==='none') logoSrc=null;
     else if(S.consultorLogo) logoSrc=S.consultorLogo;
     else logoSrc=LOGO_DATA;
+
+    // resolução da página: mais alta para relatórios curtos, mais conservadora para longos
+    // (evita estouro de memória do navegador com muitas páginas)
+    const _pdfScale = nutrients.length<=6 ? 3 : (nutrients.length<=12 ? 2.6 : 2.2);
 
     for(let n=0;n<nutrients.length;n++){
       const nut=nutrients[n];
@@ -2596,10 +2600,10 @@ async function generatePDF(nutrients){
       page.innerHTML=headerHTML+mapsHTML+rightHTML+footerHTML;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      const pageCanvas=await html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
+      const pageCanvas=await html2canvas(page,{scale:_pdfScale,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
       document.body.removeChild(page);
       if(n>0) doc.addPage();
-      doc.addImage(pageCanvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
+      doc.addImage(pageCanvas.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
     }
 
     restore();
