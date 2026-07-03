@@ -1625,7 +1625,7 @@ function joinData(){
 function _geoZoneKey(props){ return _normZoneVal(String(props[S.joinGeo]??'').trim()); }
 
 // ══ RENDER MAP ══
-function clearLabels(){S.labelLayers.forEach(l=>S.map.removeLayer(l));S.labelLayers=[];}
+function clearLabels(){S.labelLayers.forEach(l=>S.map.removeLayer(l));S.labelLayers=[];S._labelRects=[];}
 function renderZonasVazias(){
   // talhão com zonas mas sem planilha: desenha as zonas sem cor (vazias)
   if(S.compare && S.compare.on) return;
@@ -2037,6 +2037,43 @@ function interiorPoint(geom){
 function _pdfResetLabels(){ S._pdfLabelRects = new Map(); }
 function _rectFree(arr, r){ for(const o of arr){ if(!(r.x2<o.x||r.x>o.x2||r.y2<o.y||r.y>o.y2)) return false; } return true; }
 
+// Posiciona um rótulo evitando sobreposição, SEM sair da própria zona.
+// Tenta o centro visual; se colidir, testa posições candidatas dentro do polígono
+// (anéis concêntricos crescentes); usa a 1ª livre que ainda esteja dentro da zona.
+// Se nenhuma candidata dentro da zona estiver livre, mantém o centro (nunca sai da zona).
+// Registra o retângulo escolhido em `placed` (array) para os próximos evitarem.
+// Retorna [lat,lng].
+function _placeLabelInZone(map, feature, idealLatLng, lblW, lblH, placed){
+  const half=[lblW/2, lblH/2];
+  const mkRect=(pt)=>{ try{ const p=map.latLngToContainerPoint(L.latLng(pt[0],pt[1])); return {x:p.x-half[0], y:p.y-half[1], x2:p.x+half[0], y2:p.y+half[1], cx:p.x, cy:p.y}; }catch(e){ return null; } };
+  // retângulo no centro ideal
+  const r0=mkRect(idealLatLng);
+  if(!r0){ return idealLatLng; }
+  if(_rectFree(placed, r0)){ placed.push(r0); return idealLatLng; }
+  // colidiu — gera candidatas em anéis ao redor do centro, todas convertidas p/ latlng
+  // e validadas como DENTRO do polígono da zona.
+  let poly=null; try{ poly=largestPart(feature.geometry); }catch(e){ poly=null; }
+  const centerPx=map.latLngToContainerPoint(L.latLng(idealLatLng[0],idealLatLng[1]));
+  const step=Math.max(6, lblH*0.6);                       // passo do deslocamento em px
+  const rings=6;                                          // quantos anéis testar
+  const dirs=[[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]]; // 8 direções
+  for(let ring=1; ring<=rings; ring++){
+    for(const d of dirs){
+      const px=centerPx.x + d[0]*step*ring;
+      const py=centerPx.y + d[1]*step*ring;
+      let ll; try{ ll=map.containerPointToLatLng(L.point(px,py)); }catch(e){ continue; }
+      const cand=[ll.lat, ll.lng];
+      // precisa estar DENTRO da zona (checa nas coords do polígono: [lng,lat])
+      if(poly && !pointInPolygon([cand[1], cand[0]], poly)) continue;
+      const rr=mkRect(cand);
+      if(rr && _rectFree(placed, rr)){ placed.push(rr); return cand; }
+    }
+  }
+  // nada livre dentro da zona → mantém o centro (aceita sobreposição, mas não sai da zona)
+  placed.push(r0);
+  return idealLatLng;
+}
+
 // Tamanho ÚNICO baseado no menor lado da menor zona visível em pixels
 // Garante que o rótulo cabe em todas as zonas sem sobreposição
 function _pdfLayerMinSide(map, layerObj){
@@ -2097,15 +2134,19 @@ function drawLabels(){
   if(!S.layer) return;
   const {idSize, valSize} = _pdfLabelSize(S.map, S.layer);
   const vsNum=parseFloat(valSize);
+  const placed=(S._labelRects=S._labelRects||[]);   // acumulador compartilhado (primário + extras)
   S.layer.eachLayer(layer=>{
     const f=layer.feature;
     if(!f) return;
     const key=String(f.properties[S.joinGeo]??'').trim();
     if(!key) return;
     try{
-      const pos=_ipCached(f); if(!pos) return;
+      const pos0=_ipCached(f); if(!pos0) return;
       const row=S.joined[key];const v=row?parseFloat(row[S.colorCol]):NaN;
       const valText=isNaN(v)?'—':(Number.isInteger(v)?String(v):v.toFixed(2));
+      // dimensões aproximadas do rótulo em px (largura ~0.62*fonte por caractere)
+      const lblW=Math.max(valText.length*vsNum*0.62, 12), lblH=vsNum*(S.pdfMode?1.15:1.9);
+      const pos=_placeLabelInZone(S.map, f, pos0, lblW, lblH, placed);
       // tamanho UNIFORME — mesmo px para todas as zonas
       const idHtml = S.pdfMode ? '' : `<span class="zone-label-id" style="font-size:${idSize}px">${key}</span>`;
       const lbl=L.marker(pos,{icon:L.divIcon({className:'zone-label',html:`<div class="zone-label-inner">${idHtml}<span class="zone-label-val" style="font-size:${vsNum.toFixed(1)}px">${valText}</span></div>`,iconSize:null}),interactive:false}).addTo(S.map);
@@ -5438,12 +5479,15 @@ function _drawExtraLabels(ex, targetMap, depth, store){
   const joined={}; useRows.forEach(r=>{ joined[_zkey(r[ex.sheetZone])]=r; });
   const {idSize, valSize} = _pdfLabelSize(targetMap, S.layer);
   const vsNum=parseFloat(valSize);
+  const placed=(S._labelRects=S._labelRects||[]);   // acumulador compartilhado (primário + extras)
   ex.geo.features.forEach(f=>{
     try{
       const kraw=String(f.properties[ex.joinGeo]??'').trim(); if(!kraw) return;
       const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[useCol]):NaN;
       const valText=isNaN(v)?'—':(Number.isInteger(v)?String(v):v.toFixed(2));
-      const pos=_ipCached(f); if(!pos) return;
+      const pos0=_ipCached(f); if(!pos0) return;
+      const lblW=Math.max(valText.length*vsNum*0.62, 12), lblH=vsNum*(S.pdfMode?1.15:1.9);
+      const pos=_placeLabelInZone(targetMap, f, pos0, lblW, lblH, placed);
       const idHtml = S.pdfMode ? '' : '<span class="zone-label-id" style="font-size:'+idSize+'px">'+kraw+'</span>';
       const lbl=L.marker(pos,{icon:L.divIcon({className:'zone-label',html:'<div class="zone-label-inner">'+idHtml+'<span class="zone-label-val" style="font-size:'+vsNum.toFixed(1)+'px">'+valText+'</span></div>',iconSize:null}),interactive:false}).addTo(targetMap); store.push(lbl);
     }catch(e){}
