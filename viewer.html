@@ -2056,9 +2056,14 @@ function _pdfLayerMinSide(map, layerObj){
   }catch(e){}
   return sides.length ? Math.min(...sides) : null;
 }
-function _pdfFontSizeFromMinSide(minSide, scl){
-  // fonte = ~42% do menor lado (era 35%), com limites 8–15px
-  const base=Math.max(8, Math.min(15, minSide * 0.42 * scl));
+function _pdfFontSizeFromMinSide(minSide, scl, capFactor){
+  // fonte = ~42% do menor lado, com limites 8–15px.
+  // Os limites escalam com o fator de captura (base 1.3): se o mapa é capturado
+  // 2x maior, os limites dobram, mantendo o TAMANHO VISUAL final do rótulo idêntico
+  // (só muda a resolução/nitidez, não o tamanho aparente).
+  const k = (capFactor && capFactor>0) ? (capFactor/1.3) : 1;
+  const loLim=8*k, hiLim=15*k;
+  const base=Math.max(loLim, Math.min(hiLim, minSide * 0.42 * scl));
   return {idSize:(base*0.75).toFixed(1), valSize:base.toFixed(1)};
 }
 // menor lado de zona considerando o talhão primário + TODOS os extras visíveis no mapa
@@ -2080,7 +2085,7 @@ function _pdfUniformFontSize(map, layerObj, scaleOverride){
     const minSide=_pdfLayerMinSide(map, layerObj);
     if(minSide==null) return fallback;
     // usa a zona menor (mínimo) como régua — rótulo tem que caber nela
-    return _pdfFontSizeFromMinSide(minSide, scl);
+    return _pdfFontSizeFromMinSide(minSide, scl, S._pdfCapFactor);
   }catch(e){ return fallback; }
 }
 
@@ -2351,7 +2356,7 @@ async function generatePDF(nutrients){
     try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnap; }catch(e){}
     if(_baseRestore) _baseRestore();
     S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;S.userTouchedPal=savedTouched;
-    S.pdfMode=false; S._pdfLabelRects=null; S._pdfFixedFontSize=null;
+    S.pdfMode=false; S._pdfLabelRects=null; S._pdfFixedFontSize=null; S._pdfCapFactor=null;
     document.body.classList.remove('pdf-no-id');
     try{ document.getElementById('sel-col').value=savedCol; }catch(e){}
     if(savedDepth && S.depthCol && normDepth(S.activeDepth)!==normDepth(savedDepth)){ S.activeDepth=savedDepth; try{ applyActiveDepth(); }catch(e){} }
@@ -2444,6 +2449,7 @@ async function generatePDF(nutrients){
     // fator de captura do mapa: quanto maior, mais pixels no mapa E nos rótulos (mesma proporção).
     // pré-medição e captura usam o MESMO fator, então o tamanho relativo do rótulo não muda.
     const CAP = nutrients.length<=8 ? 2.6 : 2.0;
+    S._pdfCapFactor = CAP;
 
     for(let n=0;n<nutrients.length;n++){
       const nut=nutrients[n];
@@ -2495,7 +2501,7 @@ async function generatePDF(nutrients){
           const ms=_pdfMinSideAllVisible(S.map);
           if(ms!=null) minSides.push(ms);
         }
-        if(minSides.length){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(Math.min(...minSides), S.labelScale); }
+        if(minSides.length){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(Math.min(...minSides), S.labelScale, CAP); }
       }
 
       const caps=[];
@@ -3307,16 +3313,16 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
       S._pdfFixedFontSize=null;
       try{
         const ms=_pdfMinSideAllVisible(S.map);
-        if(ms!=null){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(ms, S.labelScale); }
+        if(ms!=null){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(ms, S.labelScale, S._pdfCapFactor||1.4); }
       }catch(e){}
       // re-renderiza rótulos com o tamanho fixo já definido
       try{ multiRenderExtrasNutrient(); if(S.showLabels){ clearLabels(); drawLabels(); } }catch(e){}
     }
     await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1200:520));
     const _timeout=(ms)=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout captura')),ms));
-    const _h2c=async()=>{ const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); return cv.toDataURL('image/jpeg',0.95); };
+    const _h2c=async()=>{ const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:Math.max(3,(window.devicePixelRatio||1)*2),logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); return cv.toDataURL('image/png'); };
     try{
-      const cap = S.shooter ? S.shooter.takeScreen('image',{mimeType:'image/jpeg'}) : _h2c();
+      const cap = S.shooter ? S.shooter.takeScreen('image',{mimeType:'image/png'}) : _h2c();
       img = await Promise.race([cap, _timeout(9000)]);
     }catch(e1){
       console.warn('[modeloB] captura principal falhou/timeout; tentando html2canvas:', col, e1);
@@ -3588,7 +3594,7 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
     if(_baseRestore) _baseRestore();
     try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnapMB; }catch(e){}
     document.body.classList.remove('pdf-no-id');
-    S.colorCol=saved.col;S.pal=saved.pal;S.invert=saved.inv;S.showLabels=saved.labels;S.pdfMode=false;S._pdfFixedFontSize=null;
+    S.colorCol=saved.col;S.pal=saved.pal;S.invert=saved.inv;S.showLabels=saved.labels;S.pdfMode=false;S._pdfFixedFontSize=null;S._pdfCapFactor=null;
     if(saved.depth && S.depthCol && normDepth(S.activeDepth)!==normDepth(saved.depth)){ S.activeDepth=saved.depth; applyActiveDepth(); }
     else { try{ renderMap(); }catch(e){} }
   };
@@ -3609,6 +3615,11 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
     if(temTrio) autoPages.push({type:'trio', keys: trioKeys, header:'Potencial Químico para o Crescimento de Raiz em Profundidade (20-40cm)'});
     if(enxKeys.length) autoPages.push({type:'pair', keys: enxKeys}); // 1 ou 2 Enxofres lado a lado
     let first=true;
+    // fator de captura em alta resolução (mais pixels no mapa e nos rótulos).
+    // registrado em S._pdfCapFactor para a fórmula de fonte compensar e manter o
+    // TAMANHO VISUAL dos rótulos igual ao de antes (só mais nítidos).
+    const MB_CAP = 2.4;
+    S._pdfCapFactor = MB_CAP;
     for(const pg of autoPages){
       const itens=pg.keys.map(k=>byKey[k]).filter(Boolean);
       if(!itens.length) continue;
@@ -3624,7 +3635,7 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       if(trio){ cellW=(pageW-2*marg-(nCell-1)*gap)/nCell; leftOf=i=>marg+i*(cellW+gap); }
       else if(nCell===2){ cellW=(pageW-2*marg-gap)/2; leftOf=i=>marg+i*(cellW+gap); }
       else { cellW=(pageW-2*marg-gap)/2; leftOf=()=>marg; } // 1 item: meia largura, alinhado à esquerda (logo dentro)
-      const slotW=Math.round(cellW*1.4), slotH=Math.round(cellH*1.4);
+      const slotW=Math.round(cellW*MB_CAP), slotH=Math.round(cellH*MB_CAP);
       const caps=[];
       for(let i=0;i<itens.length;i++){
         const it=itens[i]; setLoading('Gerando '+it.def.nome+(it.prof==='20-40'?' (20-40)':'')+'…');
@@ -3652,10 +3663,10 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       page.innerHTML=html;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      let cv=null; try{ cv=await Promise.race([html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),15000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
+      let cv=null; try{ cv=await Promise.race([html2canvas(page,{scale:3,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
       document.body.removeChild(page);
       if(!first) doc.addPage(); first=false;
-      if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
+      if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
     }
     // página final "Zonas de Manejo" (Biomassa/Umidade/Textura) — só renderiza se houver URLs configuradas E o consultor não desmarcou
     const zonasUrls=(S.modeloB&&S.modeloB.zonas)||{};
@@ -3699,10 +3710,10 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       page.innerHTML=html;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      let cv=null; try{ cv=await Promise.race([html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),15000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
+      let cv=null; try{ cv=await Promise.race([html2canvas(page,{scale:3,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
       document.body.removeChild(page);
       if(!first) doc.addPage(); first=false;
-      if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
+      if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
     }
     restore(); hideLoading();
     const fz=_normNome((S.linkData&&S.linkData.fazenda)||'fazenda'), tl=_normNome((S.linkData&&S.linkData.talhao)||'talhao');
