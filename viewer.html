@@ -2054,30 +2054,46 @@ function _rectFree(arr, r){ for(const o of arr){ if(!(r.x2<o.x||r.x>o.x2||r.y2<o
 function _placeLabelInZone(map, feature, idealLatLng, lblW, lblH, placed){
   const half=[lblW/2, lblH/2];
   const mkRect=(pt)=>{ try{ const p=map.latLngToContainerPoint(L.latLng(pt[0],pt[1])); return {x:p.x-half[0], y:p.y-half[1], x2:p.x+half[0], y2:p.y+half[1], cx:p.x, cy:p.y}; }catch(e){ return null; } };
-  // retângulo no centro ideal
+  // retângulo no centro ideal (pole of inaccessibility) — SEMPRE a 1ª escolha
   const r0=mkRect(idealLatLng);
   if(!r0){ return idealLatLng; }
   if(_rectFree(placed, r0)){ placed.push(r0); return idealLatLng; }
-  // colidiu — gera candidatas em anéis ao redor do centro, todas convertidas p/ latlng
-  // e validadas como DENTRO do polígono da zona.
+  // colidiu — procura um ponto próximo onde o rótulo INTEIRO ainda caiba dentro da zona.
   let poly=null; try{ poly=largestPart(feature.geometry); }catch(e){ poly=null; }
+  // valida que os 4 cantos do retângulo (em px) caem dentro do polígono da zona
+  const rectDentroDaZona=(rect)=>{
+    if(!poly) return true;
+    const cantos=[[rect.x,rect.y],[rect.x2,rect.y],[rect.x,rect.y2],[rect.x2,rect.y2]];
+    for(const c of cantos){
+      let ll; try{ ll=map.containerPointToLatLng(L.point(c[0],c[1])); }catch(e){ return false; }
+      if(!pointInPolygon([ll.lng, ll.lat], poly)) return false;
+    }
+    return true;
+  };
   const centerPx=map.latLngToContainerPoint(L.latLng(idealLatLng[0],idealLatLng[1]));
-  const step=Math.max(6, lblH*0.6);                       // passo do deslocamento em px
-  const rings=6;                                          // quantos anéis testar
-  const dirs=[[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]]; // 8 direções
+  // deslocamento pequeno e conservador: prioriza ficar perto do centro
+  const step=Math.max(4, lblH*0.5);
+  const rings=3;                                         // no máx 3 anéis (deslocamento curto)
+  const dirs=[[0,-1],[0,1],[-1,0],[1,0],[1,-1],[-1,-1],[1,1],[-1,1]]; // vertical/horizontal primeiro
+  let melhor=null, melhorDist=Infinity;
   for(let ring=1; ring<=rings; ring++){
     for(const d of dirs){
       const px=centerPx.x + d[0]*step*ring;
       const py=centerPx.y + d[1]*step*ring;
       let ll; try{ ll=map.containerPointToLatLng(L.point(px,py)); }catch(e){ continue; }
       const cand=[ll.lat, ll.lng];
-      // precisa estar DENTRO da zona (checa nas coords do polígono: [lng,lat])
-      if(poly && !pointInPolygon([cand[1], cand[0]], poly)) continue;
       const rr=mkRect(cand);
-      if(rr && _rectFree(placed, rr)){ placed.push(rr); return cand; }
+      if(!rr) continue;
+      // o rótulo inteiro tem que caber na zona E estar livre de colisão
+      if(!rectDentroDaZona(rr)) continue;
+      if(!_rectFree(placed, rr)) continue;
+      const dist=Math.hypot(px-centerPx.x, py-centerPx.y);
+      if(dist<melhorDist){ melhorDist=dist; melhor={rr, cand}; }
     }
+    if(melhor) break;   // achou no anel mais próximo → usa (prioriza centro)
   }
-  // nada livre dentro da zona → mantém o centro (aceita sobreposição, mas não sai da zona)
+  if(melhor){ placed.push(melhor.rr); return melhor.cand; }
+  // nada cabe deslocado dentro da zona → mantém o CENTRO (nunca joga para a borda)
   placed.push(r0);
   return idealLatLng;
 }
@@ -3405,7 +3421,7 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
       S._pdfFixedFontSize=null;
       try{
         const ms=_pdfMinSideAllVisible(S.map);
-        if(ms!=null){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(ms, S.labelScale, S._pdfCapFactor||1.4); }
+        if(ms!=null){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(ms, S.labelScale, S._pdfCapFactor||3.0); }
       }catch(e){}
       // re-renderiza rótulos com o tamanho fixo já definido
       try{ multiRenderExtrasNutrient(); if(S.showLabels){ clearLabels(); drawLabels(); } }catch(e){}
@@ -3708,9 +3724,10 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
     if(enxKeys.length) autoPages.push({type:'pair', keys: enxKeys}); // 1 ou 2 Enxofres lado a lado
     let first=true;
     // fator de captura em alta resolução (mais pixels no mapa e nos rótulos).
-    // registrado em S._pdfCapFactor para a fórmula de fonte compensar e manter o
-    // TAMANHO VISUAL dos rótulos igual ao de antes (só mais nítidos).
-    const MB_CAP = 2.4;
+    // display = cellW, captura = cellW*MB_CAP → downscale real = MB_CAP (fonte normalizada certo).
+    // a fórmula de fonte normaliza pelo cap, então o tamanho VISUAL dos rótulos é dinâmico
+    // e proporcional ao espaço da zona, só mais nítido.
+    const MB_CAP = 3.0;
     S._pdfCapFactor = MB_CAP;
     for(const pg of autoPages){
       const itens=pg.keys.map(k=>byKey[k]).filter(Boolean);
