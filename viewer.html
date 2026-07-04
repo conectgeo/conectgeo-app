@@ -3947,12 +3947,19 @@ async function generateRecPDF(insumos){
     const doc=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
     const PW=297, PH=210, pageW=1123, pageH=794;
 
+    // container de captura ampliado (mais pixels). O rótulo é dimensionado pela fonte
+    // dinâmica, normalizada pelo downscale REAL (tamanho capturado ÷ tamanho exibido de 660px).
+    const REC_CAP = insumos.length<=6 ? 3.0 : 2.4;
+    const REC_DISPLAY_W = 660;                          // largura da célula do mapa no PDF
+    const capW=Math.round(SLOT_W*REC_CAP/2), capH=Math.round(SLOT_H*REC_CAP/2);
+    S._pdfCapFactor = capW / REC_DISPLAY_W;             // downscale real → normaliza a fonte
+
     for(let n=0;n<insumos.length;n++){
       const col=insumos[n];
       setLoading('Gerando mapa '+(n+1)+' de '+insumos.length+' — '+col);
       S.rec.col=col; if(sel) sel.value=col;
-      mapEl.style.flex='none'; mapEl.style.width=SLOT_W+'px'; mapEl.style.height=SLOT_H+'px';
-      if(wrap) wrap.style.width=SLOT_W+'px';
+      mapEl.style.flex='none'; mapEl.style.width=capW+'px'; mapEl.style.height=capH+'px';
+      if(wrap) wrap.style.width=capW+'px';
       try{ S.map.invalidateSize(true); }catch(e){}
       renderRecomendacao();
       let _rb=null; try{ if(S.rec.layer) _rb=S.rec.layer.getBounds(); }catch(e){}
@@ -3961,8 +3968,8 @@ async function generateRecPDF(insumos){
       await new Promise(r=>setTimeout(r, S.activeBase==='satelite'?1300:550));
 
       let mapImg;
-      if(S.shooter){ mapImg=await S.shooter.takeScreen('image',{mimeType:'image/jpeg'}); }
-      else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:2,logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); mapImg=cv.toDataURL('image/jpeg',0.95); }
+      if(S.shooter){ mapImg=await S.shooter.takeScreen('image',{mimeType:'image/png'}); }
+      else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:Math.max(3,(window.devicePixelRatio||1)*2),logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); mapImg=cv.toDataURL('image/png'); }
 
       const st=recComputeStats(col);
       const sb=recScaleBar(660);
@@ -4012,11 +4019,11 @@ async function generateRecPDF(insumos){
       page.innerHTML=headerHTML+mapCellHTML+rightHTML+footerHTML;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      const pageCanvas=await html2canvas(page,{scale:2,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
+      const pageCanvas=await html2canvas(page,{scale:3,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
       document.body.removeChild(page);
 
       if(n>0) doc.addPage();
-      doc.addImage(pageCanvas.toDataURL('image/jpeg',0.95),'JPEG',0,0,PW,PH);
+      doc.addImage(pageCanvas.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
     }
 
     restore();
