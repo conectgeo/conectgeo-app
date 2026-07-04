@@ -752,6 +752,14 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
         </select>
       </div>
 
+      <div id="pdf-depth-section" style="display:none;">
+        <span class="mlabel">Profundidades a imprimir</span>
+        <div class="modal-tools">
+          <div class="mtool" id="pdf-depth-all">Todas</div>
+        </div>
+        <div class="nut-grid" id="pdf-depth-grid"></div>
+      </div>
+
       <span class="mlabel" data-i18n="mLogo">Logotipo do relatório</span>
       <div class="logo-opts" id="logo-opts">
         <div class="logo-opt" data-logo="conectgeo">
@@ -2116,10 +2124,9 @@ function _pdfMinSideAllVisible(map){
 function _pdfUniformFontSize(map, layerObj, scaleOverride){
   const scl = (scaleOverride!=null) ? scaleOverride : S.labelScale;
   const fallback={idSize:(9*scl).toFixed(1), valSize:(12*scl).toFixed(1)};
-  // Relatório Padrão: fonte fixa pré-calculada sobre a união das profundidades
-  // (evita que cada profundidade recalcule sozinha e fique com tamanho diferente)
-  if(S._pdfFixedFontSize) return S._pdfFixedFontSize;
+  // fonte fixa e cálculo dinâmico são EXCLUSIVOS do PDF — na tela usa sempre o fallback (12px)
   if(!S.pdfMode || !map || !layerObj) return fallback;
+  if(S._pdfFixedFontSize) return S._pdfFixedFontSize;
   try{
     const minSide=_pdfLayerMinSide(map, layerObj);
     if(minSide==null) return fallback;
@@ -2287,8 +2294,33 @@ document.getElementById('btn-pdf').addEventListener('click',()=>{
     S.logoChoice='conectgeo'; S.customLogo=null;
     const optCg=document.querySelector('.logo-opt[data-logo="conectgeo"]'); if(optCg) optCg.classList.add('sel');
   }
+  // profundidades a imprimir
+  _popularPdfDepths();
   modalBg.classList.add('show');
 });
+
+function _popularPdfDepths(){
+  const sec=document.getElementById('pdf-depth-section');
+  const grid=document.getElementById('pdf-depth-grid');
+  if(!sec||!grid) return;
+  grid.innerHTML='';
+  // profundidades disponíveis (só faz sentido escolher quando há coluna de profundidade com 2+)
+  const disp = (S.depthCol && (S.availDepths||[]).length>1) ? S.availDepths.slice() : [];
+  if(disp.length<2){ sec.style.display='none'; return; }
+  sec.style.display='';
+  disp.forEach((d,i)=>{
+    const chip=document.createElement('div');
+    // pré-seleciona as 2 primeiras (mantém o comportamento anterior por padrão)
+    chip.className='nut-chip'+(i<2?' sel':'');
+    chip.dataset.depth=d;
+    chip.innerHTML=`<div class="nut-check"></div><div class="nut-name" title="${d}">${d}</div>`;
+    chip.addEventListener('click',()=>chip.classList.toggle('sel'));
+    grid.appendChild(chip);
+  });
+}
+function _pdfSelectedDepths(){
+  return Array.from(document.querySelectorAll('#pdf-depth-grid .nut-chip.sel')).map(c=>c.dataset.depth);
+}
 
 // logo option selection
 document.querySelectorAll('.logo-opt').forEach(opt=>{
@@ -2312,8 +2344,9 @@ document.getElementById('custom-logo-file').addEventListener('change',function(e
   r.readAsDataURL(file);
 });
 
-document.getElementById('mt-all').addEventListener('click',()=>document.querySelectorAll('.nut-chip').forEach(c=>c.classList.add('sel')));
-document.getElementById('mt-none').addEventListener('click',()=>document.querySelectorAll('.nut-chip').forEach(c=>c.classList.remove('sel')));
+document.getElementById('mt-all').addEventListener('click',()=>document.querySelectorAll('#nut-grid .nut-chip').forEach(c=>c.classList.add('sel')));
+document.getElementById('mt-none').addEventListener('click',()=>document.querySelectorAll('#nut-grid .nut-chip').forEach(c=>c.classList.remove('sel')));
+(function(){ const b=document.getElementById('pdf-depth-all'); if(b) b.addEventListener('click',()=>document.querySelectorAll('#pdf-depth-grid .nut-chip').forEach(c=>c.classList.add('sel'))); })();
 document.getElementById('mbtn-cancel').addEventListener('click',()=>modalBg.classList.remove('show'));
 modalBg.addEventListener('click',e=>{if(e.target===modalBg)modalBg.classList.remove('show');});
 
@@ -2327,8 +2360,13 @@ function proceedPDF(){
   generatePDF(sel);
 }
 document.getElementById('mbtn-go').addEventListener('click',()=>{
-  const sel=[...document.querySelectorAll('.nut-chip.sel')].map(c=>c.dataset.col);
+  const sel=[...document.querySelectorAll('#nut-grid .nut-chip.sel')].map(c=>c.dataset.col);
   if(!sel.length){toast('Selecione ao menos um nutriente','wrn');return;}
+  // profundidades escolhidas (se a seção estiver visível); vazio = usa o padrão
+  const selDepths=_pdfSelectedDepths();
+  const depthSecVisible=(document.getElementById('pdf-depth-section')||{}).style && document.getElementById('pdf-depth-section').style.display!=='none';
+  if(depthSecVisible && !selDepths.length){ toast('Selecione ao menos uma profundidade','wrn'); return; }
+  S._pdfChosenDepths = depthSecVisible ? selDepths : null;
   pendingNutrients=sel;
   // if user chose "custom" but didn't upload, warn
   if(S.logoChoice==='custom' && !S.customLogo){toast('Envie a imagem da sua logo','wrn');return;}
@@ -2399,7 +2437,7 @@ async function generatePDF(nutrients){
     try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnap; }catch(e){}
     if(_baseRestore) _baseRestore();
     S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;S.userTouchedPal=savedTouched;
-    S.pdfMode=false; S._pdfLabelRects=null; S._pdfFixedFontSize=null; S._pdfCapFactor=null;
+    S.pdfMode=false; S._pdfLabelRects=null; S._pdfFixedFontSize=null; S._pdfCapFactor=null; S._pdfChosenDepths=null;
     document.body.classList.remove('pdf-no-id');
     try{ document.getElementById('sel-col').value=savedCol; }catch(e){}
     if(savedDepth && S.depthCol && normDepth(S.activeDepth)!==normDepth(savedDepth)){ S.activeDepth=savedDepth; try{ applyActiveDepth(); }catch(e){} }
@@ -2502,8 +2540,19 @@ async function generatePDF(nutrients){
       const auto=autoPalette(nut);
       if(auto){S.pal=auto.pal;S.invert=auto.invert;} else {S.pal='rdylgn';S.invert=false;}
 
-      // list of depths to render (max 2)
-      const depths=(S.depthCol && (S.availDepths||[]).length) ? S.availDepths.slice(0,2) : [S.activeDepth||''];
+      // list of depths to render — usa a escolha do usuário se houver; senão as 2 primeiras (padrão)
+      let depths;
+      if(S.depthCol && (S.availDepths||[]).length){
+        if(S._pdfChosenDepths && S._pdfChosenDepths.length){
+          const chosen=new Set(S._pdfChosenDepths.map(d=>normDepth(d)));
+          depths=S.availDepths.filter(d=>chosen.has(normDepth(d)));
+          if(!depths.length) depths=S.availDepths.slice(0,2);
+        } else {
+          depths=S.availDepths.slice(0,2);
+        }
+      } else {
+        depths=[S.activeDepth||''];
+      }
 
       // layout cells — landscape: side by side; portrait: stacked vertically
       const marg=24, gap=14, topY=isLand?90:80;
@@ -3871,7 +3920,7 @@ async function generateRecPDF(insumos){
     if(_baseRestore){ _baseRestore(); _baseRestore=null; }
     try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnap; }catch(e){}
     try{ S.map.invalidateSize(true); }catch(e){}
-    S.rec.col=savedCol; S.rec.showLabels=savedShow; S.rec.labelScale=savedScale; S.rec.labelsHideId=savedHideId; S.pdfMode=false;
+    S.rec.col=savedCol; S.rec.showLabels=savedShow; S.rec.labelScale=savedScale; S.rec.labelsHideId=savedHideId; S.pdfMode=false; S._pdfFixedFontSize=null; S._pdfCapFactor=null;
     document.body.classList.remove('pdf-no-id');
     if(sel) sel.value=savedCol;
     try{ renderRecomendacao(); }catch(e){}
