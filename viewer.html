@@ -2054,38 +2054,38 @@ function _rectFree(arr, r){ for(const o of arr){ if(!(r.x2<o.x||r.x>o.x2||r.y2<o
 function _placeLabelInZone(map, feature, idealLatLng, lblW, lblH, placed){
   const half=[lblW/2, lblH/2];
   const mkRect=(pt)=>{ try{ const p=map.latLngToContainerPoint(L.latLng(pt[0],pt[1])); return {x:p.x-half[0], y:p.y-half[1], x2:p.x+half[0], y2:p.y+half[1], cx:p.x, cy:p.y}; }catch(e){ return null; } };
-  // retângulo no centro ideal
   const r0=mkRect(idealLatLng);
   if(!r0){ return idealLatLng; }
+  // NA TELA: nunca desloca — mantém sempre o centro visual (pole of inaccessibility).
+  // O nudge por colisão é EXCLUSIVO do PDF (onde a fonte pode gerar sobreposição em captura).
+  if(!S.pdfMode){ placed.push(r0); return idealLatLng; }
   if(_rectFree(placed, r0)){ placed.push(r0); return idealLatLng; }
-  // colidiu — gera candidatas em anéis ao redor do centro, todas convertidas p/ latlng
-  // e validadas como DENTRO do polígono da zona.
+  // colidiu (PDF) — gera candidatas em anéis pequenos ao redor do centro,
+  // sempre validadas como DENTRO do polígono e próximas do centro.
   let poly=null; try{ poly=largestPart(feature.geometry); }catch(e){ poly=null; }
   const centerPx=map.latLngToContainerPoint(L.latLng(idealLatLng[0],idealLatLng[1]));
-  const step=Math.max(6, lblH*0.6);                       // passo do deslocamento em px
-  const rings=6;                                          // quantos anéis testar
-  const dirs=[[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]]; // 8 direções
+  const step=Math.max(4, lblH*0.45);                      // passo curto, mantém perto do centro
+  const rings=3;                                          // poucos anéis — não afasta demais
+  const dirs=[[0,-1],[1,0],[0,1],[-1,0],[1,-1],[1,1],[-1,1],[-1,-1]];
   for(let ring=1; ring<=rings; ring++){
     for(const d of dirs){
       const px=centerPx.x + d[0]*step*ring;
       const py=centerPx.y + d[1]*step*ring;
       let ll; try{ ll=map.containerPointToLatLng(L.point(px,py)); }catch(e){ continue; }
       const cand=[ll.lat, ll.lng];
-      // precisa estar DENTRO da zona (checa nas coords do polígono: [lng,lat])
       if(poly && !pointInPolygon([cand[1], cand[0]], poly)) continue;
       const rr=mkRect(cand);
       if(rr && _rectFree(placed, rr)){ placed.push(rr); return cand; }
     }
   }
-  // nada livre dentro da zona → mantém o centro (aceita sobreposição, mas não sai da zona)
   placed.push(r0);
   return idealLatLng;
 }
 
 // Tamanho ÚNICO baseado no menor lado da menor zona visível em pixels
 // Garante que o rótulo cabe em todas as zonas sem sobreposição
-function _pdfLayerMinSide(map, layerObj){
-  // devolve o menor lado (em px de tela) entre todas as zonas poligonais do layer, ou null
+function _pdfLayerSides(map, layerObj){
+  // devolve TODOS os menores lados (px de tela) de cada zona poligonal do layer
   const sides=[];
   try{
     layerObj.eachLayer(lyr=>{
@@ -2099,40 +2099,58 @@ function _pdfLayerMinSide(map, layerObj){
       }catch(e){}
     });
   }catch(e){}
-  return sides.length ? Math.min(...sides) : null;
+  return sides;
 }
-function _pdfFontSizeFromMinSide(minSide, scl, capFactor){
-  // O minSide é medido no container de CAPTURA (ampliado por capFactor). Para dimensionar
-  // corretamente, normalizamos para px VISUAIS (÷cap), aplicamos a fórmula/limites em escala
-  // visual, e reescalamos a fonte de volta para o container de captura (×cap).
+function _pdfLayerMinSide(map, layerObj){
+  const s=_pdfLayerSides(map, layerObj);
+  return s.length ? Math.min(...s) : null;
+}
+function _percentile(arr, p){
+  if(!arr || !arr.length) return null;
+  const a=arr.slice().sort((x,y)=>x-y);
+  const idx=Math.min(a.length-1, Math.max(0, Math.floor((a.length-1)*p)));
+  return a[idx];
+}
+function _pdfFontSizeFromSides(sides, scl, capFactor){
+  // Usa o percentil 25 como "régua" (evita que uma zona-outlier minúscula
+  // reduza a fonte de todo o mapa) e o mínimo absoluto como piso de segurança.
   const cap = (capFactor && capFactor>0) ? capFactor : 1;
-  const minVisual = minSide / cap;                 // lado da menor zona em px visuais finais
-  // fonte visual = ~18% do lado visual da zona, entre 7 e 18px (escala com a zona → dinâmico)
-  const baseVisual = Math.max(7, Math.min(18, minVisual * 0.18 * (scl||1)));
-  const base = baseVisual * cap;                   // reescala p/ o container de captura
+  const p25 = _percentile(sides, 0.25);
+  const mn  = Math.min.apply(null, sides);
+  // referência de dimensionamento: mistura ponderada (favorece p25 → escala melhor
+  // em mapas com poucas zonas, mas ainda respeita o menor)
+  const refVisual = (p25*0.7 + mn*0.3) / cap;
+  // ~26% do lado de referência, entre 9 e 34 px visuais → dinâmico de verdade
+  const baseVisual = Math.max(9, Math.min(34, refVisual * 0.26 * (scl||1)));
+  const base = baseVisual * cap;
   return {idSize:(base*0.72).toFixed(1), valSize:base.toFixed(1)};
 }
-// menor lado de zona considerando o talhão primário + TODOS os extras visíveis no mapa
-// (garante que a fonte uniforme cabe na menor zona de qualquer talhão, evitando sobreposição)
-function _pdfMinSideAllVisible(map){
+function _pdfFontSizeFromMinSide(minSide, scl, capFactor){
+  // Mantido para compatibilidade — quando só temos o mínimo, aplica a mesma faixa larga
+  return _pdfFontSizeFromSides([minSide], scl, capFactor);
+}
+function _pdfAllSidesVisible(map){
   const sides=[];
-  try{ if(S.layer){ const m=_pdfLayerMinSide(map, S.layer); if(m!=null) sides.push(m); } }catch(e){}
-  try{ (S.extras||[]).forEach(ex=>{ if(ex._nut){ const m=_pdfLayerMinSide(map, ex._nut); if(m!=null) sides.push(m); } }); }catch(e){}
-  return sides.length ? Math.min(...sides) : null;
+  try{ if(S.layer){ sides.push(..._pdfLayerSides(map, S.layer)); } }catch(e){}
+  try{ (S.extras||[]).forEach(ex=>{ if(ex._nut){ sides.push(..._pdfLayerSides(map, ex._nut)); } }); }catch(e){}
+  return sides;
+}
+function _pdfMinSideAllVisible(map){
+  const s=_pdfAllSidesVisible(map);
+  return s.length ? Math.min(...s) : null;
 }
 function _pdfUniformFontSize(map, layerObj, scaleOverride){
   const scl = (scaleOverride!=null) ? scaleOverride : S.labelScale;
   const fallback={idSize:(9*scl).toFixed(1), valSize:(12*scl).toFixed(1)};
-  // fonte fixa e cálculo dinâmico são EXCLUSIVOS do PDF — na tela usa sempre o fallback (12px)
   if(!S.pdfMode || !map || !layerObj) return fallback;
   if(S._pdfFixedFontSize) return S._pdfFixedFontSize;
   try{
-    const minSide=_pdfLayerMinSide(map, layerObj);
-    if(minSide==null) return fallback;
-    // usa a zona menor (mínimo) como régua — rótulo tem que caber nela
-    return _pdfFontSizeFromMinSide(minSide, scl, S._pdfCapFactor);
+    const sides=_pdfLayerSides(map, layerObj);
+    if(!sides.length) return fallback;
+    return _pdfFontSizeFromSides(sides, scl, S._pdfCapFactor);
   }catch(e){ return fallback; }
 }
+
 
 function _pdfLabelSize(map, layerObj, scaleOverride){
   return _pdfUniformFontSize(map, layerObj, scaleOverride);
@@ -2576,7 +2594,7 @@ async function generatePDF(nutrients){
       S._pdfFixedFontSize=null; // garante medição "crua" durante a pré-medição
       const _temExtras=!!(S.extras&&S.extras.length);
       if(depths.length>1 || _temExtras){
-        const minSides=[];
+        const allSides=[];
         for(let i=0;i<depths.length;i++){
           const d=depths[i];
           if(d && S.depthCol && normDepth(S.activeDepth)!==normDepth(d)){
@@ -2588,12 +2606,11 @@ async function generatePDF(nutrients){
           let b=null; try{ if(S.layer) b=S.layer.getBounds(); }catch(e){}
           if(S.extras) S.extras.forEach(ex=>{ try{ if(ex.bounds) b=b?b.extend(ex.bounds):L.latLngBounds(ex.bounds.getSouthWest(),ex.bounds.getNorthEast()); }catch(e){} });
           try{ if(b) S.map.fitBounds(b,{padding:[20,20],animate:false}); }catch(e){}
-          // garante que os extras estejam renderizados para entrarem na medição do menor lado
           try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); }catch(e){}
-          const ms=_pdfMinSideAllVisible(S.map);
-          if(ms!=null) minSides.push(ms);
+          const ss=_pdfAllSidesVisible(S.map);
+          if(ss && ss.length) allSides.push(...ss);
         }
-        if(minSides.length){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(Math.min(...minSides), S.labelScale, CAP); }
+        if(allSides.length){ S._pdfFixedFontSize=_pdfFontSizeFromSides(allSides, S.labelScale, CAP); }
       }
 
       const caps=[];
@@ -3404,8 +3421,8 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
     if(S.extras && S.extras.length){
       S._pdfFixedFontSize=null;
       try{
-        const ms=_pdfMinSideAllVisible(S.map);
-        if(ms!=null){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(ms, S.labelScale, S._pdfCapFactor||1.4); }
+        const sides=_pdfAllSidesVisible(S.map);
+        if(sides && sides.length){ S._pdfFixedFontSize=_pdfFontSizeFromSides(sides, S.labelScale, S._pdfCapFactor||1.4); }
       }catch(e){}
       // re-renderiza rótulos com o tamanho fixo já definido
       try{ multiRenderExtrasNutrient(); if(S.showLabels){ clearLabels(); drawLabels(); } }catch(e){}
