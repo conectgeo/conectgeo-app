@@ -2102,16 +2102,15 @@ function _pdfLayerMinSide(map, layerObj){
   return sides.length ? Math.min(...sides) : null;
 }
 function _pdfFontSizeFromMinSide(minSide, scl, capFactor){
-  // fonte = ~42% do menor lado, com limites 8–15px.
-  // Os limites escalam com o fator de captura (base 1.3): se o mapa é capturado
-  // 2x maior, os limites dobram, mantendo o TAMANHO VISUAL final do rótulo idêntico
-  // (só muda a resolução/nitidez, não o tamanho aparente).
-  const k = (capFactor && capFactor>0) ? (capFactor/1.3) : 1;
-  // redução de tamanho na proporção fonte 12 → 10 (modelo QGIS: rótulos menores e mais discretos)
-  const SHRINK = 10/12;
-  const loLim=8*k*SHRINK, hiLim=15*k*SHRINK;
-  const base=Math.max(loLim, Math.min(hiLim, minSide * 0.42 * scl * SHRINK));
-  return {idSize:(base*0.75).toFixed(1), valSize:base.toFixed(1)};
+  // O minSide é medido no container de CAPTURA (ampliado por capFactor). Para dimensionar
+  // corretamente, normalizamos para px VISUAIS (÷cap), aplicamos a fórmula/limites em escala
+  // visual, e reescalamos a fonte de volta para o container de captura (×cap).
+  const cap = (capFactor && capFactor>0) ? capFactor : 1;
+  const minVisual = minSide / cap;                 // lado da menor zona em px visuais finais
+  // fonte visual = ~18% do lado visual da zona, entre 7 e 18px (escala com a zona → dinâmico)
+  const baseVisual = Math.max(7, Math.min(18, minVisual * 0.18 * (scl||1)));
+  const base = baseVisual * cap;                   // reescala p/ o container de captura
+  return {idSize:(base*0.72).toFixed(1), valSize:base.toFixed(1)};
 }
 // menor lado de zona considerando o talhão primário + TODOS os extras visíveis no mapa
 // (garante que a fonte uniforme cabe na menor zona de qualquer talhão, evitando sobreposição)
@@ -2526,10 +2525,11 @@ async function generatePDF(nutrients){
 
     // resolução da página: mais alta para relatórios curtos, mais conservadora para longos
     // (evita estouro de memória do navegador com muitas páginas)
-    const _pdfScale = nutrients.length<=6 ? 3 : (nutrients.length<=12 ? 2.6 : 2.2);
-    // fator de captura do mapa: quanto maior, mais pixels no mapa E nos rótulos (mesma proporção).
-    // pré-medição e captura usam o MESMO fator, então o tamanho relativo do rótulo não muda.
-    const CAP = nutrients.length<=8 ? 2.6 : 2.0;
+    const _pdfScale = nutrients.length<=6 ? 3.2 : (nutrients.length<=12 ? 2.7 : 2.2);
+    // fator de captura do mapa: quanto maior, mais pixels no mapa E nos rótulos.
+    // a fórmula de fonte normaliza pelo CAP, então o tamanho VISUAL do rótulo não muda,
+    // apenas a nitidez/resolução aumenta.
+    const CAP = nutrients.length<=6 ? 3.2 : (nutrients.length<=12 ? 2.6 : 2.0);
     S._pdfCapFactor = CAP;
 
     for(let n=0;n<nutrients.length;n++){
