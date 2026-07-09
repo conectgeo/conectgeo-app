@@ -2140,8 +2140,10 @@ function _pdfFontSizeFromMinSide(minSide, scl, capFactor){
   // visual, e reescalamos a fonte de volta para o container de captura (×cap).
   const cap = (capFactor && capFactor>0) ? capFactor : 1;
   const minVisual = minSide / cap;                 // lado da menor zona em px visuais finais
-  // fonte visual = ~18% do lado visual da zona, entre 7 e 18px (escala com a zona → dinâmico)
-  const baseVisual = Math.max(7, Math.min(18, minVisual * 0.18 * (scl||1)));
+  // fonte visual = ~18% do lado visual da zona. Teto alto (28px) para que mapas com
+  // POUCAS zonas grandes tenham rótulos proporcionais ao espaço; zonas pequenas nunca
+  // chegam no teto, então mapas densos não são afetados (rótulos continuam menores).
+  const baseVisual = Math.max(7, Math.min(28, minVisual * 0.18 * (scl||1)));
   const base = baseVisual * cap;                   // reescala p/ o container de captura
   return {idSize:(base*0.72).toFixed(1), valSize:base.toFixed(1)};
 }
