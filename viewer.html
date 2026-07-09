@@ -3229,12 +3229,10 @@ function renderRecomendacao(){
       l.on('click',function(e){ if(S.rec.editing){ L.DomEvent.stop(e); openZoneEdit(k, e.latlng); } });
     }
   }).addTo(S.map);
-  if(!S.pdfMode){
-    try{
-      let _rb=S.rec.layer.getBounds();
-      if(S.extras) S.extras.forEach(ex=>{ if(ex.bounds){ try{ _rb=_rb.extend(ex.bounds); }catch(e){} } });
-      S.map.fitBounds(_rb,{padding:[24,24]});
-    }catch(e){}
+  // enquadramento: no multi-talhão quem enquadra é multiFitAll (evita fitBounds concorrentes
+  // que deixam os tiles desalinhados). Aqui só enquadra no talhão único.
+  if(!S.pdfMode && !(S.extras && S.extras.length)){
+    try{ S.map.fitBounds(S.rec.layer.getBounds(),{padding:[24,24]}); }catch(e){}
   }
   // LEGENDA: 5 classes iguais entre mín e máx (dinâmico pelo insumo)
   const NB=5; let buckets=[];
@@ -4665,7 +4663,7 @@ function setMapMode(mode){
     if(S.coletaZonaLabels) S.coletaZonaLabels.forEach(l=>{try{S.map.removeLayer(l);}catch(e){}});
     document.getElementById('empty-msg').style.display='none';
     if(!S.recCompare.on){ document.getElementById('mleg-left').style.display='none'; document.querySelector('.map-wrap').classList.remove('compare-on'); }
-    loadRecData().then(()=>{ popularInsumos(); if(S.recCompare.on) renderRecCompare(); else renderRecomendacao(); });
+    loadRecData().then(()=>{ popularInsumos(); if(S.recCompare.on) renderRecCompare(); else renderRecomendacao(); if(S.extras && S.extras.length){ setTimeout(()=>{ try{ multiFitAll(); }catch(e){} }, 60); } });
   }else{
     Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
     S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l));
@@ -5803,6 +5801,7 @@ function multiFitAll(){
   try{ if(S.layer) b=S.layer.getBounds(); }catch(e){}
   try{ if(!b && S.coletaLayers && S.coletaLayers.zonas) b=S.coletaLayers.zonas.getBounds(); }catch(e){}
   (S.extras||[]).forEach(ex=>{ if(ex.bounds){ b = b ? b.extend(ex.bounds) : L.latLngBounds(ex.bounds.getSouthWest(), ex.bounds.getNorthEast()); } });
+  try{ S.map.invalidateSize(false); }catch(e){}   // reconhece o tamanho real do container antes de enquadrar
   if(b){ try{ S.map.fitBounds(b,{padding:[50,50]}); }catch(e){} }
 }
 
