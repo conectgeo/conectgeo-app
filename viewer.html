@@ -2606,12 +2606,11 @@ async function generatePDF(nutrients){
         cellH=Math.floor((mapAreaH-(nCells-1)*gap)/nCells);
       }
 
-      // pré-medição: tamanho de fonte ÚNICO para o nutriente, baseado na união
-      // das zonas de TODAS as profundidades E de todos os talhões (primário + extras)
-      // (evita profundidades/talhões com tamanhos diferentes e rótulos sobrepostos)
+      // pré-medição: tamanho de fonte ÚNICO para o nutriente, medido com o mapa JÁ no
+      // tamanho de captura (cellW*CAP). Roda SEMPRE — inclusive mapa único de 1 profundidade —
+      // senão os rótulos seriam medidos no container pequeno da tela e sairiam minúsculos.
       S._pdfFixedFontSize=null; // garante medição "crua" durante a pré-medição
-      const _temExtras=!!(S.extras&&S.extras.length);
-      if(depths.length>1 || _temExtras){
+      {
         const minSides=[];
         for(let i=0;i<depths.length;i++){
           const d=depths[i];
