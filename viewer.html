@@ -5738,7 +5738,7 @@ function multiRenderExtrasRec(){
     if(ex._nut){ try{S.map.removeLayer(ex._nut);}catch(e){} ex._nut=null; }
     if(ex._empty){ try{S.map.removeLayer(ex._empty);}catch(e){} ex._empty=null; }
     const rec=ex.rec;
-    const recCol=(rec && col && (rec.fields||[]).indexOf(col)>=0)?col:null;
+    const recCol=(rec && col)?_exRecCol(ex, col):null;
     if(!rec || !recCol || !rec.rows.length){ ex._empty=_emptyZonesLayer(ex.geo); ex._empty.addTo(S.map); return; }
     const fator=recFatorExtra(ex, recCol);
     const joined={}; rec.rows.forEach(r=>{ joined[_zkey(r[rec.zone])]=r; });
