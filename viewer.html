@@ -3125,14 +3125,8 @@ async function _recHeadLastMod(url){
 // gravado pelas edições (recomendacao/{token}/planilha.csv). Assim, mesmo que a RPC
 // atualizar_recomendacao falhe ou não exista, as edições salvas NUNCA se perdem no reload.
 async function _freshestRecUrl(token, dbUrl){
-  if(!sb || !token) return dbUrl||null;
-  let csvUrl=null;
-  try{ csvUrl=sb.storage.from('arquivos').getPublicUrl('recomendacao/'+token+'/planilha.csv').data.publicUrl; }catch(e){}
-  if(!csvUrl) return dbUrl||null;
-  const dbBase=dbUrl ? dbUrl.split('?')[0] : null;
-  if(dbBase && dbBase===csvUrl.split('?')[0]) return dbUrl; // banco já aponta pro CSV editado
-  const [hCsv, hDb]=await Promise.all([ _recHeadLastMod(csvUrl), dbBase?_recHeadLastMod(dbBase):Promise.resolve(null) ]);
-  if(hCsv && (!hDb || hCsv.time >= hDb.time)) return csvUrl + '?t=' + Date.now();
+  // com nome único por save (rec_<ts>.csv) + RPC obrigatória, a URL do banco é sempre a
+  // mais recente. Não há mais um planilha.csv fixo para "preferir".
   return dbUrl||null;
 }
 async function loadRecData(){
@@ -4509,7 +4503,9 @@ async function recEditSalvar(){
   async function _persistRec(token, prevUrl, csvText, nFields, nRows){
     _validaCSV(csvText, nFields, nRows);
     const blob=new Blob(['\ufeff'+csvText],{type:'text/csv;charset=utf-8'});
-    const newPath='recomendacao/'+token+'/planilha.csv';
+    // nome ÚNICO por save (anti-cache de CDN): sobrescrever sempre o mesmo planilha.csv
+    // fazia a 2ª edição ler a versão antiga em cache. Cada save agora é um arquivo novo.
+    const newPath='recomendacao/'+token+'/rec_'+Date.now()+'.csv';
     const up=await sb.storage.from('arquivos').upload(newPath, blob, {upsert:true, contentType:'text/csv;charset=utf-8'});
     if(up && up.error){ throw new Error('upload: '+(up.error.message||up.error)); }
     const newUrl=sb.storage.from('arquivos').getPublicUrl(newPath).data.publicUrl + '?t=' + Date.now();
@@ -4520,10 +4516,11 @@ async function recEditSalvar(){
       else if(rpc && rpc.data && rpc.data.erro) console.warn('[rec][save] rpc retornou erro:', rpc.data);
       else rpcOk=true;
     }catch(eRpc){ console.warn('[rec][save] rpc exceção:', eRpc); }
-    // Apaga o arquivo original (fonte antiga) somente se a RPC atualizou o banco,
-    // para nunca deixar o cliente sem referência a um arquivo válido.
+    if(!rpcOk){ throw new Error('não foi possível atualizar o banco (RPC) — alteração não confirmada'); }
+    // Apaga o arquivo anterior (fonte antiga) só após a RPC confirmar, para não acumular lixo
+    // e para nunca deixar o cliente sem referência a um arquivo válido.
     const oldPath=_storagePathFromPublicUrl(prevUrl);
-    if(rpcOk && oldPath && oldPath!==newPath){
+    if(oldPath && oldPath!==newPath){
       try{ await sb.storage.from('arquivos').remove([oldPath]); }
       catch(e){ console.warn('[rec][save] remove antigo falhou:', e); }
     }
