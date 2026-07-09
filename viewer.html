@@ -5094,9 +5094,14 @@ function wireColetaControls(){
         try{
           const path='recomendacao/'+S.tokenAtual+'/planilha.'+ext;
           const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
-          if(!(up&&up.error)){ const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now(); S.rec.url=url;
+          if(!(up&&up.error)){ const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now(); S.rec.url=url; S.rec._loadedUrl=url;
             const r=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:url});
-            if(!(r&&r.error)) st.textContent = _combinada ? '✅ Nutrientes e recomendação salvos!' : '✅ Recomendação salva!';
+            if(!(r&&r.error)){
+              st.textContent = _combinada ? '✅ Nutrientes e recomendação salvos! Atualizando…' : '✅ Recomendação salva! Atualizando…';
+              // recarrega para reler a NOVA planilha do zero (substitui qualquer edição anterior),
+              // igual ao upload pela tela de Nutrientes. Evita conflito com o estado em memória.
+              setTimeout(()=>location.reload(), 700);
+            }
           }
         }catch(e){}
       }
