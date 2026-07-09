@@ -1743,14 +1743,16 @@ function renderMap(){
       layer.on('mouseout',function(){S.layer.resetStyle(this);this.closeTooltip();});
     }
   }).addTo(S.map);
-  if(!S.pdfMode) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
+  // enquadramento: no multi-talhão quem enquadra é multiFitAll (todos os talhões);
+  // aqui só enquadra no talhão único. Evita focar só no primário ao trocar de nutriente.
+  if(!S.pdfMode && !(S.extras && S.extras.length)) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
   if(S.showLabels) drawLabels();
   document.getElementById('empty-msg').style.display='none';
   document.body.classList.add('has-data');
   document.getElementById('sec-leg').style.display='';
   document.getElementById('sec-pdf').style.display='';
   if(!document.body.classList.contains('viewmode')) document.getElementById('sec-link').style.display='';
-  if(S.extras && S.extras.length) multiRenderExtrasNutrient();
+  if(S.extras && S.extras.length){ multiRenderExtrasNutrient(); }
 }
 // ray-casting: is point [lng,lat] inside a ring [[lng,lat],...]
 function pointInRing(pt, ring){
