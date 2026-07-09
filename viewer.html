@@ -3229,7 +3229,13 @@ function renderRecomendacao(){
       l.on('click',function(e){ if(S.rec.editing){ L.DomEvent.stop(e); openZoneEdit(k, e.latlng); } });
     }
   }).addTo(S.map);
-  if(!S.pdfMode){ try{ S.map.fitBounds(S.rec.layer.getBounds(),{padding:[24,24]}); }catch(e){} }
+  if(!S.pdfMode){
+    try{
+      let _rb=S.rec.layer.getBounds();
+      if(S.extras) S.extras.forEach(ex=>{ if(ex.bounds){ try{ _rb=_rb.extend(ex.bounds); }catch(e){} } });
+      S.map.fitBounds(_rb,{padding:[24,24]});
+    }catch(e){}
+  }
   // LEGENDA: 5 classes iguais entre mín e máx (dinâmico pelo insumo)
   const NB=5; let buckets=[];
   if(mx>mn){ const step=(mx-mn)/NB; for(let i=0;i<NB;i++) buckets.push({lo:mn+step*i, hi:mn+step*(i+1), ha:0}); }
@@ -5774,7 +5780,7 @@ function multiRefreshExtraRecLabels(){
     _clearExtraRecLabels(ex);
     if(!S.rec.showLabels) return;
     const rec=ex.rec;
-    const recCol=(rec && col && (rec.fields||[]).indexOf(col)>=0)?col:null;
+    const recCol=(rec && col)?_exRecCol(ex, col):null;
     if(!rec || !recCol || !rec.rows.length) return;
     const fator=recFatorExtra(ex, recCol);
     const joined={}; rec.rows.forEach(r=>{ joined[_zkey(r[rec.zone])]=r; });
