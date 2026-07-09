@@ -2140,10 +2140,10 @@ function _pdfFontSizeFromMinSide(minSide, scl, capFactor){
   // visual, e reescalamos a fonte de volta para o container de captura (×cap).
   const cap = (capFactor && capFactor>0) ? capFactor : 1;
   const minVisual = minSide / cap;                 // lado da menor zona em px visuais finais
-  // fonte visual = ~18% do lado visual da zona. Teto alto (28px) para que mapas com
-  // POUCAS zonas grandes tenham rótulos proporcionais ao espaço; zonas pequenas nunca
-  // chegam no teto, então mapas densos não são afetados (rótulos continuam menores).
-  const baseVisual = Math.max(7, Math.min(28, minVisual * 0.18 * (scl||1)));
+  // fonte visual = ~18% do lado visual da zona. Teto de 22px para mapas com poucas
+  // zonas grandes terem rótulos proporcionais; zonas pequenas nunca chegam no teto,
+  // então mapas densos não são afetados (rótulos continuam menores).
+  const baseVisual = Math.max(7, Math.min(22, minVisual * 0.18 * (scl||1)));
   const base = baseVisual * cap;                   // reescala p/ o container de captura
   return {idSize:(base*0.72).toFixed(1), valSize:base.toFixed(1)};
 }
@@ -2533,6 +2533,7 @@ async function generatePDF(nutrients){
       }catch(e){}
     });
     try{ if(b) S.map.fitBounds(b,{padding:[20,20],animate:false}); }catch(e){}
+    try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.90),{animate:false}); }catch(e){}   // afasta ~10%
     if(S.activeBase==='satelite'){ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }
     else { await new Promise(r=>setTimeout(r, 550)); }
     let img;
@@ -2623,6 +2624,7 @@ async function generatePDF(nutrients){
           let b=null; try{ if(S.layer) b=S.layer.getBounds(); }catch(e){}
           if(S.extras) S.extras.forEach(ex=>{ try{ if(ex.bounds) b=b?b.extend(ex.bounds):L.latLngBounds(ex.bounds.getSouthWest(),ex.bounds.getNorthEast()); }catch(e){} });
           try{ if(b) S.map.fitBounds(b,{padding:[20,20],animate:false}); }catch(e){}
+          try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.90),{animate:false}); }catch(e){}   // afasta ~10% (igual à captura)
           // garante que os extras estejam renderizados para entrarem na medição do menor lado
           try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); }catch(e){}
           const ms=_pdfMinSideAllVisible(S.map);
