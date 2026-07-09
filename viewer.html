@@ -3290,7 +3290,7 @@ function _renderRecSide(targetMap, insumoCol, scaleOverride){
   return {layer,mn,mx};
 }
 function _extraRecCmpLayer(ex, col, sc, targetMap){
-  const rec=ex.rec; const recCol=(rec&&col&&(rec.fields||[]).indexOf(col)>=0)?col:null;
+  const rec=ex.rec; const recCol=_exRecCol(ex, col);
   if(!rec||!recCol||!rec.rows.length) return null;
   const palRev=[...PALS.rdylgn.c].reverse();
   const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const tt=(sc.mx===sc.mn)?0:(d-sc.mn)/(sc.mx-sc.mn); return lerpColor(palRev,Math.max(0,Math.min(1,tt))); };
@@ -5392,31 +5392,71 @@ function _zkey(v){
 // Trata 3 casos: (a) coluna idêntica; (b) profundidade em coluna própria (ex.depthCol);
 // (c) depthByName — profundidade embutida no nome (ex: "M.O (00-20cm)").
 // Retorna { col, useRows } ou null se não houver correspondência.
+// resolve a coluna de INSUMO (recomendação) no extra, análogo a _exResolveCol.
+// idêntico → nome inteiro normalizado → nome-base se não-ambíguo. Retorna o nome da
+// coluna no extra, ou null. Corrige insumo sumindo quando o nome difere levemente
+// (ex.: "Cloreto Potássio" vs "Cloreto Potássio (60% K2O)").
+function _exRecCol(ex, col){
+  const rec=ex&&ex.rec; if(!rec||!col||!rec.fields||!rec.fields.length) return null;
+  if(rec.fields.indexOf(col)>=0) return col;                 // idêntico
+  const norm=s=>String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+  const alvo=norm(col);
+  let cand=rec.fields.find(f=>norm(f)===alvo);               // nome inteiro igual (sem acento/espaço/caixa)
+  if(cand) return cand;
+  // prefixo: um nome contém o outro (ex.: "cloretopotassio" ⊂ "cloretopotassio60k2o")
+  cand=rec.fields.find(f=>{ const n=norm(f); return n.startsWith(alvo)||alvo.startsWith(n); });
+  if(cand) return cand;
+  // nome-base (1ª palavra) apenas se houver exatamente 1 candidato (evita ambiguidade)
+  const base=_nutBase(col);
+  const mesmas=rec.fields.filter(f=>_nutBase(f)===base);
+  if(mesmas.length===1) return mesmas[0];
+  return null;
+}
 function _exResolveCol(ex, colorCol, depthLabel){
   if(!ex||!ex.fields||!ex.rows) return null;
   const colDepth=_depthFromName(colorCol);
   const wantDepth = depthLabel || colDepth;
-  const base = _nutBase(colorCol);
-  // (c) depthByName: se o nome do nutriente carrega profundidade, resolve pela profundidade PEDIDA
-  // (antes de aceitar a coluna idêntica, que pode ser de outra profundidade)
+  const norm=s=>String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+  const alvoNorm=norm(colorCol);
+
+  // (1) PRIORIDADE MÁXIMA: nome IDÊNTICO após normalização (tolera espaço extra, acento,
+  // caixa, encoding). Talhões da mesma fazenda compartilham a planilha, então a coluna existe
+  // igual — e é o único match confiável para nomes como "Saturação K %" vs "Saturação Solo V%",
+  // que o casamento por nome-base (só a 1ª palavra) confundiria.
+  {
+    const cand = ex.fields.find(f=>norm(f)===alvoNorm);
+    if(cand){
+      let useRows=ex.rows;
+      if(ex.depthCol && depthLabel){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel)); if(!fr.length) return null; useRows=fr; }
+      return { col:cand, useRows };
+    }
+  }
+
+  // (2) depthByName: o nome do nutriente carrega a profundidade (ex.: "M.O (00-20cm)").
+  // resolve pela profundidade pedida, casando o nome-base (sem a parte de profundidade) E a prof.
   if(wantDepth && colDepth){
-    const cand = ex.fields.find(f=>_sameDepth(_depthFromName(f), wantDepth) && _nutBase(f)===base);
+    const base=_nutBase(colorCol);
+    // nome-base do colorCol IGNORANDO a profundidade, normalizado — para casar o nutriente exato
+    const alvoBaseNorm=norm(colorCol.replace(/\(?\s*\d{1,2}\s*-\s*\d{1,2}\s*(cm)?\s*\)?/i,''));
+    // 1º: casa profundidade E nome-sem-prof normalizado idêntico (mais forte)
+    let cand = ex.fields.find(f=>_sameDepth(_depthFromName(f), wantDepth) && norm(String(f).replace(/\(?\s*\d{1,2}\s*-\s*\d{1,2}\s*(cm)?\s*\)?/i,''))===alvoBaseNorm);
+    // 2º: se não achou, cai para nome-base (1ª palavra) + profundidade
+    if(!cand) cand = ex.fields.find(f=>_sameDepth(_depthFromName(f), wantDepth) && _nutBase(f)===base);
     if(cand) return { col:cand, useRows:ex.rows };
-    // pediu uma profundidade que este extra não tem por nome → sem dados
-    if(ex.fields.some(f=>_depthFromName(f) && _nutBase(f)===base)) return null;
+    if(ex.fields.some(f=>_depthFromName(f) && _nutBase(f)===base)) return null; // tem o nutriente por nome, mas não nessa prof
   }
-  // (a) coluna idêntica presente (sem depthByName)
-  if(ex.fields.indexOf(colorCol)>=0){
-    let useRows=ex.rows;
-    if(ex.depthCol && depthLabel){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel)); if(!fr.length) return null; useRows=fr; }
-    return { col:colorCol, useRows };
-  }
-  // (b)/fallback: mesmo nome-base ignorando profundidade (ex sem depthByName)
-  const cand2 = ex.fields.find(f=>_nutBase(f)===base) || ex.fields.find(f=>f.trim()===colorCol.trim());
-  if(cand2){
-    let useRows=ex.rows;
-    if(ex.depthCol && depthLabel){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel)); if(fr.length) useRows=fr; else return null; }
-    return { col:cand2, useRows };
+
+  // (3) ÚLTIMO RECURSO: nome-base igual (1ª palavra) — SÓ quando há UMA única candidata,
+  // para nunca confundir nutrientes que compartilham a 1ª palavra (Saturação K/V/Ca/Mg).
+  {
+    const base=_nutBase(colorCol);
+    const mesmasBase=ex.fields.filter(f=>_nutBase(f)===base);
+    let cand2 = (mesmasBase.length===1) ? mesmasBase[0] : null;
+    if(cand2){
+      let useRows=ex.rows;
+      if(ex.depthCol && depthLabel){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel)); if(fr.length) useRows=fr; else return null; }
+      return { col:cand2, useRows };
+    }
   }
   return null;
 }
@@ -5678,11 +5718,11 @@ function multiExtrasColeta(kind,on){
 // recomendação: colore as zonas de cada talhão extra pelo insumo selecionado (escala própria de cada talhão)
 function _extraRecData(ex, col){
   const out={vals:[], recs:[]};
-  const rec=ex.rec; if(!rec || !col || (rec.fields||[]).indexOf(col)<0 || !rec.rows.length) return out;
-  const fator=recFatorExtra(ex, col);
+  const rec=ex.rec; const useCol=_exRecCol(ex, col); if(!rec || !useCol || !rec.rows.length) return out;
+  const fator=recFatorExtra(ex, useCol);
   const joined={}; rec.rows.forEach(r=>{ joined[_zkey(r[rec.zone])]=r; });
   const jg=ex.joinGeo||_zoneField(ex.geo.features[0].properties);
-  (ex.geo.features||[]).forEach(f=>{ if(!_isPoly(f)) return; const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[col]):NaN; d=isNaN(d)?null:d*fator; const ha=zoneHa(f); out.recs.push({d,ha}); if(d!=null) out.vals.push(d); });
+  (ex.geo.features||[]).forEach(f=>{ if(!_isPoly(f)) return; const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[useCol]):NaN; d=isNaN(d)?null:d*fator; const ha=zoneHa(f); out.recs.push({d,ha}); if(d!=null) out.vals.push(d); });
   return out;
 }
 function multiRenderExtrasRec(){
