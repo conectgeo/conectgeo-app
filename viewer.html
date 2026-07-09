@@ -3012,10 +3012,22 @@ function isInsumoConvertivel(name){
       || /calcar|calcit|calcic|caliza|calag|encalad|gesso|gessag|yeso|dolomit|dolomic|dolomita/.test(n);
 }
 // colunas numéricas candidatas a dose (insumo)
+// colunas que NÃO são doses de insumo, mesmo sendo numéricas
+// (códigos, identificadores, coordenadas, metadados) — não devem virar "insumo"
+function _isNaoInsumo(f){
+  const kn=String(f).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+  if(kn==='') return true;
+  return /(^|_)(cod|codigo|id|interessado|cliente|produtor|fazenda|talhao|gleba|lote|zona|zg|zi|prof|profundidade|lat|lon|long|latitude|longitude|coord|x|y|fid|objectid|ordem|seq|num|numero)$/.test(kn)
+      || /^(cod|codigo|id|fid|objectid)/.test(kn)
+      || /interessado|codinteress|coordenad/.test(kn);
+}
 function detectInsumoCols(fields, rows){
   const zoneF=_pickZoneField(fields);
   const depthF=detectDepthColumn(fields);
-  return fields.filter(f=>{ if(f===zoneF||f===depthF||_isAreaCol(f)) return false; return rows.some(r=>!isNaN(recNum(r[f]))); });
+  return fields.filter(f=>{
+    if(f===zoneF||f===depthF||_isAreaCol(f)||_isNaoInsumo(f)) return false;
+    return rows.some(r=>!isNaN(recNum(r[f])));
+  });
 }
 // fator de conversão da coluna: tonelada -> kg (×1000) quando os valores são pequenos
 // calculado por conjunto de linhas (talhão) — cada talhão pode estar em unidade diferente

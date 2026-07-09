@@ -1076,7 +1076,9 @@ function geodesicAreaHa(gj){
 
 function tokenGen(){ return (Math.random().toString(36).slice(2,8)+Math.random().toString(36).slice(2,4)); }
 
+let _salvandoTalhao=false;
 async function salvarTalhao(){
+  if(_salvandoTalhao) return;   // trava anti duplo-clique (evita criar talhão duplicado)
   const btn=document.getElementById('btn-salvar');
   try{
     // validações
@@ -1099,6 +1101,7 @@ async function salvarTalhao(){
       if(!novoClientePais){ toast('Informe o país do cliente','⚠️'); return; }
     }
 
+    _salvandoTalhao=true;
     btn.disabled=true; btn.textContent='Salvando…';
 
     // 1. cliente
@@ -1136,6 +1139,14 @@ async function salvarTalhao(){
       fazendaId=data.id;
     }
     // 3. talhão (sem urls ainda)
+    // bloqueia talhão duplicado: a mesma fazenda não pode ter dois talhões com o mesmo nome
+    if(fazendaId){
+      const { data: jaTal } = await sb.from('talhoes').select('id').eq('fazenda_id', fazendaId).eq('inativo',false).ilike('nome', talhaoNome).limit(1);
+      if(jaTal && jaTal.length){
+        toast('Esta fazenda já tem o talhão "'+talhaoNome+'". Use outro nome ou edite o existente.','⚠️');
+        return;
+      }
+    }
     const ha=geodesicAreaHa(geoJson);
     const { data:tal, error:talErr } = await sb.from('talhoes').insert({
       fazenda_id: fazendaId, nome: talhaoNome,
@@ -1213,6 +1224,7 @@ async function salvarTalhao(){
     console.error(err);
     toast('Erro: '+(err.message||err),'⚠️');
   }finally{
+    _salvandoTalhao=false;
     btn.disabled=false; btn.textContent='Salvar';
   }
 }
@@ -1330,11 +1342,17 @@ async function mvPopularTalhoes(autoAbrir){
   const chev=document.getElementById('mv-tal-chev'); if(chev) chev.style.transform='';
   const busca=document.getElementById('mv-tal-busca'); if(busca) busca.value='';
   if(!MV_TALHOES.length){ box.innerHTML='<div style="padding:12px;color:var(--muted);font-size:12px">Sem talhões nesta fazenda.</div>'; mvCheckChange(); return; }
-  box.innerHTML=MV_TALHOES.map(t=>`
+  // detecta nomes repetidos (duplicatas) para sinalizar ao consultor
+  const _cont={}; MV_TALHOES.forEach(t=>{ const k=String(t.nome||'').trim().toLowerCase(); _cont[k]=(_cont[k]||0)+1; });
+  box.innerHTML=MV_TALHOES.map(t=>{
+    const dup=(_cont[String(t.nome||'').trim().toLowerCase()]||0)>1;
+    const aviso=dup?' <span title="Nome repetido nesta fazenda — verifique se é duplicata" style="color:#c77700;font-size:11px">⚠ duplicado</span>':'';
+    return `
     <label style="display:flex;align-items:center;gap:8px;padding:9px 10px;border-bottom:1px solid var(--sand);font-size:13px;cursor:pointer">
       <input type="checkbox" value="${t.id}" data-nome="${esc(t.nome)}" onchange="mvCheckChange()" style="width:16px;height:16px;accent-color:var(--leaf2)">
-      <span style="flex:1;min-width:0">${t.nome} <span style="color:var(--muted)">· ${fmtHa(t.hectares)} ha</span></span>
-    </label>`).join('');
+      <span style="flex:1;min-width:0">${t.nome} <span style="color:var(--muted)">· ${fmtHa(t.hectares)} ha</span>${aviso}</span>
+    </label>`;
+  }).join('');
   if(autoAbrir && MV_TALHOES.length){
     const first=box.querySelector('input[type=checkbox]'); if(first) first.checked=true;
     mvCheckChange();
