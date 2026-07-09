@@ -5600,6 +5600,8 @@ async function buildExtras(allTokens){
     if(res.ex){ addLeg(res.nome); S.extras.push(res.ex); }
   });
   multiApplyMode(S.mapMode||'nutrientes');
+  // recomendação: multiApplyMode não renderiza (evita escala prematura); renderRecomendacao faz na ordem certa
+  if((S.mapMode||'')==='recomendacao'){ try{ if(S.recCompare&&S.recCompare.on) renderRecCompare(); else renderRecomendacao(); }catch(e){} }
   try{ renderDepthGrid(); }catch(e){}   // atualiza contadores de zona (soma dos talhões)
   setTimeout(()=>{ try{ S.map.invalidateSize(true); multiFitAll(); }catch(e){} }, 350);
 }
@@ -5701,7 +5703,9 @@ function multiRenderExtrasZonaLabels(){
 function multiApplyMode(mode){
   if(!S.extras || !S.extras.length) return;
   S.extras.forEach(ex=>_extraClearAll(ex));
-  if(mode==='recomendacao'){ multiRenderExtrasRec(); return; }
+  // recomendação é renderizada por renderRecomendacao() (chamado após loadRecData, já com
+  // S.recScale calculado) — não renderiza aqui para evitar render prematuro com escala errada
+  if(mode==='recomendacao'){ return; }
   if(mode==='coleta'){
     const rt=document.getElementById('clt-raster-toggle'); const pt=document.getElementById('clt-pontos-toggle'); const zt=document.getElementById('clt-zonas-toggle');
     S.extras.forEach(ex=>{
