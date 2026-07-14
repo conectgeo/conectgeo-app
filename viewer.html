@@ -1085,9 +1085,17 @@ function parseCSVText(text){
   const lines=text.split('\n').map(l=>l.replace(/\r$/,'')).filter(l=>l.trim().length>0);
   if(!lines.length) return {rows:[],fields:[]};
   const sep=_csvDetectSep(lines[0]);
-  const headers=_csvSplitLine(lines[0],sep).map(h=>h.trim());
+  // detecta linha de NÍVEIS IDEAIS no topo (Modelo B): 1ª célula vazia, várias células
+  // numéricas, e a 2ª linha com nomes de texto. Nesse caso a 2ª linha é o cabeçalho.
+  let headerIdx=0, idealCells=null;
+  if(lines.length>=2){
+    const l0=_csvSplitLine(lines[0],sep).map(c=>c.trim());
+    const l1=_csvSplitLine(lines[1],sep).map(c=>c.trim());
+    if(_ehLinhaIdeais(l0, l1)){ idealCells=l0; headerIdx=1; }
+  }
+  const headers=_csvSplitLine(lines[headerIdx],sep).map(h=>h.trim());
   const rows=[];
-  for(let i=1;i<lines.length;i++){
+  for(let i=headerIdx+1;i<lines.length;i++){
     const cells=_csvSplitLine(lines[i],sep);
     const row={};
     headers.forEach((h,idx)=>{
@@ -1097,7 +1105,25 @@ function parseCSVText(text){
     });
     rows.push(row);
   }
-  return {rows,fields:headers};
+  const out={rows,fields:headers};
+  if(idealCells){ out.idealRow=_mapIdeais(headers, idealCells); }
+  return out;
+}
+// linha do topo é de "níveis ideais"? 1ª célula vazia, >=3 células numéricas, e a linha
+// seguinte tem >=3 células de TEXTO (nomes de coluna). Conservador para não afetar o Padrão.
+function _ehLinhaIdeais(l0, l1){
+  if(!l0||!l1||!l0.length) return false;
+  if(String(l0[0]||'').trim()!=='') return false;        // 1ª célula (zona) deve ser vazia
+  let nums=0; for(let i=1;i<l0.length;i++){ const v=l0[i]; if(v!=='' && !isNaN(_brNum(v))) nums++; }
+  if(nums<3) return false;
+  let txts=0; for(let i=1;i<l1.length;i++){ const v=l1[i]; if(v!=='' && isNaN(_brNum(v))) txts++; }
+  return txts>=3;
+}
+// alinha cada valor ideal ao nome da sua coluna: {header: valorNumerico}
+function _mapIdeais(headers, idealCells){
+  const m={};
+  headers.forEach((h,idx)=>{ const raw=(idealCells[idx]??'').trim(); if(raw!==''){ const n=_brNum(raw); if(!isNaN(n)) m[h]=n; } });
+  return m;
 }
 function _xlsxSheetByKeyword(wb, keywords){
   // acha a primeira aba cujo nome contenha alguma das palavras-chave (case-insensitive)
@@ -1105,6 +1131,27 @@ function _xlsxSheetByKeyword(wb, keywords){
 }
 function _parseSheet(wb, sheetName){
   const ws=wb.Sheets[sheetName||wb.SheetNames[0]];
+  // lê como matriz crua para detectar linha de NÍVEIS IDEAIS no topo (Modelo B)
+  const aoa=XLSX.utils.sheet_to_json(ws,{header:1, defval:'', blankrows:false});
+  let idealRow=null;
+  if(aoa.length>=2){
+    const l0=aoa[0].map(c=>String(c==null?'':c).trim());
+    const l1=aoa[1].map(c=>String(c==null?'':c).trim());
+    if(_ehLinhaIdeais(l0, l1)){
+      // remove a linha de ideais para que a 2ª (cabeçalho) seja usada normalmente
+      const headers=l1;
+      idealRow=_mapIdeais(headers, l0);
+      // reconstrói uma aba temporária sem a linha de ideais
+      const ws2=XLSX.utils.aoa_to_sheet(aoa.slice(1));
+      const rows2=XLSX.utils.sheet_to_json(ws2,{defval:''});
+      rows2.forEach(r=>Object.keys(r).forEach(k=>{
+        if(typeof r[k]==='string'){const t=r[k].replace(/\u00a0/g,'').trim(); if(t!==''&&/^-?[\d.,]+$/.test(t)){const n=_brNum(t); if(!isNaN(n)) r[k]=n;}}
+      }));
+      const out={rows:rows2,fields:rows2.length?Object.keys(rows2[0]):headers};
+      out.idealRow=idealRow;
+      return out;
+    }
+  }
   const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
   rows.forEach(r=>Object.keys(r).forEach(k=>{
     if(typeof r[k]==='string'){const t=r[k].replace(/\u00a0/g,'').trim(); if(t!==''&&/^-?[\d.,]+$/.test(t)){const n=_brNum(t); if(!isNaN(n)) r[k]=n;}}
@@ -1120,9 +1167,9 @@ function parseXLSX(buf){
   const main=_parseSheet(wb, nutriName||wb.SheetNames[0]);
   if(hasBothSheets){
     const rec=_parseSheet(wb, recName);
-    return {...main, recRows:rec.rows, recFields:rec.fields, hasRecSheet:true};
+    return {...main, recRows:rec.rows, recFields:rec.fields, hasRecSheet:true, idealRow:main.idealRow||null};
   }
-  return {...main, recRows:null, recFields:null, hasRecSheet:false};
+  return {...main, recRows:null, recFields:null, hasRecSheet:false, idealRow:main.idealRow||null};
 }
 
 // ══ COLOR ══
@@ -1401,8 +1448,33 @@ document.getElementById('f-geo').addEventListener('change',function(e){
 
 // ══ CSV/EXCEL UPLOAD ══
 // Shared: apply parsed CSV/Excel data to state + UI
-function applyCsvData(rows, fields, fileName){
+// aplica os NÍVEIS IDEAIS lidos do topo da planilha aos nutrientes do Modelo B.
+// idealRow = { "Cálcio cmolc/dm³ (00-20cm)": 5, ... }. Casa cada coluna ao MB_DEFS
+// (mesmo regex + profundidade do modeloBMatch) e preenche S.modeloB.niveis[key].valor.
+function _aplicaIdeaisModeloB(idealRow){
+  if(!idealRow || !Object.keys(idealRow).length) return;
+  S.modeloB=S.modeloB||{on:false,niveis:{},zonas:{}};
+  S.modeloB.niveis=S.modeloB.niveis||{};
+  const usados=new Set();
+  Object.keys(idealRow).forEach(col=>{
+    const valor=idealRow[col];
+    const cd = /20\s*-?\s*40/.test(col) ? '20-40' : (/00\s*-?\s*20|[^0-9]0-20/.test(col) ? '00-20' : null);
+    const def = MB_DEFS.find(d=>{
+      if(usados.has(d.key)) return false;
+      if(!d.re.test(col)) return false;
+      if(cd) return cd===d.depth;
+      return d.depth==='00-20';
+    });
+    if(def){
+      usados.add(def.key);
+      const prev=S.modeloB.niveis[def.key]||{};
+      S.modeloB.niveis[def.key]={ valor:String(valor), unidade:(prev.unidade!=null?prev.unidade:def.uid) };
+    }
+  });
+}
+function applyCsvData(rows, fields, fileName, idealRow){
   S.csvData=rows; S.csvFields=fields;
+  S._idealRow = idealRow || null;
   setStatus('csv',`${rows.length} registros`);
   document.getElementById('uz-csv').classList.add('loaded');
   document.getElementById('fn-csv').textContent=fileName;
@@ -1431,6 +1503,8 @@ function applyCsvData(rows, fields, fileName){
   }
   // Relatório B: sempre derivar profundidades a partir dos nomes das colunas
   if(S.modeloB && S.modeloB.on){ _mbRecomputeDepthsFromNames(); }
+  // níveis ideais lidos do topo da planilha: pré-preenche a modal do Modelo B
+  if(S._idealRow) _aplicaIdeaisModeloB(S._idealRow);
   document.getElementById('sec-depth').style.display='';
   renderDepthGrid();
   S.joinCsv = _pickZoneField(fields)||fields[0];
@@ -1439,17 +1513,17 @@ function applyCsvData(rows, fields, fileName){
 document.getElementById('f-csv').addEventListener('change',function(e){
   const file=e.target.files[0];if(!file)return;
   const ext=file.name.split('.').pop().toLowerCase();
-  const done=(rows,fields)=>{
-    applyCsvData(rows,fields,file.name);
+  const done=(rows,fields,idealRow)=>{
+    applyCsvData(rows,fields,file.name,idealRow);
     toast(`Planilha: ${rows.length} linhas, ${fields.length} colunas`,'ok');
     persistUploadData();
     tryActivate();
   };
   const r=new FileReader();
-  if(ext==='csv'){r.onload=ev=>{try{const text=decodeBuffer(ev.target.result);const {rows,fields}=parseCSVText(text);done(rows,fields);}catch(err){toast('Erro CSV: '+err.message,'err');}};r.readAsArrayBuffer(file);}
+  if(ext==='csv'){r.onload=ev=>{try{const text=decodeBuffer(ev.target.result);const p=parseCSVText(text);done(p.rows,p.fields,p.idealRow);}catch(err){toast('Erro CSV: '+err.message,'err');}};r.readAsArrayBuffer(file);}
   else{r.onload=ev=>{try{
     const parsed=parseXLSX(ev.target.result);
-    done(parsed.rows,parsed.fields);
+    done(parsed.rows,parsed.fields,parsed.idealRow);
     // se encontrou aba "rec" separada, carrega a recomendação automaticamente
     if(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length){
       setTimeout(()=>{
@@ -4028,6 +4102,29 @@ async function generateRecPDF(insumos){
     const capW=Math.round(SLOT_W*REC_CAP/2), capH=Math.round(SLOT_H*REC_CAP/2);
     S._pdfCapFactor = capW / REC_DISPLAY_W;             // downscale real → normaliza a fonte
 
+    // enquadra o mapa no tamanho de captura e afasta ~10% (menos zoom)
+    const _fitRec=()=>{
+      let b=null; try{ if(S.rec.layer) b=S.rec.layer.getBounds(); }catch(e){}
+      if(!b){ try{ if(S.layer) b=S.layer.getBounds(); }catch(e){} }
+      if(S.extras) S.extras.forEach(ex=>{ if(ex.bounds){ try{ b=b?b.extend(ex.bounds):L.latLngBounds(ex.bounds.getSouthWest(),ex.bounds.getNorthEast()); }catch(e){} } });
+      try{ if(b) S.map.fitBounds(b,{padding:[14,14],animate:false}); }catch(e){}
+      try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.90),{animate:false}); }catch(e){}   // afasta ~10%
+    };
+
+    // PRÉ-MEDIÇÃO: fonte ÚNICA para TODOS os insumos, medida com o mapa já no tamanho de
+    // captura e já enquadrado. Sem isso, o 1º mapa media no enquadramento antigo (rótulos
+    // minúsculos) e os seguintes no enquadramento novo (rótulos grandes).
+    S._pdfFixedFontSize=null;
+    mapEl.style.flex='none'; mapEl.style.width=capW+'px'; mapEl.style.height=capH+'px';
+    if(wrap) wrap.style.width=capW+'px';
+    try{ S.map.invalidateSize(true); }catch(e){}
+    try{ renderRecomendacao(); }catch(e){}
+    _fitRec();
+    try{
+      const ms=_pdfLayerMinSide(S.map, S.rec.layer);
+      if(ms!=null) S._pdfFixedFontSize=_pdfFontSizeFromMinSide(ms, S.rec.labelScale, S._pdfCapFactor);
+    }catch(e){}
+
     for(let n=0;n<insumos.length;n++){
       const col=insumos[n];
       setLoading('Gerando mapa '+(n+1)+' de '+insumos.length+' — '+col);
@@ -4035,10 +4132,11 @@ async function generateRecPDF(insumos){
       mapEl.style.flex='none'; mapEl.style.width=capW+'px'; mapEl.style.height=capH+'px';
       if(wrap) wrap.style.width=capW+'px';
       try{ S.map.invalidateSize(true); }catch(e){}
+      // ENQUADRA ANTES de renderizar: os rótulos são medidos/desenhados já com a geometria
+      // final do mapa (antes, o 1º mapa era desenhado com o enquadramento da tela)
+      _fitRec();
       renderRecomendacao();
-      let _rb=null; try{ if(S.rec.layer) _rb=S.rec.layer.getBounds(); }catch(e){}
-      if(S.extras) S.extras.forEach(ex=>{ if(ex.bounds){ try{ _rb=_rb?_rb.extend(ex.bounds):L.latLngBounds(ex.bounds); }catch(e){} } });
-      try{ if(_rb) S.map.fitBounds(_rb,{padding:[14,14],animate:false}); }catch(e){}
+      _fitRec();
       if(S.activeBase==='satelite'){ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }
       else { await new Promise(r=>setTimeout(r, 550)); }
 
@@ -4992,14 +5090,32 @@ function wireColetaControls(){
     st.textContent='Enviando planilha…';
     try{
       const ext=(f.name.split('.').pop()||'csv').toLowerCase();
+      // detecta se a planilha é combinada (tem aba REC) — para atualizar também a recomendação
+      let temRec=false;
+      try{
+        const buf=await f.arrayBuffer();
+        const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
+        temRec=!!(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length);
+      }catch(e){}
       const path='nutrientes/'+S.tokenAtual+'/planilha.'+ext;
       const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
       if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
       const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
       const r=await sb.rpc('atualizar_nutrientes', {p_token:S.tokenAtual, p_planilha_url:url});
       if(r&&r.error) throw new Error(r.error.message);
-      st.textContent='✅ Planilha salva! Atualizando…';
-      setTimeout(()=>location.reload(), 700);
+      // planilha combinada: a nova planilha também vira a fonte da RECOMENDAÇÃO,
+      // substituindo qualquer edição anterior (que o banco ainda apontava).
+      if(temRec){
+        const pathRec='recomendacao/'+S.tokenAtual+'/planilha.'+ext;
+        const upRec=await sb.storage.from('arquivos').upload(pathRec, f, {upsert:true});
+        if(!(upRec&&upRec.error)){
+          const urlRec=sb.storage.from('arquivos').getPublicUrl(pathRec).data.publicUrl + '?v=' + Date.now();
+          const rRec=await sb.rpc('atualizar_recomendacao',{p_token:S.tokenAtual,p_url:urlRec});
+          if(rRec&&rRec.error) console.warn('[nut][combinada] rpc recomendação falhou:', rRec.error);
+        }
+      }
+      st.textContent = temRec ? '✅ Nutrientes e recomendação salvos! Atualizando…' : '✅ Planilha salva! Atualizando…';
+      setTimeout(()=>location.reload(), 800);
     }catch(err){ st.textContent='Erro: '+err.message; }
   });
 
@@ -5076,7 +5192,7 @@ function wireColetaControls(){
       // planilha combinada: a aba "nutri" também alimenta os NUTRIENTES (em memória + persistência),
       // espelhando o upload feito pela tela de Nutrientes.
       if(_combinada && parsed.rows && parsed.rows.length){
-        try{ applyCsvData(parsed.rows, parsed.fields, f.name); joinData(); renderMap(); }catch(e){}
+        try{ applyCsvData(parsed.rows, parsed.fields, f.name, parsed.idealRow); joinData(); renderMap(); }catch(e){}
         if(sb && S.tokenAtual){
           try{
             const csvNut=_buildRecCSVFrom(parsed.fields, parsed.rows);
@@ -5833,6 +5949,9 @@ async function loadFromToken(token, params){
     sb.rpc('get_modelo_b_config',{p_token:token}).then(({data})=>{
       const d=(typeof data==='string')?JSON.parse(data):data;
       if(d && !d.erro){ S.modeloB.on=!!d.usar_modelo_b; S.modeloB.niveis=(typeof d.niveis_ideais==='string'?JSON.parse(d.niveis_ideais):d.niveis_ideais)||{}; }
+      // a PLANILHA tem prioridade sobre o banco: se ela trouxe níveis ideais no topo,
+      // reaplica-os por cima (o carregamento do banco acima é assíncrono e sobrescreveria).
+      try{ if(S._idealRow) _aplicaIdeaisModeloB(S._idealRow); }catch(e){}
       try{ _aplicarVisibilidadeRel(); }catch(e){}
       // Relatório B: a planilha combinada traz a recomendação → revela a aba Recomendação
       try{ if(S.modeloB.on && S.linkData && S.linkData.planilha_url){ const _mrec=document.getElementById('mode-recomendacao'); if(_mrec) _mrec.style.display=''; const ms=document.getElementById('mode-switch'); if(ms) ms.style.display='flex'; } }catch(e){}
@@ -5872,11 +5991,11 @@ async function loadFromToken(token, params){
     if(data.planilha_url){
       const csvBuf=await fetchBuf(data.planilha_url);
       const ext=data.planilha_url.split('?')[0].split('.').pop().toLowerCase();
-      let rows,fields;
-            if(ext==='csv'){({rows,fields}=parseCSVText(decodeBuffer(csvBuf)));}
+      let rows,fields,idealRow=null;
+            if(ext==='csv'){const p=parseCSVText(decodeBuffer(csvBuf)); rows=p.rows; fields=p.fields; idealRow=p.idealRow;}
       else{
         const parsed=parseXLSX(csvBuf);
-        rows=parsed.rows; fields=parsed.fields;
+        rows=parsed.rows; fields=parsed.fields; idealRow=parsed.idealRow;
         if(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length && !data.recomendacao_url){
           const recZone=_pickZoneField(parsed.recFields)||parsed.recFields[0];
           const recCols=detectInsumoCols(parsed.recFields, parsed.recRows);
@@ -5890,7 +6009,7 @@ async function loadFromToken(token, params){
           const ms=document.getElementById('mode-switch'); if(ms) ms.style.display='flex';
         }
       }
-      applyCsvData(rows,fields,(data.talhao||'analises'));
+      applyCsvData(rows,fields,(data.talhao||'analises'),idealRow);
 
       // profundidade/nutriente via parâmetros opcionais (?depth= ?nut=)
       const depthParam=params.get('depth')||data.profundidade;
