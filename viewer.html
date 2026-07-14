@@ -4554,11 +4554,17 @@ function openZoneEdit(zoneKey, latlng, target){
     if(inp) inp.onkeydown=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); apply(); } };
   },60);
 }
+// célula de CSV: remove quebras de linha (nomes de coluna vindos do Excel podem ter
+// Alt+Enter embutido, o que partia o CSV gerado e fazia a validação do save falhar),
+// depois escapa aspas/separadores.
+function _csvCell(v){
+  v=(v==null?'':String(v)).replace(/\r\n|[\r\n]/g,' ').replace(/\s+/g,' ').trim();
+  return /[",;]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;
+}
 function buildRecCSV(){
   const fields=S.rec.fields||[];
-  const esc=(v)=>{ v=(v==null?'':String(v)); return /[",\n;]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
-  let csv=fields.map(esc).join(',')+'\n';
-  (S.rec.rows||[]).forEach(r=>{ csv+=fields.map(f=>esc(r[f])).join(',')+'\n'; });
+  let csv=fields.map(_csvCell).join(',')+'\n';
+  (S.rec.rows||[]).forEach(r=>{ csv+=fields.map(f=>_csvCell(r[f])).join(',')+'\n'; });
   return csv;
 }
 function recEditCancelar(){
@@ -4575,9 +4581,8 @@ function recEditCancelar(){
   toast('Edição cancelada','ok');
 }
 function _buildRecCSVFrom(fields, rows){
-  const esc=(v)=>{ v=(v==null?'':String(v)); return /[",\n;]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; };
-  let csv=(fields||[]).map(esc).join(',')+'\n';
-  (rows||[]).forEach(r=>{ csv+=(fields||[]).map(f=>esc(r[f])).join(',')+'\n'; });
+  let csv=(fields||[]).map(_csvCell).join(',')+'\n';
+  (rows||[]).forEach(r=>{ csv+=(fields||[]).map(f=>_csvCell(r[f])).join(',')+'\n'; });
   return csv;
 }
 async function recEditSalvar(){
