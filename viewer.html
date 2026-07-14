@@ -4122,7 +4122,15 @@ async function generateRecPDF(insumos){
     _fitRec();
     try{
       const ms=_pdfLayerMinSide(S.map, S.rec.layer);
-      if(ms!=null) S._pdfFixedFontSize=_pdfFontSizeFromMinSide(ms, S.rec.labelScale, S._pdfCapFactor);
+      if(ms!=null){
+        const f=_pdfFontSizeFromMinSide(ms, S.rec.labelScale, S._pdfCapFactor);
+        // rótulos 20% menores SÓ no PDF de Recomendação (não afeta Padrão nem Modelo B)
+        const REC_LBL=0.80;
+        S._pdfFixedFontSize={
+          idSize:(parseFloat(f.idSize)*REC_LBL).toFixed(1),
+          valSize:(parseFloat(f.valSize)*REC_LBL).toFixed(1)
+        };
+      }
     }catch(e){}
 
     for(let n=0;n<insumos.length;n++){
