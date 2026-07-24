@@ -960,8 +960,9 @@ function autoPalette(colName){
   const naS = ns.normalize('NFD').replace(/[\u0300-\u036f]/g,''); // idem mas mantém ³²+%
   // Al ou Na com carga/valência (Al+, Al3, Al³, Al3+, Al+3, Na+, Na3, Na³, Na3+...)
   const cargaAlNa = /(al|na)\s*(\+|³|²|3\+?|\+3?|³\+?|\+³?|2)/.test(naS) || /(al|na)\s*(\+|3|2)/.test(na);
-  // Al ou Na seguido de unidade (mg/dm³, cmolc, meq...)
-  const unidAlNa  = /(al|na)\s*(mg|cmol|meq|mmol|mol)/.test(na);
+  // Al ou Na seguido de unidade (mg/dm³, cmolc, meq...). Exige fronteira antes de al/na
+  // para NÃO casar "resiNA MG" (P-resina) como se fosse Sódio.
+  const unidAlNa  = /(^|[^a-z])(al|na)\s*(mg|cmol|meq|mmol|mol)/.test(na);
   // Alumínio / Sódio por extenso, e termos de acidez (H+Al, Hidrogênio, saturações, teores)
   const termosAcidez = /(alumin|sodio|hidrogenio|h\+al|teoral|teorh|indsaturh|saturh|saturacaoal|saturacaona|saturdeal|saturdena)/.test(na);
   const isAl = cargaAlNa || unidAlNa || termosAcidez || /^al([\+%]|$)/.test(naS) || /^na([\+%]|$)/.test(naS);
