@@ -1188,6 +1188,26 @@ function rankColor(v, sorted){
   const pos=(lo+hi2-1)/2;
   return lerpColor(palColors(), Math.max(0,Math.min(1, pos/(n-1))));
 }
+// valor no quantil p (0..1) — inverso do rankColor. Usado na legenda para que o rótulo
+// mostrado em cada posição da rampa corresponda de fato à cor exibida ali.
+function _quantil(sorted, p){
+  const n=(sorted||[]).length;
+  if(!n) return NaN;
+  if(n===1) return sorted[0];
+  const x=Math.max(0,Math.min(1,p))*(n-1);
+  const i=Math.floor(x), f=x-i;
+  return sorted[i]+(sorted[Math.min(i+1,n-1)]-sorted[i])*f;
+}
+// COR DE NUTRIENTE — padrão "Graduado" do QGIS: cada zona recebe uma cor igualmente
+// espaçada na rampa pela ORDEM do valor (quantil), e não proporcional ao valor.
+// Isso espalha as cores mesmo quando há outliers (ex.: P-Mehlich 5→35, onde a escala
+// linear jogava quase tudo no vermelho). NÃO se aplica à recomendação, que segue linear.
+function nutColor(v, scale){
+  if(v==null||isNaN(v)) return '#bbb';
+  const s=scale&&scale.sorted;
+  if(s&&s.length) return rankColor(v,s);
+  return getColor(v, scale?scale.mn:0, scale?scale.mx:1);   // fallback: linear
+}
 // gráfico de barras: distribuição do nutriente em 5 classes
 function renderHistograma(vals, mn, mx, corDe){
   const el=document.getElementById('hist-chart');
@@ -1790,17 +1810,20 @@ function renderMap(){
 
   // ETAPA 1: escala única (global) entre principal + extras → cores comparáveis + legenda válida pra todos
   let gmn=mn, gmx=mx;
+  let allVals=vals.slice();
   if(S.extras && S.extras.length){
-    const allVals=vals.slice();
     S.extras.forEach(ex=>{ _extraNutVals(ex, effectiveCol, S.activeDepth).forEach(v=>allVals.push(v)); });
     if(allVals.length){ gmn=Math.min(...allVals); gmx=Math.max(...allVals); }
-    S.nutScale={mn:gmn,mx:gmx};
-  } else { S.nutScale=null; }
+  }
+  // escala por QUANTIL (padrão "Graduado" do QGIS). Guarda os valores ordenados de TODOS
+  // os talhões para que as cores continuem comparáveis entre eles no multi-talhão.
+  S.nutScale={mn:gmn, mx:gmx, sorted:[...allVals].sort((a,b)=>a-b)};
   const cols=palColors();
-  const corDe=(v)=> isNaN(v)?'#bbb':getColor(v,gmn,gmx);
+  const corDe=(v)=> nutColor(v, S.nutScale);
   renderHistograma(vals, gmn, gmx, corDe);
   document.getElementById('leg-bar').style.background=`linear-gradient(to right,${cols.join(',')})`;
-  const ticks=[];for(let i=0;i<=S.classes;i++){ ticks.push((gmn+(gmx-gmn)*(i/S.classes)).toFixed(2)); }
+  // ticks no quantil de cada posição da rampa → a legenda passa a bater com as cores
+  const ticks=[];for(let i=0;i<=S.classes;i++){ ticks.push(_quantil(S.nutScale.sorted, i/S.classes).toFixed(2)); }
   document.getElementById('leg-ticks').innerHTML=ticks.map(t=>`<span>${t}</span>`).join('');
 
   const legendItems=[];
@@ -1989,14 +2012,14 @@ function _renderCompareIntAtual(){
   // renderiza lado esquerdo (usa S normal)
   clearLabels();
   if(S.labelLayers2&&S.compare.map2){ S.labelLayers2.forEach(l=>{try{S.compare.map2.removeLayer(l);}catch(e){}}); S.labelLayers2=[]; }
-  _renderSide(S.map,'layer','labelLayers',depth,mnL,mxL,colL);
+  _renderSide(S.map,'layer','labelLayers',depth,mnL,mxL,colL,[...valsL].sort((a,b)=>a-b));
 
   // renderiza lado direito com _renderSideInt (sem swap de estado global)
   if(geoInt && S.compare.map2){
     _renderSideInt(
       S.compare.map2, 'layer2', 'labelLayers2',
       geoInt, rowsR, joinGeoR, joinCsvR,
-      colRName||colNut, mnR, mxR
+      colRName||colNut, mnR, mxR, [...valsR].sort((a,b)=>a-b)
     );
   }
   if(!S.pdfMode){
@@ -5618,7 +5641,10 @@ function _extraNutLayer(ex, colorCol, depthLabel, scaleOverride){
     if(!vals.length) return null;
     const sorted=[...vals].sort((a,b)=>a-b);
     const lay=L.geoJSON(ex.geo,{
-      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; const _mbHide=(S.pdfMode&&S.modeloB&&S.modeloB.on); return {fillColor:isNaN(v)?'#bbb':(scaleOverride?getColor(v,scaleOverride.mn,scaleOverride.mx):(S.nutScale?getColor(v,S.nutScale.mn,S.nutScale.mx):rankColor(v,sorted))),color:'#333',weight:_mbHide?0:1.1,stroke:!_mbHide,fillOpacity:(S.opacity||0.85)}; },
+      style:f=>{ const row=joined[_zkey(f.properties[ex.joinGeo])]; const v=row?parseFloat(row[useCol]):NaN; const _mbHide=(S.pdfMode&&S.modeloB&&S.modeloB.on);
+        // escala por quantil, compartilhada com o talhão principal (cores comparáveis)
+        const _sc = scaleOverride || S.nutScale || {mn:sorted[0], mx:sorted[sorted.length-1], sorted:sorted};
+        return {fillColor:nutColor(v,_sc),color:'#333',weight:_mbHide?0:1.1,stroke:!_mbHide,fillOpacity:(S.opacity||0.85)}; },
       onEachFeature:(f,l)=>{ const kraw=String(f.properties[ex.joinGeo]??'').trim(); const row=joined[_zkey(kraw)]; const v=row?parseFloat(row[useCol]):NaN; const vs=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
         l.bindTooltip('<div class="tt-head">Zona '+(kraw||'—')+'</div><div class="tt-col">'+useCol+'</div><div class="tt-val">'+vs+'</div>',{sticky:true,opacity:1});
         l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
@@ -6224,7 +6250,7 @@ function ensureCompareMap(){
     S.compare.shooter2 = L.simpleMapScreenshoter({ hidden:true, hideElementsWithSelectors:['.leaflet-control-container','.basemap-float','.compare-tag'], mimeType:'image/jpeg' }).addTo(m);
   }catch(e){ S.compare.shooter2=null; }
 }
-function _renderSide(targetMap, layerKey, labelKey, depth, mn, mx, col){
+function _renderSide(targetMap, layerKey, labelKey, depth, mn, mx, col, sortedArr){
   const _col = (col===undefined) ? S.colorCol : col;
   if(S[layerKey]){ try{ targetMap.removeLayer(S[layerKey]); }catch(e){} }
   if(S[labelKey]){ S[labelKey].forEach(l=>{ try{ targetMap.removeLayer(l); }catch(e){} }); }
@@ -6235,7 +6261,7 @@ function _renderSide(targetMap, layerKey, labelKey, depth, mn, mx, col){
   const joined={};
   rows.forEach(r=>{const k=String(r[S.joinCsv]??'').trim();if(k)joined[k]=r;});
   const layer = L.geoJSON(S.geoData,{
-    style:f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=joined[key];const v=row?parseFloat(row[_col]):NaN;return{fillColor:isNaN(v)?'#bbb':getColor(v,mn,mx),color:'#333',weight:1.2,fillOpacity:S.opacity};},
+    style:f=>{const key=String(f.properties[S.joinGeo]??'').trim();const row=joined[key];const v=row?parseFloat(row[_col]):NaN;return{fillColor:nutColor(v,{mn:mn,mx:mx,sorted:sortedArr}),color:'#333',weight:1.2,fillOpacity:S.opacity};},
     onEachFeature:(f,lyr)=>{
       const key=String(f.properties[S.joinGeo]??'').trim();const row=joined[key];const v=row?parseFloat(row[_col]):NaN;
       const valStr=isNaN(v)?'N/D':(Number.isInteger(v)?String(v):v.toFixed(2));
@@ -6262,7 +6288,7 @@ function _renderSide(targetMap, layerKey, labelKey, depth, mn, mx, col){
   }
   return layer;
 }
-function _renderSideInt(targetMap, layerKey, labelKey, geo, rows, joinGeoKey, joinCsvKey, col, mn, mx){
+function _renderSideInt(targetMap, layerKey, labelKey, geo, rows, joinGeoKey, joinCsvKey, col, mn, mx, sortedArr){
   // renderiza o talhão Int sem mexer em S (zero side-effects)
   if(!targetMap || !geo) return;
   if(S[layerKey]){ try{ targetMap.removeLayer(S[layerKey]); }catch(e){} }
@@ -6281,7 +6307,7 @@ function _renderSideInt(targetMap, layerKey, labelKey, geo, rows, joinGeoKey, jo
       let row=joined[geoKey];
       if(!row && zoneKeys.length){ for(const zk of zoneKeys){ const tmp=(rows||[]).find(r=>String(r[zk]??'').trim()===geoKey); if(tmp){row=tmp;break;} } }
       const v=row?parseFloat(row[col]):NaN;
-      return{fillColor:isNaN(v)?'#bbb':getColor(v,mn,mx),color:'#1f2a14',weight:1.2,fillOpacity:S.opacity};
+      return{fillColor:nutColor(v,{mn:mn,mx:mx,sorted:sortedArr}),color:'#1f2a14',weight:1.2,fillOpacity:S.opacity};
     },
     onEachFeature:(f,lyr)=>{
       const geoKey=String(f.properties[joinGeoKey]??'').trim();
@@ -6353,7 +6379,7 @@ function renderCompare(){
   const cols=palColors();
   const gradient=`linear-gradient(to right,${cols.join(',')})`;
   document.getElementById('leg-bar').style.background=gradient;
-  const ticks=[]; for(let i=0;i<=S.classes;i++) ticks.push((mn+(mx-mn)*(i/S.classes)).toFixed(2));
+  const ticks=[]; for(let i=0;i<=S.classes;i++) ticks.push(_quantil(sorted, i/S.classes).toFixed(2));
   document.getElementById('leg-ticks').innerHTML=ticks.map(t=>`<span>${t}</span>`).join('');
   const _hc=document.getElementById('hist-chart'); if(_hc) _hc.innerHTML='<div style="font-size:10px;color:var(--muted);padding:4px;">Comparação ativa — cada mapa usa sua própria escala de cores.</div>';
   // per-map floating legends, each with its OWN range
@@ -6365,9 +6391,10 @@ function renderCompare(){
   _mrN.innerHTML = legHTML(R1,mnR,mxR,colR,valsR.length>0); _mrN.style.display='';
   clearLabels();
   if(S.labelLayers2 && S.compare.map2){ S.labelLayers2.forEach(l=>{try{S.compare.map2.removeLayer(l);}catch(e){}}); } S.labelLayers2=[];
-  _renderSide(S.map, 'layer', 'labelLayers', L1, mnL, mxL, colL);
-  _renderSide(S.compare.map2, 'layer2', 'labelLayers2', R1, mnR, mxR, colR);
-  if(S.extras && S.extras.length) multiRenderExtrasCompare(L1, R1, {mn:mnL,mx:mxL}, {mn:mnR,mx:mxR});
+  const _sortL=[...valsL].sort((a,b)=>a-b), _sortR=[...valsR].sort((a,b)=>a-b);
+  _renderSide(S.map, 'layer', 'labelLayers', L1, mnL, mxL, colL, _sortL);
+  _renderSide(S.compare.map2, 'layer2', 'labelLayers2', R1, mnR, mxR, colR, _sortR);
+  if(S.extras && S.extras.length) multiRenderExtrasCompare(L1, R1, {mn:mnL,mx:mxL,sorted:_sortL}, {mn:mnR,mx:mxR,sorted:_sortR});
   let _cb=null; try{ _cb=S.layer.getBounds(); }catch(e){}
   if(S.extras) S.extras.forEach(ex=>{ if(ex.bounds){ try{ _cb=_cb?_cb.extend(ex.bounds):L.latLngBounds(ex.bounds); }catch(e){} } });
   if(_cb){ try{S.map.fitBounds(_cb,{padding:[24,24]});}catch(e){} try{ if(S.compare.map2) S.compare.map2.fitBounds(_cb,{padding:[24,24]}); }catch(e){} }
