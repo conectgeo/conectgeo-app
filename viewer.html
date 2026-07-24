@@ -3836,11 +3836,13 @@ async function _geotiffToPng(url){
 async function generateModeloB(idealMap, selKeys, imprimirIndices){
   let matched=modeloBMatch();
   if(!matched.length){ toast('Nenhum nutriente reconhecido para o Modelo B','wrn'); return; }
-  if(selKeys && selKeys.length){
+  // seleção vinda da modal: ARRAY (pode ser VAZIO = nenhum nutriente marcado,
+  // ex.: imprimir só "Índices de Vegetação"). undefined = chamada legada → todos.
+  if(Array.isArray(selKeys)){
     const selSet=new Set(selKeys);
-    const filtered=matched.filter(m=>selSet.has(m.def.key));
-    if(!filtered.length){ toast('Selecione ao menos um nutriente','wrn'); return; }
-    matched=filtered;
+    matched=matched.filter(m=>selSet.has(m.def.key));
+    if(!matched.length && imprimirIndices===false){ toast('Selecione ao menos um item para imprimir','wrn'); return; }
+    // matched vazio + Índices marcado → segue e gera SÓ a página de Índices de Vegetação
   }
   // garante que extras estejam no modo nutrientes (sem camadas de coleta/recomendação)
   if(S.extras && S.extras.length){ try{ multiApplyMode('nutrientes'); }catch(e){} }
@@ -3978,6 +3980,7 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       if(!first) doc.addPage(); first=false;
       if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
     }
+    if(first){ restore(); hideLoading(); toast('Nada para imprimir — nenhuma página foi gerada','wrn'); return; }
     restore(); hideLoading();
     const fz=_normNome((S.linkData&&S.linkData.fazenda)||'fazenda'), tl=_normNome((S.linkData&&S.linkData.talhao)||'talhao');
     doc.save('Nutrientes_'+(fz||'fazenda')+'_'+(tl||'talhao')+'.pdf');
