@@ -2848,11 +2848,8 @@ async function generatePDF(nutrients){
 
     restore();
     hideLoading();
-    const cleanF=(s)=>(s&&s!=='—'?s:'').replace(/[\\/:*?"<>|]+/g,'').replace(/\s+/g,'_').replace(/_+/g,'_').replace(/^_|_$/g,'');
-    const fileCliente=cleanF(produtor)||'Cliente';
-    const fileFazenda=cleanF(fazenda)||'Fazenda';
-    const prefix=(typeof t==='function' && t('filePrefix'))||'Relatorio_Fertilidade';
-    doc.save(prefix+'_'+fileCliente+'_'+fileFazenda+'.pdf');
+    // nome padrão: Relatório de Fertilidade - cliente - fazenda - talhão
+    doc.save(_nomeArquivo('Relatório de Fertilidade', produtor, fazenda, talhoes)+'.pdf');
     toast(t('tPdfOk',nutrients.length),'ok');
   }catch(err){
     restore(); hideLoading();
@@ -3982,8 +3979,10 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
     }
     if(first){ restore(); hideLoading(); toast('Nada para imprimir — nenhuma página foi gerada','wrn'); return; }
     restore(); hideLoading();
-    const fz=_normNome((S.linkData&&S.linkData.fazenda)||'fazenda'), tl=_normNome((S.linkData&&S.linkData.talhao)||'talhao');
-    doc.save('Nutrientes_'+(fz||'fazenda')+'_'+(tl||'talhao')+'.pdf');
+    // nome padrão: Relatório de Fertilidade - cliente - fazenda - talhão
+    const _ldB=S.linkData||{};
+    const _tlsB=[_ldB.talhao].concat((S.extras||[]).map(ex=>ex.nome)).filter(Boolean).join(', ');
+    doc.save(_nomeArquivo('Relatório de Fertilidade', _ldB.cliente, _ldB.fazenda, _tlsB)+'.pdf');
     toast('Relatório (Modelo B) gerado','ok');
   }catch(err){ restore(); hideLoading(); toast('Erro ao gerar Modelo B: '+(err.message||err),'err'); console.error(err); }
 }
@@ -4238,7 +4237,9 @@ async function generateRecPDF(insumos){
 
     restore();
     hideLoading();
-    doc.save('Recomendacao_'+(_normNome(cliente)||'cliente')+'_'+(_normNome(regiao)||'fazenda')+'.pdf');
+    // nome padrão: Taxa Variável de <insumo> (1 insumo) | Taxa Variável Geral (vários)
+    const _tvTitulo=(insumos.length===1)?('Taxa Variável de '+insumos[0]):'Taxa Variável Geral';
+    doc.save(_nomeArquivo(_tvTitulo, cliente, regiao, talhao)+'.pdf');
     toast('Relatório gerado ('+insumos.length+' '+(insumos.length>1?'insumos':'insumo')+')','ok');
   }catch(err){
     restore(); hideLoading();
@@ -4255,6 +4256,12 @@ const REC_MODELOS={
   raiz:{nome:'Genérico', subs:[]}
 };
 const PRJ_WGS84='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]';
+// nome de arquivo padronizado: "Parte - Parte - ...". Preserva acentos e espaços;
+// remove apenas caracteres inválidos em nomes de arquivo; ignora partes vazias ou '—'.
+function _nomeArquivo(){
+  const limpa=s=>String(s==null?'':s).replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim();
+  return Array.prototype.slice.call(arguments).map(limpa).filter(s=>s && s!=='—').join(' - ') || 'arquivo';
+}
 function _normNome(t){
   if(t==null) return '';
   const nf=String(t).normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
@@ -4521,10 +4528,13 @@ async function doRecExport(){
     if(!ok){ toast('Nada para exportar','wrn'); goBtn.disabled=false; goBtn.textContent=txt0; return; }
     const blob=await zip.generateAsync({type:'blob'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
-    const sufixo = alvos.length<=1 ? _normNome(alvos[0]?alvos[0].nome:((S.linkData&&S.linkData.talhao)||'talhao'))
-                  : unif ? 'unificado'
-                  : alvos.length+'talhoes';
-    a.download='prescricao_'+sufixo+'_'+modeloKey+'.zip';
+    // nome padrão do zip: Taxa Variável de <insumo> (1 insumo) | Taxa Variável Geral (vários)
+    const _ldZ=S.linkData||{};
+    const _talZip = alvos.length<=1
+      ? ((alvos[0]&&alvos[0].nome)||_ldZ.talhao||'')
+      : alvos.map(a=>a.nome).filter(Boolean).join(', ');
+    const _tituloZip=(sel.length===1)?('Taxa Variável de '+sel[0]):'Taxa Variável Geral';
+    a.download=_nomeArquivo(_tituloZip, _ldZ.cliente, _ldZ.fazenda, _talZip)+'.zip';
     document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); },1500);
     document.getElementById('rec-export-modal').classList.remove('show');
     const okMsg = (alvos.length>1)
