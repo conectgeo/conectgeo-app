@@ -665,8 +665,10 @@ function toggleSidebar(){
   }, { onConflict:'id' });
 
   // bloqueio: se o admin desativou o acesso, impede a entrada
+  let CROW=null;
   try{
-    const { data:cRow } = await sb.from('consultores').select('ativo').eq('id', USER.id).single();
+    const { data:cRow } = await sb.from('consultores').select('ativo,nome_completo,nome').eq('id', USER.id).single();
+    CROW=cRow;
     if(cRow && cRow.ativo===false){
       await sb.auth.signOut();
       alert('Seu acesso está bloqueado. Procure o administrador da plataforma.');
@@ -674,9 +676,13 @@ function toggleSidebar(){
     }
   }catch(e){}
 
-  const nome = USER.user_metadata?.nome || USER.email.split('@')[0];
-  document.getElementById('u-nome').textContent = nome;
-  document.getElementById('u-av').textContent = nome[0].toUpperCase();
+  // nome exibido vem do Cadastro do Consultor (nome completo); só cai no
+  // e-mail se o cadastro ainda estiver vazio.
+  const nome = (CROW && (CROW.nome_completo||'').trim())
+            || (CROW && (CROW.nome||'').trim())
+            || USER.user_metadata?.nome
+            || USER.email.split('@')[0];
+  aplicarNomeConsultor(nome);
   const h = new Date().getHours();
   document.getElementById('saudacao').textContent =
     (h<12?'Bom dia':h<18?'Boa tarde':'Boa noite')+`, ${nome} 👋`;
@@ -690,6 +696,20 @@ function toggleSidebar(){
   await carregarDashboard();
   carregarClima();
 })();
+
+// aplica o nome do consultor na lateral + avatar (guarda contra nome vazio)
+function aplicarNomeConsultor(nome){
+  const n=(nome||'').trim()||'Consultor';
+  const el=document.getElementById('u-nome'); if(el) el.textContent=n;
+  const av=document.getElementById('u-av');   if(av) av.textContent=n.charAt(0).toUpperCase();
+}
+// atualiza a saudação do topo mantendo o período do dia
+function aplicarSaudacao(nome){
+  const n=(nome||'').trim()||'Consultor';
+  const h=new Date().getHours();
+  const s=document.getElementById('saudacao');
+  if(s) s.textContent=(h<12?'Bom dia':h<18?'Boa tarde':'Boa noite')+`, ${n} 👋`;
+}
 
 async function sair(){ await sb.auth.signOut(); location.href='index.html'; }
 
@@ -756,8 +776,8 @@ async function salvarPerfil(){
     }).eq('id', USER.id);
     if(error) throw error;
     PF_LOGO_URL=logoUrl; PF_LOGO_FILE=null;
-    // atualiza nome exibido na lateral
-    if(val('pf-nome')){ document.getElementById('u-nome').textContent=val('pf-nome'); document.getElementById('u-av').textContent=val('pf-nome')[0].toUpperCase(); }
+    // atualiza nome exibido na lateral E na saudação do dashboard
+    if(val('pf-nome')){ aplicarNomeConsultor(val('pf-nome')); aplicarSaudacao(val('pf-nome')); }
     st.textContent='✅ Cadastro salvo!';
     toast('Cadastro do consultor salvo','✅');
   }catch(err){ st.style.color='var(--danger)'; st.textContent='Erro: '+(err.message||err); }
