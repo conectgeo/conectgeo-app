@@ -370,9 +370,9 @@ tr:hover td{background:var(--sand);}
               <div class="create-inline hidden" id="ci-cliente">
                 <input class="ci-inp" id="ci-cliente-nome" placeholder="Nome do produtor *">
                 <input class="ci-inp" id="ci-cliente-email" placeholder="E-mail (opcional)">
-                <input class="ci-inp" id="ci-cliente-mun" placeholder="Município onde reside *" list="dl-cidades" oninput="sugCidade(this)" autocomplete="off">
-                <input class="ci-inp" id="ci-cliente-pais" placeholder="País *" value="Brasil">
-                <div style="font-size:10.5px;color:#9a9088;margin-top:-2px;">Município e país são usados na previsão do tempo do cliente.</div>
+                <input class="ci-inp" id="ci-cliente-mun" placeholder="Município onde reside (opcional)" list="dl-cidades" oninput="sugCidade(this)" autocomplete="off">
+                <input class="ci-inp" id="ci-cliente-pais" placeholder="País *">
+                <div style="font-size:10.5px;color:#9a9088;margin-top:-2px;">O país é usado na previsão do tempo do cliente. Informe o município para uma previsão mais precisa.</div>
               </div>
             </div>
             <div class="ff">
@@ -1093,11 +1093,10 @@ async function salvarTalhao(){
     if(!clienteId && !novoClienteNome){ toast('Selecione ou crie um cliente','⚠️'); return; }
     if(!fazendaId && !novaFazendaNome){ toast('Selecione ou crie uma fazenda','⚠️'); return; }
 
-    // município e país obrigatórios ao criar novo cliente (para o clima)
+    // país obrigatório ao criar novo cliente (para o clima); município é opcional
     const novoClienteMun=document.getElementById('ci-cliente-mun').value.trim();
     const novoClientePais=document.getElementById('ci-cliente-pais').value.trim();
     if(!clienteId){
-      if(!novoClienteMun){ toast('Informe o município do cliente','⚠️'); return; }
       if(!novoClientePais){ toast('Informe o país do cliente','⚠️'); return; }
     }
 
@@ -1115,7 +1114,7 @@ async function salvarTalhao(){
         consultor_id: USER.id,
         nome: novoClienteNome,
         email: document.getElementById('ci-cliente-email').value.trim()||null,
-        municipio: novoClienteMun,
+        municipio: novoClienteMun||null,
         pais: novoClientePais
       }).select('id').single();
       if(error) throw error;
