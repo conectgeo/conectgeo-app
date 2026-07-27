@@ -71,20 +71,42 @@ body{font-family:var(--f);background:var(--sand);color:var(--ink);font-size:13px
 .sc-sub{font-size:10.5px;color:var(--muted);margin-top:auto;padding-top:6px;}
 
 /* WEATHER */
-.weather-card{background:linear-gradient(135deg,#1a3a5c 0%,#2a5a8c 60%,#1d7a4f 100%);border-radius:var(--rl);padding:16px 18px;box-shadow:var(--sh-md);color:#fff;position:relative;overflow:hidden;margin-bottom:22px;}
+.weather-card{background:linear-gradient(135deg,#1a3a5c 0%,#2a5a8c 60%,#1d7a4f 100%);border-radius:var(--rl);padding:16px 18px;box-shadow:var(--sh-md);color:#fff;position:relative;overflow:visible;margin-bottom:22px;}
+.wc-fc{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:13px;}
+.wcf{background:rgba(255,255,255,.13);border-radius:10px;padding:9px 6px;text-align:center;}
+.wcf-d{font-size:9.5px;opacity:.7;text-transform:uppercase;letter-spacing:.05em;font-weight:700;}
+.wcf-i{font-size:24px;line-height:1.25;}
+.wcf-t{font-size:14px;font-weight:700;}
+.wcf-p{font-size:10px;opacity:.6;}
 .wc-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
 .wc-temp{font-family:var(--fd);font-size:34px;font-weight:700;line-height:1;}
 .wc-desc{font-size:12px;opacity:.85;}
 .wc-meta{font-size:10.5px;opacity:.6;}
-.wc-fc{display:flex;gap:14px;margin-left:auto;}
-.wcf{text-align:center;}
-.wcf-d{font-size:9px;opacity:.6;text-transform:uppercase;}
-.wcf-i{font-size:17px;}
-.wcf-t{font-size:11px;font-weight:700;}
 .wc-inp-row{display:flex;gap:6px;margin-top:11px;}
 .wc-inp{flex:1;max-width:230px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:7px;padding:6px 10px;font-size:11.5px;color:#fff;font-family:var(--f);outline:none;}
 .wc-inp::placeholder{color:rgba(255,255,255,.45);}
 .wc-btn{padding:6px 11px;background:rgba(255,255,255,.2);border:none;border-radius:7px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--f);}
+/* busca de cidade com resultados clicáveis (cada opção já traz lat/lon) */
+.wc-search{position:relative;flex:1;max-width:260px;}
+.wc-search .wc-inp{max-width:none;width:100%;}
+.wc-drop{position:absolute;top:calc(100% + 5px);left:0;right:0;background:#fff;color:var(--ink);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.28);display:none;z-index:60;max-height:252px;overflow-y:auto;}
+.wc-drop.open{display:block;}
+.wc-op{padding:8px 11px;cursor:pointer;font-size:12.5px;display:flex;align-items:center;gap:8px;}
+.wc-op:hover{background:#eef6e3;}
+.wc-op small{opacity:.55;font-size:10.5px;}
+/* alertas agro — grade de cards discretos */
+.wc-alerts{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin-top:12px;}
+.wc-al{display:flex;gap:9px;align-items:flex-start;padding:9px 11px;border-radius:10px;font-size:12.5px;line-height:1.35;
+  background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.12);border-left:3px solid #f5c451;
+  backdrop-filter:blur(2px);transition:background .15s,transform .15s;}
+.wc-al:hover{background:rgba(255,255,255,.16);transform:translateY(-1px);}
+.wc-al.p{background:rgba(255,110,95,.16);border-color:rgba(255,110,95,.22);border-left-color:#ff6b5b;}
+.wc-al.p:hover{background:rgba(255,110,95,.24);}
+.wc-al-ic{font-size:17px;line-height:1.15;flex-shrink:0;}
+.wc-al-tx{min-width:0;}
+.wc-al b{font-weight:700;display:block;}
+.wc-al span{opacity:.78;font-size:11px;display:block;margin-top:2px;}
+.wc-ok{margin-top:12px;font-size:11.5px;opacity:.7;}
 
 /* CARDS */
 .sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px;}
@@ -1891,55 +1913,191 @@ async function copiarLinkCliente(clienteId){
 }
 
 // ═══════════════════════════════════════════════
-// CLIMA (Open-Meteo — grátis, sem chave)
+// CLIMA + ALERTAS AGRO (Open-Meteo — grátis, sem chave)
+// Limiares: Embrapa/ANDEF (janela de pulverização), INMET (severidade),
+// literatura meteorológica (CAPE × cisalhamento 0–6 km).
+// Fontes de previsão apenas — não usa METAR/SYNOP, que são observação
+// do momento em aeroporto/estação e não serviriam para alerta antecipado.
 // ═══════════════════════════════════════════════
 const WMO_IC={0:'☀️',1:'🌤️',2:'⛅',3:'☁️',45:'🌫️',48:'🌫️',51:'🌦️',53:'🌦️',55:'🌧️',61:'🌧️',63:'🌧️',65:'🌧️',71:'❄️',73:'❄️',75:'❄️',80:'🌦️',81:'🌧️',82:'⛈️',95:'⛈️',96:'⛈️',99:'⛈️'};
 const WMO_DS={0:'Céu limpo',1:'Levemente nublado',2:'Parcialmente nublado',3:'Nublado',45:'Neblina',48:'Neblina',51:'Chuvisco leve',53:'Chuvisco',55:'Chuvisco intenso',61:'Chuva leve',63:'Chuva moderada',65:'Chuva forte',71:'Neve',73:'Neve',75:'Neve',80:'Pancadas leves',81:'Pancadas',82:'Pancadas fortes',95:'Tempestade',96:'Tempestade',99:'Tempestade'};
 const DOW=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
-async function buscarClima(lat,lon,nome){
-  try{
-    const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=America%2FSao_Paulo&forecast_days=5`;
-    const d=await (await fetch(u)).json();
-    const c=d.current;
-    let fc='';
-    for(let i=0;i<5;i++){
-      const dt=new Date(d.daily.time[i]+'T12:00');
-      fc+=`<div class="wcf"><div class="wcf-d">${i===0?'Hoje':DOW[dt.getDay()]}</div><div class="wcf-i">${WMO_IC[d.daily.weather_code[i]]||'🌡️'}</div><div class="wcf-t">${Math.round(d.daily.temperature_2m_max[i])}°</div><div style="font-size:9px;opacity:.55">${d.daily.precipitation_probability_max[i]}%💧</div></div>`;
+// —— LIMIARES (documentados; ajuste aqui se precisar) ——————————————
+const LIM={
+  chuva:    {atencao:50,   perigo:100},            // mm/dia  — INMET
+  rajada:   {atencao:60,   perigo:100},            // km/h    — INMET
+  pulv:     {ventoMax:10,  ventoMin:3},            // km/h    — Embrapa/ANDEF
+  ur:       {janela:60,    bula:55,  perigo:30},   // %       — Embrapa/ANDEF + INMET
+  estiagem: {chuvaSeca:2,  diasA:10, diasP:15, balA:-50, balP:-100},
+  cape:     {atencao:1000, perigo:2500},           // J/kg
+  shear:    {atencao:10,   perigo:20}              // m/s (cisalhamento 0–6 km)
+};
+const PAST_DIAS=30, FUT_DIAS=16;
+
+// —— helpers ————————————————————————————————————————————————
+function _isoLocal(dt){ const p=n=>String(n).padStart(2,'0'); return dt.getFullYear()+'-'+p(dt.getMonth()+1)+'-'+p(dt.getDate()); }
+function _uv(sp,dir){ const r=(dir||0)*Math.PI/180; return [-sp*Math.sin(r), -sp*Math.cos(r)]; }
+// cisalhamento 0–6 km: diferença VETORIAL entre o vento em 500 hPa (~5,6 km) e em 10 m.
+// A API devolve km/h; converte para m/s (limiares da literatura são em m/s).
+function _shear06(sp500,dir500,sp10,dir10){
+  if(sp500==null||dir500==null||sp10==null||dir10==null) return null;
+  const [u1,v1]=_uv(sp500/3.6,dir500), [u0,v0]=_uv(sp10/3.6,dir10);
+  return Math.sqrt(Math.pow(u1-u0,2)+Math.pow(v1-v0,2));
+}
+function _diaLabel(iso){ const dt=new Date(iso+'T12:00'); const h=_isoLocal(new Date()); if(iso===h) return 'hoje'; const am=new Date(); am.setDate(am.getDate()+1); if(iso===_isoLocal(am)) return 'amanhã'; return DOW[dt.getDay()]+' '+dt.getDate()+'/'+(dt.getMonth()+1); }
+
+// —— CÁLCULO DOS ALERTAS ————————————————————————————————————
+function calcAlertas(d, dh){
+  const A=[], dl=(d&&d.daily)||{}, cur=(d&&d.current)||{};
+  const T=dl.time||[];
+  let i0=T.indexOf(_isoLocal(new Date())); if(i0<0) i0=Math.min(PAST_DIAS,Math.max(0,T.length-1));
+
+  // 1) CHUVA FORTE — próximos 7 dias (INMET)
+  const P=dl.precipitation_sum||[];
+  let mCh=0,mChD=null;
+  for(let i=i0;i<Math.min(i0+8,P.length);i++){ if((P[i]||0)>mCh){ mCh=P[i]; mChD=T[i]; } }
+  if(mCh>=LIM.chuva.perigo) A.push({n:'p',ic:'🌧️',t:'Chuva muito forte',d:Math.round(mCh)+' mm previstos em '+_diaLabel(mChD)+' — risco de alagamento e erosão'});
+  else if(mCh>=LIM.chuva.atencao) A.push({n:'a',ic:'🌧️',t:'Chuva forte',d:Math.round(mCh)+' mm previstos em '+_diaLabel(mChD)});
+
+  // 2) VENDAVAL — rajadas nos próximos 7 dias (INMET)
+  const G=dl.wind_gusts_10m_max||[];
+  let mG=0,mGD=null;
+  for(let i=i0;i<Math.min(i0+8,G.length);i++){ if((G[i]||0)>mG){ mG=G[i]; mGD=T[i]; } }
+  if(mG>=LIM.rajada.perigo) A.push({n:'p',ic:'💨',t:'Vendaval',d:'Rajadas de '+Math.round(mG)+' km/h em '+_diaLabel(mGD)+' — risco de dano a lavoura e estruturas'});
+  else if(mG>=LIM.rajada.atencao) A.push({n:'a',ic:'💨',t:'Ventos fortes',d:'Rajadas de '+Math.round(mG)+' km/h em '+_diaLabel(mGD)});
+
+  // 3) JANELA DE PULVERIZAÇÃO — condição ATUAL (Embrapa/ANDEF)
+  const v=cur.wind_speed_10m, ur=cur.relative_humidity_2m;
+  const urCritica=(ur!=null && ur<LIM.ur.perigo);   // vira alerta próprio abaixo; não repete aqui
+  const jan=[];
+  if(v!=null && v>LIM.pulv.ventoMax) jan.push('vento '+Math.round(v)+' km/h (acima de '+LIM.pulv.ventoMax+')');
+  else if(v!=null && v<LIM.pulv.ventoMin) jan.push('vento '+Math.round(v)+' km/h (calmaria — risco de inversão térmica)');
+  if(!urCritica){
+    if(ur!=null && ur<LIM.ur.bula) jan.push('umidade '+Math.round(ur)+'% (abaixo do mínimo das bulas)');
+    else if(ur!=null && ur<LIM.ur.janela) jan.push('umidade '+Math.round(ur)+'%');
+  }
+  if(jan.length) A.push({n:'a',ic:'🚿',t:'Janela de pulverização desfavorável agora',d:jan.join(' · ')});
+
+  // 4) UMIDADE MUITO BAIXA — agora ou nos próximos dias (INMET)
+  const URm=dl.relative_humidity_2m_min||[];
+  let baixa=null;
+  if(ur!=null && ur<LIM.ur.perigo) baixa={v:ur,q:'agora'};
+  else { for(let i=i0;i<Math.min(i0+8,URm.length);i++){ if(URm[i]!=null && URm[i]<LIM.ur.perigo){ baixa={v:URm[i],q:_diaLabel(T[i])}; break; } } }
+  if(baixa) A.push({n:'p',ic:'🏜️',t:'Umidade muito baixa',d:'UR de '+Math.round(baixa.v)+'% '+baixa.q+' — risco de incêndio e deriva; evite pulverizar'});
+
+  // 5) ESTIAGEM — dias secos E balanço hídrico (chuva − ETo). O "E" evita
+  //    falso alerta: 10 dias sem chuva com perfil cheio não é estiagem.
+  const E=dl.et0_fao_evapotranspiration||[];
+  if(P.length){
+    let tras=0, noLimite=false;
+    for(let i=i0;i>=0;i--){ if((P[i]||0)<LIM.estiagem.chuvaSeca){ tras++; if(i===0) noLimite=true; } else break; }
+    let frente=0; for(let i=i0+1;i<P.length;i++){ if((P[i]||0)<LIM.estiagem.chuvaSeca) frente++; else break; }
+    const dias=tras+frente;
+    let sp=0,se=0,temE=false;
+    for(let i=Math.max(0,i0-29);i<=i0;i++){ sp+=(P[i]||0); if(E[i]!=null){ se+=E[i]; temE=true; } }
+    const bal=temE?(sp-se):null;
+    const det='<span>'+dias+(noLimite?'+':'')+' dias com chuva &lt; '+LIM.estiagem.chuvaSeca+' mm ('+tras+(noLimite?'+':'')+' já decorridos + '+frente+' previstos)'
+      + (bal!=null?(' · balanço 30 dias: '+(bal>0?'+':'')+Math.round(bal)+' mm (chuva '+Math.round(sp)+' − ETo '+Math.round(se)+')'):'')+'</span>';
+    if(dias>=LIM.estiagem.diasP && bal!=null && bal<=LIM.estiagem.balP) A.push({n:'p',ic:'🌵',t:'Estiagem',d:det});
+    else if(dias>=LIM.estiagem.diasA && bal!=null && bal<=LIM.estiagem.balA) A.push({n:'a',ic:'🌵',t:'Risco de estiagem',d:det});
+  }
+
+  // 6) TEMPESTADE SEVERA — CAPE × cisalhamento 0–6 km, avaliados NA MESMA HORA.
+  //    (usar o máximo diário de cada um separadamente misturaria horas diferentes)
+  if(dh && dh.hourly){
+    const h=dh.hourly, ht=h.time||[], agora=Date.now();
+    let firstP=null, firstA=null;
+    for(let i=0;i<ht.length;i++){
+      const t=new Date(ht[i]).getTime(); if(isNaN(t)||t<agora) continue;
+      const cape=(h.cape||[])[i];
+      const sh=_shear06((h.wind_speed_500hPa||[])[i],(h.wind_direction_500hPa||[])[i],(h.wind_speed_10m||[])[i],(h.wind_direction_10m||[])[i]);
+      if(cape==null||sh==null) continue;
+      if(!firstP && cape>=LIM.cape.perigo && sh>LIM.shear.perigo) firstP={cape,sh,q:ht[i]};
+      if(!firstA && cape>=LIM.cape.atencao && sh>=LIM.shear.atencao) firstA={cape,sh,q:ht[i]};
+      if(firstP) break;
     }
-    document.getElementById('weather').innerHTML=`
-      <div class="weather-card">
-        <div class="wc-row">
-          <div style="font-size:36px">${WMO_IC[c.weather_code]||'🌡️'}</div>
-          <div>
-            <div class="wc-temp">${Math.round(c.temperature_2m)}°C</div>
-            <div class="wc-desc">${WMO_DS[c.weather_code]||''} · 📍 ${nome}</div>
-            <div class="wc-meta">💧 ${c.relative_humidity_2m}% · 💨 ${c.wind_speed_10m} km/h · chuva hoje ${d.daily.precipitation_probability_max[0]}%</div>
-          </div>
-          <div class="wc-fc">${fc}</div>
-        </div>
-        <div class="wc-inp-row">
-          <input class="wc-inp" id="wc-cidade" placeholder="Trocar cidade… (ex: Londrina)" list="dl-cidades" oninput="sugCidade(this)" autocomplete="off" onkeydown="if(event.key==='Enter')trocarCidade()">
-          <button class="wc-btn" onclick="trocarCidade()">🔎 Buscar</button>
-          <button class="wc-btn" onclick="usarMinhaLocalizacao()" title="Usar minha localização atual">📍 Minha localização</button>
-        </div>
-      </div>`;
+    const s=firstP||firstA;
+    if(s){
+      const dt=new Date(s.q), qd=_diaLabel(_isoLocal(dt))+' ~'+String(dt.getHours()).padStart(2,'0')+'h';
+      A.push({n:firstP?'p':'a',ic:'⛈️',t:firstP?'Risco de tempestade severa':'Risco de tempestade',d:qd});
+    }
+  }
+
+  A.sort((a,b)=> (a.n==='p'?0:1)-(b.n==='p'?0:1));
+  return A;
+}
+
+function renderAlertas(A){
+  if(!A.length) return '<div class="wc-ok">✓ Sem alertas para os próximos dias.</div>';
+  return '<div class="wc-alerts">'+A.map(a=>{
+    const sub = a.d.indexOf('<span>')===0 ? a.d : (a.d?'<span>'+a.d+'</span>':'');
+    return '<div class="wc-al '+a.n+'"><div class="wc-al-ic">'+a.ic+'</div>'
+      + '<div class="wc-al-tx"><b>'+a.t+'</b>'+sub+'</div></div>';
+  }).join('')+'</div>';
+}
+
+// —— BUSCA DO CLIMA ————————————————————————————————————————
+async function buscarClima(lat,lon,nome){
+  const base='https://api.open-meteo.com/v1/forecast?latitude='+lat+'&longitude='+lon+'&timezone=auto';
+  const dailyFull='weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,relative_humidity_2m_min,et0_fao_evapotranspiration';
+  const dailyBasico='weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_gusts_10m_max';
+  const curVars='temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_gusts_10m';
+  const u1=n=>base+'&current='+curVars+'&daily='+n+'&past_days='+PAST_DIAS+'&forecast_days='+FUT_DIAS;
+  // 2ª chamada: horária p/ CAPE + cisalhamento (5 dias basta; mantém o payload leve)
+  const u2=base+'&hourly=cape,wind_speed_10m,wind_direction_10m,wind_speed_500hPa,wind_direction_500hPa&forecast_days=5';
+
+  try{
+    let d=await (await fetch(u1(dailyFull))).json();
+    // fallback: se alguma variável adicional não for aceita, refaz com o conjunto básico
+    if(!d || d.error || !d.daily) d=await (await fetch(u1(dailyBasico))).json();
+    if(!d || !d.daily) throw new Error('sem dados');
+    let dh=null; try{ dh=await (await fetch(u2)).json(); }catch(e){}
+
+    const dl=d.daily, c=d.current||{}, T=dl.time||[];
+    let i0=T.indexOf(_isoLocal(new Date())); if(i0<0) i0=Math.min(PAST_DIAS,Math.max(0,T.length-1));
+
+    let fc='';
+    for(let k=i0;k<Math.min(i0+5,T.length);k++){
+      const dt=new Date(T[k]+'T12:00');
+      fc+='<div class="wcf"><div class="wcf-d">'+(k===i0?'Hoje':DOW[dt.getDay()]+' '+dt.getDate()+'/'+(dt.getMonth()+1))+'</div><div class="wcf-i">'+(WMO_IC[dl.weather_code[k]]||'🌡️')+'</div><div class="wcf-t">'+Math.round(dl.temperature_2m_max[k])+'° <span style="opacity:.55;font-weight:400">'+Math.round((dl.temperature_2m_min||[])[k]??0)+'°</span></div><div class="wcf-p">'+((dl.precipitation_probability_max||[])[k]??0)+'% 💧</div></div>';
+    }
+    const alertas=renderAlertas(calcAlertas(d,dh));
+
+    document.getElementById('weather').innerHTML=
+      '<div class="weather-card">'
+      + '<div class="wc-row">'
+      +   '<div style="font-size:36px">'+(WMO_IC[c.weather_code]||'🌡️')+'</div>'
+      +   '<div><div class="wc-temp">'+Math.round(c.temperature_2m)+'°C</div>'
+      +     '<div class="wc-desc">'+(WMO_DS[c.weather_code]||'')+' · 📍 '+nome+'</div>'
+      +     '<div class="wc-meta">💧 '+c.relative_humidity_2m+'% · 💨 '+c.wind_speed_10m+' km/h · chuva hoje '+((dl.precipitation_probability_max||[])[i0]??0)+'%</div>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="wc-fc">'+fc+'</div>'
+      + alertas
+      + '<div class="wc-inp-row">'
+      +   '<div class="wc-search"><input class="wc-inp" id="wc-cidade" placeholder="Trocar cidade… (ex: Londrina)" autocomplete="off" oninput="wcSug(this)" onkeydown="wcKey(event)"><div class="wc-drop" id="wc-drop"></div></div>'
+      +   '<button class="wc-btn" onclick="usarMinhaLocalizacao()" title="Usar minha localização atual">📍 Minha localização</button>'
+      + '</div>'
+      + '</div>';
   }catch(e){ document.getElementById('weather').innerHTML=''; }
 }
-async function trocarCidade(){
-  const q=document.getElementById('wc-cidade').value.trim(); if(!q) return;
-  try{
-    const g=await (await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=pt&format=json`)).json();
-    if(g.results?.length){ const r=g.results[0]; localStorage.setItem('cg_clima',JSON.stringify({lat:r.latitude,lon:r.longitude,nome:r.name+(r.admin1?', '+r.admin1:'')})); buscarClima(r.latitude,r.longitude,r.name+(r.admin1?', '+r.admin1:'')); }
-    else toast('Cidade não encontrada','⚠️');
-  }catch(e){ toast('Erro na busca','⚠️'); }
-}
+
+// chave do clima POR consultor logado (evita que a cidade de um vaze para
+// outro que use o mesmo navegador/computador)
+function _climaKey(){ return 'cg_clima_' + ((USER&&USER.id) || 'anon'); }
+
 function carregarClima(){
-  const salvo=localStorage.getItem('cg_clima');
-  if(salvo){ const c=JSON.parse(salvo); buscarClima(c.lat,c.lon,c.nome); return; }
+  const K=_climaKey();
+  let salvo=localStorage.getItem(K);
+  // migração única: se este consultor ainda não tem chave própria mas existe
+  // a antiga global, aproveita uma vez e remove a global para não vazar mais.
+  if(!salvo){ const antigo=localStorage.getItem('cg_clima'); if(antigo){ salvo=antigo; localStorage.setItem(K,antigo); } }
+  localStorage.removeItem('cg_clima');
+  if(salvo){ try{ const c=JSON.parse(salvo); buscarClima(c.lat,c.lon,c.nome); return; }catch(e){} }
   if(navigator.geolocation){
     navigator.geolocation.getCurrentPosition(
-      async p=>{ const nome=(await reverseGeo(p.coords.latitude,p.coords.longitude))||'Sua localização'; localStorage.setItem('cg_clima',JSON.stringify({lat:p.coords.latitude,lon:p.coords.longitude,nome})); buscarClima(p.coords.latitude,p.coords.longitude,nome); },
+      async p=>{ const nome=(await reverseGeo(p.coords.latitude,p.coords.longitude))||'Sua localização'; localStorage.setItem(K,JSON.stringify({lat:p.coords.latitude,lon:p.coords.longitude,nome})); buscarClima(p.coords.latitude,p.coords.longitude,nome); },
       ()=>buscarClima(-23.3,-51.17,'Londrina, PR'),
       {timeout:6000});
   } else buscarClima(-23.3,-51.17,'Londrina, PR');
@@ -1948,7 +2106,7 @@ function carregarClima(){
 // reverse geocode (coordenadas → nome da cidade) — sem chave de API
 async function reverseGeo(lat,lon){
   try{
-    const r=await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=pt`);
+    const r=await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+lat+'&longitude='+lon+'&localityLanguage=pt');
     const d=await r.json();
     const cidade=d.city||d.locality||d.principalSubdivision||'';
     const uf=d.principalSubdivision||'';
@@ -1956,35 +2114,72 @@ async function reverseGeo(lat,lon){
   }catch(e){ return ''; }
 }
 
-// pede a localização do usuário e fixa no clima
 function usarMinhaLocalizacao(){
   if(!navigator.geolocation){ toast('Geolocalização não disponível neste navegador','⚠️'); return; }
   toast('Pedindo sua localização…','📍');
   navigator.geolocation.getCurrentPosition(async p=>{
     const lat=p.coords.latitude, lon=p.coords.longitude;
     const nome=(await reverseGeo(lat,lon))||'Sua localização';
-    localStorage.setItem('cg_clima',JSON.stringify({lat,lon,nome}));
+    localStorage.setItem(_climaKey(),JSON.stringify({lat,lon,nome}));
     buscarClima(lat,lon,nome);
     toast('Localização definida: '+nome,'✅');
   }, ()=>{ toast('Não foi possível obter a localização (permissão negada?)','⚠️'); }, {enableHighAccuracy:true,timeout:8000});
 }
 
-// autocomplete de cidades (Brasil e Paraguai) ao digitar
+// ═══════════════════════════════════════════════
+// BUSCA DE CIDADES (Brasil + Paraguai)
+// Faz uma chamada por país (countryCode) e junta os resultados, para que
+// cidades pequenas não sejam engolidas por homônimas do resto do mundo.
+// A opção já carrega lat/lon — clicar aplica direto, sem segunda busca.
+// ═══════════════════════════════════════════════
+async function geoBuscar(q){
+  if(!q || q.length<2) return [];
+  const url=cc=>'https://geocoding-api.open-meteo.com/v1/search?name='+encodeURIComponent(q)+'&count=10&language=pt&format=json&countryCode='+cc;
+  const [br,py]=await Promise.all([
+    fetch(url('BR')).then(r=>r.json()).catch(()=>({})),
+    fetch(url('PY')).then(r=>r.json()).catch(()=>({}))
+  ]);
+  const vistos=new Set(), out=[];
+  [...(br.results||[]),...(py.results||[])].forEach(x=>{
+    if(!x || vistos.has(x.id)) return; vistos.add(x.id); out.push(x);
+  });
+  return out.sort((a,b)=>(b.population||0)-(a.population||0)).slice(0,8);
+}
+function geoLabel(x){ return x.name+(x.admin1?' — '+x.admin1:''); }
+function geoFull(x){ return geoLabel(x)+(x.country_code==='PY'?' (Paraguai)':''); }
+
+let _wcTimer=null, _wcRes=[];
+function wcDrop(){ return document.getElementById('wc-drop'); }
+function wcSug(inp){
+  const q=inp.value.trim(); clearTimeout(_wcTimer);
+  const dp=wcDrop(); if(!dp) return;
+  if(q.length<2){ dp.classList.remove('open'); dp.innerHTML=''; return; }
+  _wcTimer=setTimeout(async()=>{
+    _wcRes=await geoBuscar(q);
+    if(!_wcRes.length){ dp.innerHTML='<div class="wc-op" style="opacity:.6;cursor:default">Nenhuma cidade encontrada</div>'; dp.classList.add('open'); return; }
+    dp.innerHTML=_wcRes.map((x,i)=>'<div class="wc-op" onclick="wcPick('+i+')">'+(x.country_code==='PY'?'🇵🇾':'🇧🇷')+'<div>'+geoLabel(x)+'</div></div>').join('');
+    dp.classList.add('open');
+  },280);
+}
+function wcPick(i){
+  const x=_wcRes[i]; if(!x) return;
+  const nome=geoFull(x);
+  localStorage.setItem(_climaKey(),JSON.stringify({lat:x.latitude,lon:x.longitude,nome}));
+  const dp=wcDrop(); if(dp){ dp.classList.remove('open'); dp.innerHTML=''; }
+  buscarClima(x.latitude,x.longitude,nome);
+}
+function wcKey(ev){ if(ev.key==='Enter'){ ev.preventDefault(); if(_wcRes.length) wcPick(0); } if(ev.key==='Escape'){ const dp=wcDrop(); if(dp) dp.classList.remove('open'); } }
+document.addEventListener('click',e=>{ const s=document.querySelector('.wc-search'); if(s && !s.contains(e.target)){ const dp=wcDrop(); if(dp) dp.classList.remove('open'); } });
+
+// autocomplete simples (datalist) dos campos de cadastro — só texto
 let _sugTimer=null;
 function sugCidade(inp){
-  const q=inp.value.trim();
-  clearTimeout(_sugTimer);
+  const q=inp.value.trim(); clearTimeout(_sugTimer);
   if(q.length<2) return;
   _sugTimer=setTimeout(async()=>{
-    try{
-      const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=10&language=pt&format=json`);
-      const g=await r.json();
-      const dl=document.getElementById('dl-cidades'); if(!dl) return;
-      const opts=(g.results||[])
-        .filter(x=> x.country_code==='BR' || x.country_code==='PY')
-        .map(x=>{ const uf=x.admin1?` - ${x.admin1}`:''; const pais=x.country_code==='PY'?' (Paraguai)':''; return `<option value="${(x.name+uf).replace(/"/g,'')}${pais}"></option>`; });
-      dl.innerHTML=opts.join('');
-    }catch(e){}
+    const res=await geoBuscar(q);
+    const dl=document.getElementById('dl-cidades'); if(!dl) return;
+    dl.innerHTML=res.map(x=>'<option value="'+geoFull(x).replace(/"/g,'')+'"></option>').join('');
   },280);
 }
 
