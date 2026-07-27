@@ -72,41 +72,45 @@ body{font-family:var(--f);background:var(--sand);color:var(--ink);font-size:13px
 
 /* WEATHER */
 .weather-card{background:linear-gradient(135deg,#1a3a5c 0%,#2a5a8c 60%,#1d7a4f 100%);border-radius:var(--rl);padding:16px 18px;box-shadow:var(--sh-md);color:#fff;position:relative;overflow:visible;margin-bottom:22px;}
-.wc-fc{display:grid;grid-template-columns:repeat(auto-fit,minmax(96px,1fr));gap:8px;margin-top:13px;}
-.wcf{background:rgba(255,255,255,.13);border-radius:10px;padding:9px 6px;text-align:center;}
-.wcf-d{font-size:9.5px;opacity:.7;text-transform:uppercase;letter-spacing:.05em;font-weight:700;}
-.wcf-i{font-size:24px;line-height:1.25;}
-.wcf-t{font-size:14px;font-weight:700;}
-.wcf-p{font-size:10px;opacity:.6;}
+.wc-fc{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end;}
+.wcf{background:rgba(255,255,255,.13);border-radius:9px;padding:6px 8px;text-align:center;min-width:52px;}
+.wcf-d{font-size:8.5px;opacity:.7;text-transform:uppercase;letter-spacing:.03em;font-weight:700;}
+.wcf-i{font-size:16px;line-height:1.3;}
+.wcf-t{font-size:11px;font-weight:700;}
+.wcf-t span{opacity:.55;font-weight:400;}
+.wcf-p{font-size:8.5px;opacity:.6;}
 .wc-row{display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
 .wc-temp{font-family:var(--fd);font-size:34px;font-weight:700;line-height:1;}
 .wc-desc{font-size:12px;opacity:.85;}
 .wc-meta{font-size:10.5px;opacity:.6;}
-.wc-inp-row{display:flex;gap:6px;margin-top:11px;}
-.wc-inp{flex:1;max-width:230px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:7px;padding:6px 10px;font-size:11.5px;color:#fff;font-family:var(--f);outline:none;}
+.wc-inp-row{display:flex;gap:8px;margin-top:11px;align-items:center;}
+.wc-inp{flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:7px;padding:7px 10px;font-size:11.5px;color:#fff;font-family:var(--f);outline:none;}
 .wc-inp::placeholder{color:rgba(255,255,255,.45);}
-.wc-btn{padding:6px 11px;background:rgba(255,255,255,.2);border:none;border-radius:7px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--f);}
+.wc-btn{flex-shrink:0;white-space:nowrap;padding:7px 12px;background:rgba(255,255,255,.2);border:none;border-radius:7px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--f);}
 /* busca de cidade com resultados clicáveis (cada opção já traz lat/lon) */
-.wc-search{position:relative;flex:1;max-width:260px;}
-.wc-search .wc-inp{max-width:none;width:100%;}
+.wc-search{position:relative;flex:1 1 auto;max-width:320px;min-width:0;}
+.wc-search .wc-inp{width:100%;}
 .wc-drop{position:absolute;top:calc(100% + 5px);left:0;right:0;background:#fff;color:var(--ink);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.28);display:none;z-index:60;max-height:252px;overflow-y:auto;}
 .wc-drop.open{display:block;}
 .wc-op{padding:8px 11px;cursor:pointer;font-size:12.5px;display:flex;align-items:center;gap:8px;}
 .wc-op:hover{background:#eef6e3;}
 .wc-op small{opacity:.55;font-size:10.5px;}
-/* alertas agro — grade de cards discretos */
-.wc-alerts{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px;margin-top:12px;}
-.wc-al{display:flex;gap:9px;align-items:flex-start;padding:9px 11px;border-radius:10px;font-size:12.5px;line-height:1.35;
-  background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.12);border-left:3px solid #f5c451;
+/* alertas agro — fileira de cartões EM PÉ (retrato), lado a lado */
+.wc-alerts{display:flex;gap:9px;margin-top:12px;flex-wrap:wrap;}
+.wc-al{flex:1 1 0;min-width:150px;display:flex;flex-direction:column;gap:5px;
+  padding:11px 12px;border-radius:11px;font-size:12.5px;line-height:1.32;
+  background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.12);border-top:3px solid #f5c451;
   backdrop-filter:blur(2px);transition:background .15s,transform .15s;}
 .wc-al:hover{background:rgba(255,255,255,.16);transform:translateY(-1px);}
-.wc-al.p{background:rgba(255,110,95,.16);border-color:rgba(255,110,95,.22);border-left-color:#ff6b5b;}
+.wc-al.p{background:rgba(255,110,95,.16);border-color:rgba(255,110,95,.22);border-top-color:#ff6b5b;}
 .wc-al.p:hover{background:rgba(255,110,95,.24);}
-.wc-al-ic{font-size:17px;line-height:1.15;flex-shrink:0;}
+.wc-al-ic{font-size:22px;line-height:1;}
 .wc-al-tx{min-width:0;}
 .wc-al b{font-weight:700;display:block;}
-.wc-al span{opacity:.78;font-size:11px;display:block;margin-top:2px;}
+.wc-al span{opacity:.78;font-size:11px;display:block;margin-top:3px;}
 .wc-ok{margin-top:12px;font-size:11.5px;opacity:.7;}
+@media(max-width:760px){ .wc-al{flex:1 1 45%;} }
+@media(max-width:480px){ .wc-al{flex:1 1 100%;flex-direction:row;align-items:flex-start;gap:9px;} .wc-al-ic{font-size:18px;} }
 
 /* CARDS */
 .sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px;}
@@ -2072,8 +2076,8 @@ async function buscarClima(lat,lon,nome){
       +     '<div class="wc-desc">'+(WMO_DS[c.weather_code]||'')+' · 📍 '+nome+'</div>'
       +     '<div class="wc-meta">💧 '+c.relative_humidity_2m+'% · 💨 '+c.wind_speed_10m+' km/h · chuva hoje '+((dl.precipitation_probability_max||[])[i0]??0)+'%</div>'
       +   '</div>'
+      +   '<div class="wc-fc">'+fc+'</div>'
       + '</div>'
-      + '<div class="wc-fc">'+fc+'</div>'
       + alertas
       + '<div class="wc-inp-row">'
       +   '<div class="wc-search"><input class="wc-inp" id="wc-cidade" placeholder="Trocar cidade… (ex: Londrina)" autocomplete="off" oninput="wcSug(this)" onkeydown="wcKey(event)"><div class="wc-drop" id="wc-drop"></div></div>'
