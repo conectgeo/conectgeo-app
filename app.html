@@ -111,7 +111,8 @@ body{font-family:var(--f);background:var(--sand);color:var(--ink);font-size:13px
 .wc-al.aberto.p{background:#7a3b38;}
 .wc-al.aberto b{white-space:normal;overflow:visible;}
 .wc-al.aberto span{-webkit-line-clamp:unset;overflow:visible;}
-.wc-al-ic{font-size:17px;line-height:1.1;flex-shrink:0;}
+.wc-al-ic{flex-shrink:0;display:flex;align-items:center;justify-content:center;opacity:.92;}
+.wc-al-ic svg{display:block;}
 .wc-al-tx{min-width:0;}
 .wc-al b{font-weight:700;display:block;font-size:12px;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -1940,6 +1941,24 @@ const WMO_IC={0:'☀️',1:'🌤️',2:'⛅',3:'☁️',45:'🌫️',48:'🌫️
 const WMO_DS={0:'Céu limpo',1:'Levemente nublado',2:'Parcialmente nublado',3:'Nublado',45:'Neblina',48:'Neblina',51:'Chuvisco leve',53:'Chuvisco',55:'Chuvisco intenso',61:'Chuva leve',63:'Chuva moderada',65:'Chuva forte',71:'Neve',73:'Neve',75:'Neve',80:'Pancadas leves',81:'Pancadas',82:'Pancadas fortes',95:'Tempestade',96:'Tempestade',99:'Tempestade'};
 const DOW=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
+// ═══════════════════════════════════════════════
+// ÍCONES SVG originais dos alertas (traço uniforme, herdam a cor do texto).
+// Conceitos: pulverização (leque de gotas), estiagem (planta murcha + solo
+// rachado), umidade baixa (gota com % e seta p/ baixo), umidade alta (gotas
+// com vapor subindo), geada (floco), chuva (nuvem+gotas), vento (rajadas),
+// tempestade (nuvem + raio).
+// ═══════════════════════════════════════════════
+const ICO={
+  pulverizacao:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M5 12h2M5 12l-1-3M5 12l-1 3M8 8l3-1M8 16l3 1M9 12h3M8 4h4M8 20h4"/><circle cx="18" cy="6" r="1.1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.1" fill="currentColor" stroke="none"/><circle cx="18" cy="18" r="1.1" fill="currentColor" stroke="none"/><circle cx="15" cy="9" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="15" r="1" fill="currentColor" stroke="none"/></svg>',
+  estiagem:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V8"/><path d="M12 9c0-2 1.6-3.4 3.4-3.4C15.4 7.8 14 9 12 9z" fill="currentColor" stroke="none"/><path d="M12 10.5c0-1.8-1.5-3-3.2-3C8.8 9.4 10.2 10.5 12 10.5z" fill="currentColor" stroke="none"/><path d="M4 17.5l3-1 3 1.5 4-1 3 1 3-1"/><path d="M4 20l3-1 3 1.5 4-1 3 1 3-1"/></svg>',
+  umidadeBaixa:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11 3.5C11 3.5 5 10 5 14a6 6 0 0 0 8.5 5.4"/><text x="8.2" y="16" font-size="8" font-weight="700" fill="currentColor" stroke="none" font-family="sans-serif">%</text><path d="M18 11v7"/><path d="M15.5 15.5L18 18l2.5-2.5"/></svg>',
+  umidadeAlta:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="17" r="2.2" fill="currentColor" stroke="none"/><circle cx="15" cy="17" r="2.2" fill="currentColor" stroke="none"/><path d="M6 9c.6-1.5.3-3-.5-4M12 8c.6-1.5.3-3-.5-4M18 9c-.6-1.5-.3-3 .5-4"/></svg>',
+  geada:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M4.2 7.5l15.6 9M19.8 7.5l-15.6 9"/><path d="M12 6.5l-2 1.5M12 6.5l2 1.5M12 17.5l-2-1.5M12 17.5l2 1.5M6.5 9l.3 2.4M6.5 9l-2.3.6M17.5 15l-.3-2.4M17.5 15l2.3-.6M17.5 9l-.3 2.4M17.5 9l2.3.6M6.5 15l.3-2.4M6.5 15l-2.3-.6"/></svg>',
+  chuva:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 15a4 4 0 0 1 .5-8 5 5 0 0 1 9.5 1.5A3.5 3.5 0 0 1 16.5 15z"/><path d="M8 18l-1 2M12 18l-1 2M16 18l-1 2"/></svg>',
+  vento:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h9a2.5 2.5 0 1 0-2.5-2.5"/><path d="M3 12h13a2.5 2.5 0 1 1-2.5 2.5"/><path d="M3 16h7a2 2 0 1 1-2 2"/></svg>',
+  tempestade:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M7 14a4 4 0 0 1 .5-8 5 5 0 0 1 9.5 1.5A3.5 3.5 0 0 1 16.5 14"/><path d="M12 12l-2.5 4H12l-1 4 3.5-5H12l1.5-3z" fill="currentColor" stroke="none"/></svg>'
+};
+
 // —— LIMIARES (documentados; ajuste aqui se precisar) ——————————————
 const LIM={
   chuva:    {atencao:50,   perigo:100},            // mm/dia  — INMET
@@ -1948,7 +1967,8 @@ const LIM={
   ur:       {janela:60,    bula:55,  perigo:30},   // %       — Embrapa/ANDEF + INMET
   estiagem: {chuvaSeca:2,  diasA:10, diasP:15, balA:-50, balP:-100},
   cape:     {atencao:1000, perigo:2500},           // J/kg
-  shear:    {atencao:10,   perigo:20}              // m/s (cisalhamento 0–6 km)
+  shear:    {atencao:10,   perigo:20},              // m/s (cisalhamento 0–6 km)
+  geada:    {atencao:3,     perigo:0,   relvaOffset:4}  // °C no ar (2m); relva ≈ ar − offset
 };
 const PAST_DIAS=30, FUT_DIAS=16;
 
@@ -1974,15 +1994,15 @@ function calcAlertas(d, dh){
   const P=dl.precipitation_sum||[];
   let mCh=0,mChD=null;
   for(let i=i0;i<Math.min(i0+8,P.length);i++){ if((P[i]||0)>mCh){ mCh=P[i]; mChD=T[i]; } }
-  if(mCh>=LIM.chuva.perigo) A.push({n:'p',ic:'🌧️',t:'Chuva muito forte',d:Math.round(mCh)+' mm previstos em '+_diaLabel(mChD)+' — risco de alagamento e erosão'});
-  else if(mCh>=LIM.chuva.atencao) A.push({n:'a',ic:'🌧️',t:'Chuva forte',d:Math.round(mCh)+' mm previstos em '+_diaLabel(mChD)});
+  if(mCh>=LIM.chuva.perigo) A.push({n:'p',ic:ICO.chuva,t:'Chuva muito forte',d:Math.round(mCh)+' mm previstos em '+_diaLabel(mChD)+' — risco de alagamento e erosão'});
+  else if(mCh>=LIM.chuva.atencao) A.push({n:'a',ic:ICO.chuva,t:'Chuva forte',d:Math.round(mCh)+' mm previstos em '+_diaLabel(mChD)});
 
   // 2) VENDAVAL — rajadas nos próximos 7 dias (INMET)
   const G=dl.wind_gusts_10m_max||[];
   let mG=0,mGD=null;
   for(let i=i0;i<Math.min(i0+8,G.length);i++){ if((G[i]||0)>mG){ mG=G[i]; mGD=T[i]; } }
-  if(mG>=LIM.rajada.perigo) A.push({n:'p',ic:'💨',t:'Vendaval',d:'Rajadas de '+Math.round(mG)+' km/h em '+_diaLabel(mGD)+' — risco de dano a lavoura e estruturas'});
-  else if(mG>=LIM.rajada.atencao) A.push({n:'a',ic:'💨',t:'Ventos fortes',d:'Rajadas de '+Math.round(mG)+' km/h em '+_diaLabel(mGD)});
+  if(mG>=LIM.rajada.perigo) A.push({n:'p',ic:ICO.vento,t:'Vendaval',d:'Rajadas de '+Math.round(mG)+' km/h em '+_diaLabel(mGD)+' — risco de dano a lavoura e estruturas'});
+  else if(mG>=LIM.rajada.atencao) A.push({n:'a',ic:ICO.vento,t:'Ventos fortes',d:'Rajadas de '+Math.round(mG)+' km/h em '+_diaLabel(mGD)});
 
   // 3) JANELA DE PULVERIZAÇÃO — condição ATUAL (Embrapa/ANDEF)
   const v=cur.wind_speed_10m, ur=cur.relative_humidity_2m;
@@ -1994,14 +2014,14 @@ function calcAlertas(d, dh){
     if(ur!=null && ur<LIM.ur.bula) jan.push('umidade '+Math.round(ur)+'% (abaixo do mínimo das bulas)');
     else if(ur!=null && ur<LIM.ur.janela) jan.push('umidade '+Math.round(ur)+'%');
   }
-  if(jan.length) A.push({n:'a',ic:'🚿',t:'Janela de pulverização desfavorável agora',d:jan.join(' · ')});
+  if(jan.length) A.push({n:'a',ic:ICO.pulverizacao,t:'Janela de pulverização desfavorável agora',d:jan.join(' · ')});
 
   // 4) UMIDADE MUITO BAIXA — agora ou nos próximos dias (INMET)
   const URm=dl.relative_humidity_2m_min||[];
   let baixa=null;
   if(ur!=null && ur<LIM.ur.perigo) baixa={v:ur,q:'agora'};
   else { for(let i=i0;i<Math.min(i0+8,URm.length);i++){ if(URm[i]!=null && URm[i]<LIM.ur.perigo){ baixa={v:URm[i],q:_diaLabel(T[i])}; break; } } }
-  if(baixa) A.push({n:'p',ic:'🏜️',t:'Umidade muito baixa',d:'UR de '+Math.round(baixa.v)+'% '+baixa.q+' — risco de incêndio e deriva; evite pulverizar'});
+  if(baixa) A.push({n:'p',ic:ICO.umidadeBaixa,t:'Umidade muito baixa',d:'UR de '+Math.round(baixa.v)+'% '+baixa.q+' — risco de incêndio e deriva; evite pulverizar'});
 
   // 5) ESTIAGEM — dias secos E balanço hídrico (chuva − ETo). O "E" evita
   //    falso alerta: 10 dias sem chuva com perfil cheio não é estiagem.
@@ -2016,11 +2036,29 @@ function calcAlertas(d, dh){
     const bal=temE?(sp-se):null;
     const det='<span>'+dias+(noLimite?'+':'')+' dias com chuva &lt; '+LIM.estiagem.chuvaSeca+' mm ('+tras+(noLimite?'+':'')+' já decorridos + '+frente+' previstos)'
       + (bal!=null?(' · balanço 30 dias: '+(bal>0?'+':'')+Math.round(bal)+' mm (chuva '+Math.round(sp)+' − ETo '+Math.round(se)+')'):'')+'</span>';
-    if(dias>=LIM.estiagem.diasP && bal!=null && bal<=LIM.estiagem.balP) A.push({n:'p',ic:'🌵',t:'Estiagem',d:det});
-    else if(dias>=LIM.estiagem.diasA && bal!=null && bal<=LIM.estiagem.balA) A.push({n:'a',ic:'🌵',t:'Risco de estiagem',d:det});
+    if(dias>=LIM.estiagem.diasP && bal!=null && bal<=LIM.estiagem.balP) A.push({n:'p',ic:ICO.estiagem,t:'Estiagem',d:det});
+    else if(dias>=LIM.estiagem.diasA && bal!=null && bal<=LIM.estiagem.balA) A.push({n:'a',ic:ICO.estiagem,t:'Risco de estiagem',d:det});
   }
 
-  // 6) TEMPESTADE SEVERA — CAPE × cisalhamento 0–6 km, CRUZADO com chuva prevista
+  // 6) GEADA — usa a mínima do AR (2 m). O dano ocorre na RELVA (junto ao solo),
+  //    que é ~4°C mais fria que o ar; por isso o gatilho no ar é 3°C (relva ~ -1°C).
+  //    Fontes: INMET (aviso ~3°C no ar) e EPAGRI/CIRAM (relva <0°C = geada, <-2°C = forte).
+  const TMIN=dl.temperature_2m_min||[];
+  let geada=null;
+  for(let i=i0;i<Math.min(i0+8,TMIN.length);i++){
+    const ar=TMIN[i]; if(ar==null) continue;
+    if(ar<=LIM.geada.perigo){ geada={ar,q:_diaLabel(T[i]),forte:true}; break; }         // geada forte
+    if(ar<=LIM.geada.atencao && !geada){ geada={ar,q:_diaLabel(T[i]),forte:false}; }     // risco de geada (segue procurando algo pior)
+  }
+  if(geada){
+    const relva=Math.round(geada.ar - LIM.geada.relvaOffset);
+    const det='<span>mínima de '+Math.round(geada.ar)+'°C no ar '+geada.q
+      +' · na relva ~'+relva+'°C (onde a planta sente) — proteja culturas sensíveis</span>';
+    A.push({ n: geada.forte?'p':'a', ic:ICO.geada,
+      t: geada.forte?'Geada forte':'Risco de geada', d:det });
+  }
+
+  // 7) TEMPESTADE SEVERA — CAPE × cisalhamento 0–6 km, CRUZADO com chuva prevista
   //    na mesma hora. Sem chuva prevista, não há risco de tempestade (evita
   //    o falso positivo do CAPE alto de rotina em clima tropical de céu limpo).
   if(dh && dh.hourly){
@@ -2044,7 +2082,7 @@ function calcAlertas(d, dh){
     if(s){
       const dt=new Date(s.q), qd=_diaLabel(_isoLocal(dt))+' ~'+String(dt.getHours()).padStart(2,'0')+'h'
         + (s.prob!=null?' · '+Math.round(s.prob)+'% de chuva':'');
-      A.push({n:firstP?'p':'a',ic:'⛈️',t:firstP?'Risco de tempestade severa':'Risco de tempestade',d:qd});
+      A.push({n:firstP?'p':'a',ic:ICO.tempestade,t:firstP?'Risco de tempestade severa':'Risco de tempestade',d:qd});
     }
   }
 
