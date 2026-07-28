@@ -1021,12 +1021,16 @@ function normDepth(v){
 }
 function _sameDepth(a,b){ return !!a && !!b && normDepth(a)===normDepth(b); }
 function _colNaProfundidade(refCol, depth){ const w=_nutBase(refCol); const cands=(S.csvFields||[]).filter(f=>_sameDepth(_depthFromName(f), depth) && _nutBase(f)===w); return cands.length?cands[0]:null; }
+// coluna tem ao menos um valor numérico? (cabeçalho presente mas sem dados = ignorar)
+function _colTemDados(f){ return (S.csvData||[]).some(r=>typeof r[f]==='number' && isFinite(r[f])); }
 // Relatório B: força a leitura de profundidades pelos nomes das colunas (ex.: "Cálcio (00-20cm)")
 function _mbRecomputeDepthsFromNames(){
   try{
     if(!(S.modeloB && S.modeloB.on)) return false;
     const fields=S.csvFields||[]; if(!fields.length) return false;
-    const ds=[]; fields.forEach(f=>{ const d=_depthFromName(f); if(d && !ds.includes(d)) ds.push(d); });
+    // só considera a profundidade se ALGUMA coluna dela tiver valor.
+    // (planilha com colunas "20-40" apenas no cabeçalho, vazias, deve ser ignorada)
+    const ds=[]; fields.forEach(f=>{ const d=_depthFromName(f); if(d && !ds.includes(d) && _colTemDados(f)) ds.push(d); });
     if(!ds.length) return false;
     S.depthCol=null; S.depthByName=true; S.availDepths=ds; S.manualDepth=null;
     if(!S.activeDepth || !ds.some(d=>normDepth(d)===normDepth(S.activeDepth))){
@@ -1088,11 +1092,13 @@ function parseCSVText(text){
   const sep=_csvDetectSep(lines[0]);
   // detecta linha de NÍVEIS IDEAIS no topo (Modelo B): 1ª célula vazia, várias células
   // numéricas, e a 2ª linha com nomes de texto. Nesse caso a 2ª linha é o cabeçalho.
-  let headerIdx=0, idealCells=null;
+  let headerIdx=0, idealCells=null, ideaisAusentes=false;
   if(lines.length>=2){
     const l0=_csvSplitLine(lines[0],sep).map(c=>c.trim());
     const l1=_csvSplitLine(lines[1],sep).map(c=>c.trim());
     if(_ehLinhaIdeais(l0, l1)){ idealCells=l0; headerIdx=1; }
+    // linha de ideais existe mas está VAZIA: pula (senão o cabeçalho vira "__EMPTY")
+    else if(_ehLinhaIdeaisVazia(l0, l1)){ headerIdx=1; ideaisAusentes=true; }
   }
   const headers=_csvSplitLine(lines[headerIdx],sep).map(h=>h.trim());
   const rows=[];
@@ -1108,7 +1114,22 @@ function parseCSVText(text){
   }
   const out={rows,fields:headers};
   if(idealCells){ out.idealRow=_mapIdeais(headers, idealCells); }
+  if(ideaisAusentes) out.ideaisAusentes=true;
   return out;
+}
+// linha do topo RESERVADA aos níveis ideais, porém SEM VALORES (vazia).
+// Se fosse usada como cabeçalho geraria colunas "__EMPTY". Detecta o caso para
+// pular a linha e, no Relatório B, avisar o consultor antes de carregar.
+function _ehLinhaIdeaisVazia(l0, l1){
+  if(!l0||!l1||!l1.length) return false;
+  // não pode haver NENHUM número na 1ª linha (senão são níveis ideais de verdade)
+  for(let i=0;i<l0.length;i++){ const v=String(l0[i]??'').trim(); if(v!=='' && !isNaN(_brNum(v))) return false; }
+  // e ela deve estar praticamente vazia (no máximo 1 rótulo, ex.: "Nível Ideal")
+  let preenchidas=0; for(let i=0;i<l0.length;i++){ if(String(l0[i]??'').trim()!=='') preenchidas++; }
+  if(preenchidas>1) return false;
+  // a 2ª linha precisa parecer o cabeçalho (>=3 textos)
+  let txts=0; for(let i=1;i<l1.length;i++){ const v=String(l1[i]??'').trim(); if(v!=='' && isNaN(_brNum(v))) txts++; }
+  return txts>=3;
 }
 // linha do topo é de "níveis ideais"? 1ª célula vazia, >=3 células numéricas, e a linha
 // seguinte tem >=3 células de TEXTO (nomes de coluna). Conservador para não afetar o Padrão.
@@ -1152,6 +1173,15 @@ function _parseSheet(wb, sheetName){
       out.idealRow=idealRow;
       return out;
     }
+    // linha de ideais existe mas está VAZIA: pula (senão o cabeçalho vira "__EMPTY")
+    if(_ehLinhaIdeaisVazia(l0, l1)){
+      const ws2=XLSX.utils.aoa_to_sheet(aoa.slice(1));
+      const rows2=XLSX.utils.sheet_to_json(ws2,{defval:''});
+      rows2.forEach(r=>Object.keys(r).forEach(k=>{
+        if(typeof r[k]==='string'){const t=r[k].replace(/\u00a0/g,'').trim(); if(t!==''&&/^-?[\d.,]+$/.test(t)){const n=_brNum(t); if(!isNaN(n)) r[k]=n;}}
+      }));
+      return {rows:rows2, fields:rows2.length?Object.keys(rows2[0]):l1, ideaisAusentes:true};
+    }
   }
   const rows=XLSX.utils.sheet_to_json(ws,{defval:''});
   rows.forEach(r=>Object.keys(r).forEach(k=>{
@@ -1168,9 +1198,9 @@ function parseXLSX(buf){
   const main=_parseSheet(wb, nutriName||wb.SheetNames[0]);
   if(hasBothSheets){
     const rec=_parseSheet(wb, recName);
-    return {...main, recRows:rec.rows, recFields:rec.fields, hasRecSheet:true, idealRow:main.idealRow||null};
+    return {...main, recRows:rec.rows, recFields:rec.fields, hasRecSheet:true, idealRow:main.idealRow||null, ideaisAusentes:!!main.ideaisAusentes};
   }
-  return {...main, recRows:null, recFields:null, hasRecSheet:false, idealRow:main.idealRow||null};
+  return {...main, recRows:null, recFields:null, hasRecSheet:false, idealRow:main.idealRow||null, ideaisAusentes:!!main.ideaisAusentes};
 }
 
 // ══ COLOR ══
@@ -1531,8 +1561,23 @@ function applyCsvData(rows, fields, fileName, idealRow){
   S.joinCsv = _pickZoneField(fields)||fields[0];
 }
 
+// Relatório B: a linha de níveis ideais veio vazia? Confirma com o consultor.
+// Retorna false se ele optar por NÃO continuar (o upload é cancelado).
+function _confirmaIdeaisAusentes(parsed){
+  if(!parsed || !parsed.ideaisAusentes) return true;
+  if(!(S.modeloB && S.modeloB.on)) return true;   // só o Relatório B usa níveis ideais
+  const ok=confirm('⚠ Faltam os níveis ideais nesta planilha.\n\n'
+    + 'A primeira linha (reservada aos níveis ideais de cada nutriente) está vazia.\n\n'
+    + 'Continuar mesmo assim?\n\n'
+    + '• OK — carrega a planilha ignorando essa linha. Você poderá preencher os níveis ideais depois, na janela do relatório.\n'
+    + '• Cancelar — não carrega a planilha.');
+  if(!ok) toast('Upload cancelado — preencha os níveis ideais na planilha.','wrn');
+  return ok;
+}
+
 document.getElementById('f-csv').addEventListener('change',function(e){
   const file=e.target.files[0];if(!file)return;
+  const inputEl=e.target;
   const ext=file.name.split('.').pop().toLowerCase();
   const done=(rows,fields,idealRow)=>{
     applyCsvData(rows,fields,file.name,idealRow);
@@ -1541,9 +1586,10 @@ document.getElementById('f-csv').addEventListener('change',function(e){
     tryActivate();
   };
   const r=new FileReader();
-  if(ext==='csv'){r.onload=ev=>{try{const text=decodeBuffer(ev.target.result);const p=parseCSVText(text);done(p.rows,p.fields,p.idealRow);}catch(err){toast('Erro CSV: '+err.message,'err');}};r.readAsArrayBuffer(file);}
+  if(ext==='csv'){r.onload=ev=>{try{const text=decodeBuffer(ev.target.result);const p=parseCSVText(text);if(!_confirmaIdeaisAusentes(p)){inputEl.value='';return;}done(p.rows,p.fields,p.idealRow);}catch(err){toast('Erro CSV: '+err.message,'err');}};r.readAsArrayBuffer(file);}
   else{r.onload=ev=>{try{
     const parsed=parseXLSX(ev.target.result);
+    if(!_confirmaIdeaisAusentes(parsed)){inputEl.value='';return;}
     done(parsed.rows,parsed.fields,parsed.idealRow);
     // se encontrou aba "rec" separada, carrega a recomendação automaticamente
     if(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length){
