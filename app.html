@@ -70,61 +70,73 @@ body{font-family:var(--f);background:var(--sand);color:var(--ink);font-size:13px
 .sc-val{font-family:var(--fd);font-size:26px;font-weight:700;line-height:1;}
 .sc-sub{font-size:10.5px;color:var(--muted);margin-top:auto;padding-top:6px;}
 
-/* WEATHER */
-.weather-card{background:linear-gradient(135deg,#1a3a5c 0%,#2a5a8c 60%,#1d7a4f 100%);border-radius:var(--rl);padding:16px 18px;box-shadow:var(--sh-md);color:#fff;position:relative;overflow:visible;margin-bottom:22px;}
-.wcf{background:rgba(255,255,255,.13);border-radius:9px;padding:6px 8px;text-align:center;min-width:52px;}
-.wcf-d{font-size:8.5px;opacity:.7;text-transform:uppercase;letter-spacing:.03em;font-weight:700;}
-.wcf-i{font-size:16px;line-height:1.3;}
-.wcf-t{font-size:11px;font-weight:700;}
-.wcf-t span{opacity:.55;font-weight:400;}
-.wcf-p{font-size:8.5px;opacity:.6;}
-.wc-row{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;}
-.wc-fc{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end;}
-.wc-temp{font-family:var(--fd);font-size:34px;font-weight:700;line-height:1;}
-.wc-desc{font-size:12px;opacity:.85;}
-.wc-meta{font-size:10.5px;opacity:.6;}
-.wc-inp-row{display:flex;gap:8px;margin-top:11px;align-items:center;}
-.wc-inp{flex:1;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.2);border-radius:7px;padding:7px 10px;font-size:11.5px;color:#fff;font-family:var(--f);outline:none;}
-.wc-inp::placeholder{color:rgba(255,255,255,.45);}
-.wc-btn{flex-shrink:0;white-space:nowrap;padding:7px 12px;background:rgba(255,255,255,.2);border:none;border-radius:7px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--f);}
-/* busca de cidade com resultados clicáveis (cada opção já traz lat/lon) */
-.wc-search{position:relative;flex:1 1 auto;max-width:320px;min-width:0;}
+/* WEATHER — estilo escuro (layout: coluna esquerda + área direita) */
+.weather-card{background:linear-gradient(120deg,#0d2033 0%,#12314a 55%,#123f30 100%);border-radius:var(--rl);padding:18px 20px;box-shadow:var(--sh-md);color:#eaf1f6;position:relative;overflow:visible;margin-bottom:22px;display:flex;gap:22px;align-items:stretch;flex-wrap:wrap;}
+.wc-left{flex:0 0 246px;min-width:220px;display:flex;flex-direction:column;justify-content:space-between;gap:14px;}
+.wc-right{flex:1 1 520px;min-width:0;display:flex;flex-direction:column;gap:14px;}
+.wc-now{display:flex;align-items:center;gap:14px;}
+.wc-now-ic{font-size:44px;line-height:1;}
+.wc-temp{font-family:var(--fd);font-size:38px;font-weight:700;line-height:1;}
+.wc-desc{font-size:13px;opacity:.9;margin-top:2px;}
+.wc-loc{font-size:12.5px;opacity:.9;margin-top:5px;display:flex;align-items:center;gap:4px;}
+.wc-loc svg{color:#ff6b5b;flex-shrink:0;}
+.wc-meta{font-size:11px;opacity:.62;margin-top:5px;}
+/* títulos de seção */
+.wc-sec-title{font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;opacity:.72;display:flex;align-items:center;gap:6px;margin-bottom:9px;}
+.wc-sec-alert svg{color:#ff8a5b;}
+.wc-fc-wrap{margin-top:auto;}
+/* previsão */
+.wc-fc{display:flex;gap:8px;flex-wrap:wrap;}
+.wcf{flex:1 1 0;min-width:56px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.08);border-radius:11px;padding:9px 6px;text-align:center;}
+.wcf-d{font-size:9px;opacity:.68;text-transform:uppercase;letter-spacing:.04em;font-weight:700;}
+.wcf-i{font-size:22px;line-height:1.3;}
+.wcf-t{font-size:13px;font-weight:700;}
+.wcf-t span{opacity:.5;font-weight:400;}
+.wcf-p{font-size:9px;opacity:.55;}
+/* busca */
+.wc-inp-row{display:flex;gap:8px;align-items:center;}
+.wc-inp{flex:1;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.16);border-radius:8px;padding:8px 11px;font-size:11.5px;color:#fff;font-family:var(--f);outline:none;}
+.wc-inp::placeholder{color:rgba(255,255,255,.4);}
+.wc-btn{flex-shrink:0;white-space:nowrap;padding:8px 12px;background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.14);border-radius:8px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--f);display:flex;align-items:center;gap:5px;}
+.wc-btn:hover{background:rgba(255,255,255,.2);}
+.wc-btn svg{color:#ff6b5b;}
+.wc-search{position:relative;flex:1 1 auto;min-width:0;}
 .wc-search .wc-inp{width:100%;}
 .wc-drop{position:absolute;top:calc(100% + 5px);left:0;right:0;background:#fff;color:var(--ink);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.28);display:none;z-index:60;max-height:252px;overflow-y:auto;}
 .wc-drop.open{display:block;}
 .wc-op{padding:8px 11px;cursor:pointer;font-size:12.5px;display:flex;align-items:center;gap:8px;}
 .wc-op:hover{background:#eef6e3;}
-.wc-op small{opacity:.55;font-size:10.5px;}
-/* alertas agro — cards de LARGURA FIXA, na mesma linha da previsão */
-.wc-alerts{display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;}
-.wc-al{flex:0 0 190px;width:190px;display:flex;gap:8px;align-items:flex-start;cursor:pointer;
-  padding:9px 11px;border-radius:11px;font-size:12px;line-height:1.3;
-  background:rgba(255,255,255,.10);border:1px solid rgba(255,255,255,.12);border-left:3px solid #f5c451;
-  backdrop-filter:blur(2px);transition:background .15s,transform .15s;}
-.wc-al:hover{background:rgba(255,255,255,.16);transform:translateY(-1px);}
-.wc-al.p{background:rgba(255,110,95,.16);border-color:rgba(255,110,95,.22);border-left-color:#ff6b5b;}
-.wc-al.p:hover{background:rgba(255,110,95,.24);}
-/* card ABERTO: cresce no próprio lugar e mostra o texto inteiro.
-   Sobe de z-index e ganha um leve destaque; os vizinhos continuam no lugar. */
-.wc-al.aberto{z-index:40;flex-basis:300px;width:300px;transform:none;
-  background:#20486e;border-color:rgba(255,255,255,.35);box-shadow:0 10px 26px rgba(0,0,0,.32);}
-.wc-al.aberto.p{background:#7a3b38;}
-.wc-al.aberto b{white-space:normal;overflow:visible;}
-.wc-al.aberto span{-webkit-line-clamp:unset;overflow:visible;}
-.wc-al-ic{flex-shrink:0;display:flex;align-items:center;justify-content:center;opacity:.92;}
+/* ── ALERTAS: cards de MESMO tamanho, faixa lateral em degradê ── */
+.wc-alerts{display:flex;gap:9px;flex-wrap:wrap;align-items:stretch;}
+.wc-al{flex:1 1 190px;min-width:180px;max-width:290px;display:flex;gap:9px;align-items:flex-start;cursor:pointer;position:relative;overflow:hidden;
+  padding:11px 13px;border-radius:12px;font-size:12px;line-height:1.32;
+  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);
+  transition:background .15s,transform .15s,box-shadow .15s;}
+.wc-al::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:12px 0 0 12px;background:linear-gradient(180deg,#ffd76a,#f5a742);}
+.wc-al.p::before{background:linear-gradient(180deg,#ff8a7a,#e0483c);}
+.wc-al:hover{background:rgba(255,255,255,.1);transform:translateY(-1px);box-shadow:0 8px 20px rgba(0,0,0,.28);}
+.wc-al.p{background:rgba(255,90,75,.10);}
+.wc-al.p:hover{background:rgba(255,90,75,.16);}
+.wc-al-ic{flex-shrink:0;display:flex;align-items:center;justify-content:center;opacity:.95;padding-left:3px;}
 .wc-al-ic svg{display:block;}
+.wc-al.p .wc-al-ic{color:#ff9a8c;}
 .wc-al-tx{min-width:0;}
-.wc-al b{font-weight:700;display:block;font-size:12px;
-  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.wc-al span{opacity:.78;font-size:10.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin-top:2px;}
-.wc-ok{flex:1;text-align:center;align-self:center;font-size:12.5px;opacity:.72;}
-@media(max-width:600px){ .wc-al{flex:1 1 100%;width:auto;} }
-/* modo compacto: 4+ alertas — tudo (temp + 4 cards + 3 dias) numa linha só */
-.weather-card.compacto .wc-row{flex-wrap:nowrap;align-items:stretch;}
-.weather-card.compacto .wc-alerts{flex:1 1 auto;flex-wrap:nowrap;min-width:0;}
-.weather-card.compacto .wc-al{flex:1 1 0;width:auto;min-width:0;}
-.weather-card.compacto .wc-fc{flex-wrap:nowrap;flex-shrink:0;}
-.weather-card.compacto .wcf{min-width:48px;padding:6px;}
+.wc-al-tx>b{font-weight:700;display:block;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.wc-al span{opacity:.82;font-size:10.5px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;margin-top:3px;line-height:1.4;}
+.wc-al span b{font-weight:700;opacity:1;color:#ffe08a;}
+.wc-al.p span b{color:#ff9a8c;}
+/* card ABERTO: cresce e mostra tudo */
+.wc-al.aberto{z-index:40;flex:1 1 300px;max-width:340px;transform:none;background:rgba(255,255,255,.13);border-color:rgba(255,255,255,.3);box-shadow:0 12px 30px rgba(0,0,0,.4);}
+.wc-al.aberto.p{background:rgba(255,90,75,.22);}
+.wc-al.aberto .wc-al-tx>b{white-space:normal;overflow:visible;}
+.wc-al.aberto span{-webkit-line-clamp:unset;overflow:visible;display:block;}
+.wc-ok{font-size:12px;opacity:.72;}
+@media(max-width:820px){ .weather-card{flex-direction:column;} .wc-left{flex-basis:auto;} }
+@media(max-width:600px){ .wc-al{flex:1 1 100%;max-width:none;} }
+/* modo compacto: 4+ alertas — mantém tudo alinhado; cards e previsão dividem a largura */
+.weather-card.compacto .wc-alerts{flex-wrap:nowrap;}
+.weather-card.compacto .wc-al{flex:1 1 0;min-width:0;}
+@media(max-width:820px){ .weather-card.compacto .wc-alerts{flex-wrap:wrap;} }
 
 /* CARDS */
 .sh{display:flex;align-items:center;justify-content:space-between;margin-bottom:13px;}
@@ -1940,6 +1952,7 @@ async function copiarLinkCliente(clienteId){
 const WMO_IC={0:'☀️',1:'🌤️',2:'⛅',3:'☁️',45:'🌫️',48:'🌫️',51:'🌦️',53:'🌦️',55:'🌧️',61:'🌧️',63:'🌧️',65:'🌧️',71:'❄️',73:'❄️',75:'❄️',80:'🌦️',81:'🌧️',82:'⛈️',95:'⛈️',96:'⛈️',99:'⛈️'};
 const WMO_DS={0:'Céu limpo',1:'Levemente nublado',2:'Parcialmente nublado',3:'Nublado',45:'Neblina',48:'Neblina',51:'Chuvisco leve',53:'Chuvisco',55:'Chuvisco intenso',61:'Chuva leve',63:'Chuva moderada',65:'Chuva forte',71:'Neve',73:'Neve',75:'Neve',80:'Pancadas leves',81:'Pancadas',82:'Pancadas fortes',95:'Tempestade',96:'Tempestade',99:'Tempestade'};
 const DOW=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const DOW_EXT=['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
 
 // ═══════════════════════════════════════════════
 // ÍCONES SVG originais dos alertas (traço uniforme, herdam a cor do texto).
@@ -1983,6 +1996,8 @@ function _shear06(sp500,dir500,sp10,dir10){
   return Math.sqrt(Math.pow(u1-u0,2)+Math.pow(v1-v0,2));
 }
 function _diaLabel(iso){ const dt=new Date(iso+'T12:00'); const h=_isoLocal(new Date()); if(iso===h) return 'hoje'; const am=new Date(); am.setDate(am.getDate()+1); if(iso===_isoLocal(am)) return 'amanhã'; return DOW[dt.getDay()]+' '+dt.getDate()+'/'+(dt.getMonth()+1); }
+// versão por extenso p/ os textos dos alertas ("Quarta 29/7" em vez de "Qua 29/7")
+function _diaLabelExt(iso){ const dt=new Date(iso+'T12:00'); const h=_isoLocal(new Date()); if(iso===h) return 'hoje'; const am=new Date(); am.setDate(am.getDate()+1); if(iso===_isoLocal(am)) return 'amanhã'; return DOW_EXT[dt.getDay()]+' '+dt.getDate()+'/'+(dt.getMonth()+1); }
 
 // —— CÁLCULO DOS ALERTAS ————————————————————————————————————
 function calcAlertas(d, dh){
@@ -1994,34 +2009,34 @@ function calcAlertas(d, dh){
   const P=dl.precipitation_sum||[];
   let mCh=0,mChD=null;
   for(let i=i0;i<Math.min(i0+8,P.length);i++){ if((P[i]||0)>mCh){ mCh=P[i]; mChD=T[i]; } }
-  if(mCh>=LIM.chuva.perigo) A.push({n:'p',ic:ICO.chuva,t:'Chuva muito forte',d:Math.round(mCh)+' mm previstos em '+_diaLabel(mChD)+' — risco de alagamento e erosão'});
-  else if(mCh>=LIM.chuva.atencao) A.push({n:'a',ic:ICO.chuva,t:'Chuva forte',d:Math.round(mCh)+' mm previstos em '+_diaLabel(mChD)});
+  if(mCh>=LIM.chuva.perigo) A.push({n:'p',ic:ICO.chuva,t:'Chuva muito forte',d:'Volume de chuva muito alto previsto.<br><b>'+Math.round(mCh)+' mm</b> previstos em '+_diaLabelExt(mChD)+'<br>Alto risco de alagamentos e erosão.'});
+  else if(mCh>=LIM.chuva.atencao) A.push({n:'a',ic:ICO.chuva,t:'Chuva forte',d:'Volume de chuva acima do normal.<br><b>'+Math.round(mCh)+' mm</b> previstos em '+_diaLabelExt(mChD)+'<br>Atenção para enxurradas e erosão.'});
 
   // 2) VENDAVAL — rajadas nos próximos 7 dias (INMET)
   const G=dl.wind_gusts_10m_max||[];
   let mG=0,mGD=null;
   for(let i=i0;i<Math.min(i0+8,G.length);i++){ if((G[i]||0)>mG){ mG=G[i]; mGD=T[i]; } }
-  if(mG>=LIM.rajada.perigo) A.push({n:'p',ic:ICO.vento,t:'Vendaval',d:'Rajadas de '+Math.round(mG)+' km/h em '+_diaLabel(mGD)+' — risco de dano a lavoura e estruturas'});
-  else if(mG>=LIM.rajada.atencao) A.push({n:'a',ic:ICO.vento,t:'Ventos fortes',d:'Rajadas de '+Math.round(mG)+' km/h em '+_diaLabel(mGD)});
+  if(mG>=LIM.rajada.perigo) A.push({n:'p',ic:ICO.vento,t:'Vendaval',d:'Rajadas de vento muito fortes previstas.<br>Rajadas de <b>'+Math.round(mG)+' km/h</b> em '+_diaLabelExt(mGD)+'<br>Risco de danos à lavoura e estruturas.'});
+  else if(mG>=LIM.rajada.atencao) A.push({n:'a',ic:ICO.vento,t:'Ventos fortes',d:'Ventos acima do ideal para pulverização.<br>Rajadas de <b>'+Math.round(mG)+' km/h</b> em '+_diaLabelExt(mGD)+'<br>Aumenta a deriva e reduz a eficiência.'});
 
   // 3) JANELA DE PULVERIZAÇÃO — condição ATUAL (Embrapa/ANDEF)
   const v=cur.wind_speed_10m, ur=cur.relative_humidity_2m;
   const urCritica=(ur!=null && ur<LIM.ur.perigo);   // vira alerta próprio abaixo; não repete aqui
   const jan=[];
-  if(v!=null && v>LIM.pulv.ventoMax) jan.push('vento '+Math.round(v)+' km/h (acima de '+LIM.pulv.ventoMax+')');
-  else if(v!=null && v<LIM.pulv.ventoMin) jan.push('vento '+Math.round(v)+' km/h (calmaria — risco de inversão térmica)');
+  if(v!=null && v>LIM.pulv.ventoMax) jan.push('Vento <b>'+Math.round(v)+' km/h</b> (acima do ideal)');
+  else if(v!=null && v<LIM.pulv.ventoMin) jan.push('Vento <b>'+Math.round(v)+' km/h</b> (calmaria — risco de inversão térmica)');
   if(!urCritica){
-    if(ur!=null && ur<LIM.ur.bula) jan.push('umidade '+Math.round(ur)+'% (abaixo do mínimo das bulas)');
-    else if(ur!=null && ur<LIM.ur.janela) jan.push('umidade '+Math.round(ur)+'%');
+    if(ur!=null && ur<LIM.ur.bula) jan.push('UR <b>'+Math.round(ur)+'%</b> (abaixo do mínimo)');
+    else if(ur!=null && ur<LIM.ur.janela) jan.push('UR <b>'+Math.round(ur)+'%</b>');
   }
-  if(jan.length) A.push({n:'a',ic:ICO.pulverizacao,t:'Janela de pulverização desfavorável agora',d:jan.join(' · ')});
+  if(jan.length) A.push({n:'a',ic:ICO.pulverizacao,t:'Janela de pulverização desfavorável agora',d:'Condições do vento e umidade não ideais.<br>'+jan.join(' · ')+'<br>Aguarde condições melhores para aplicar.'});
 
   // 4) UMIDADE MUITO BAIXA — agora ou nos próximos dias (INMET)
   const URm=dl.relative_humidity_2m_min||[];
   let baixa=null;
-  if(ur!=null && ur<LIM.ur.perigo) baixa={v:ur,q:'agora'};
-  else { for(let i=i0;i<Math.min(i0+8,URm.length);i++){ if(URm[i]!=null && URm[i]<LIM.ur.perigo){ baixa={v:URm[i],q:_diaLabel(T[i])}; break; } } }
-  if(baixa) A.push({n:'p',ic:ICO.umidadeBaixa,t:'Umidade muito baixa',d:'UR de '+Math.round(baixa.v)+'% '+baixa.q+' — risco de incêndio e deriva; evite pulverizar'});
+  if(ur!=null && ur<LIM.ur.perigo) baixa={v:ur,q:'hoje'};
+  else { for(let i=i0;i<Math.min(i0+8,URm.length);i++){ if(URm[i]!=null && URm[i]<LIM.ur.perigo){ baixa={v:URm[i],q:_diaLabelExt(T[i])}; break; } } }
+  if(baixa) A.push({n:'p',ic:ICO.umidadeBaixa,t:'Umidade muito baixa',d:'Ar muito seco no momento.<br>UR de <b>'+Math.round(baixa.v)+'%</b> '+baixa.q+'<br>Risco de incêndio e deriva. Evite pulverizar.'});
 
   // 5) ESTIAGEM — dias secos E balanço hídrico (chuva − ETo). O "E" evita
   //    falso alerta: 10 dias sem chuva com perfil cheio não é estiagem.
@@ -2034,8 +2049,9 @@ function calcAlertas(d, dh){
     let sp=0,se=0,temE=false;
     for(let i=Math.max(0,i0-29);i<=i0;i++){ sp+=(P[i]||0); if(E[i]!=null){ se+=E[i]; temE=true; } }
     const bal=temE?(sp-se):null;
-    const det='<span>'+dias+(noLimite?'+':'')+' dias com chuva &lt; '+LIM.estiagem.chuvaSeca+' mm ('+tras+(noLimite?'+':'')+' já decorridos + '+frente+' previstos)'
-      + (bal!=null?(' · balanço 30 dias: '+(bal>0?'+':'')+Math.round(bal)+' mm (chuva '+Math.round(sp)+' − ETo '+Math.round(se)+')'):'')+'</span>';
+    const det='<b>'+dias+(noLimite?'+':'')+' dias consecutivos com chuva inferior a '+LIM.estiagem.chuvaSeca+' mm</b><br>'
+      + '('+tras+(noLimite?'+':'')+' dias já ocorridos + '+frente+' dias previstos)'
+      + (bal!=null?('<br><b>Déficit hídrico nos últimos 30 dias: '+(bal>0?'+':'')+Math.round(bal)+' mm</b><br>(Chuva: '+Math.round(sp)+' mm | Evapotranspiração: '+Math.round(se)+' mm)'):'');
     if(dias>=LIM.estiagem.diasP && bal!=null && bal<=LIM.estiagem.balP) A.push({n:'p',ic:ICO.estiagem,t:'Estiagem',d:det});
     else if(dias>=LIM.estiagem.diasA && bal!=null && bal<=LIM.estiagem.balA) A.push({n:'a',ic:ICO.estiagem,t:'Risco de estiagem',d:det});
   }
@@ -2100,13 +2116,18 @@ function wcAlToggle(ev, el){
 document.addEventListener('click', ()=>{ document.querySelectorAll('.wc-al.aberto').forEach(c=>c.classList.remove('aberto')); });
 
 function renderAlertas(A){
-  if(!A.length) return '<div class="wc-ok">✓ Sem alertas para os próximos dias.</div>';
-  return '<div class="wc-alerts">'+A.map(a=>{
+  if(!A.length) return '<div class="wc-sec-title">Alertas</div><div class="wc-ok">✓ Sem alertas para os próximos dias.</div>';
+  const head='<div class="wc-sec-title wc-sec-alert">'+_alertSVG()+' Alertas importantes</div>';
+  return head+'<div class="wc-alerts">'+A.map(a=>{
     const sub = a.d.indexOf('<span>')===0 ? a.d : (a.d?'<span>'+a.d+'</span>':'');
     return '<div class="wc-al '+a.n+'" onclick="wcAlToggle(event,this)"><div class="wc-al-ic">'+a.ic+'</div>'
       + '<div class="wc-al-tx"><b>'+a.t+'</b>'+sub+'</div></div>';
   }).join('')+'</div>';
 }
+// pin de localização (mesmo traço dos ícones de alerta)
+function _pinSVG(){ return '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M12 21s-6-5.7-6-10a6 6 0 0 1 12 0c0 4.3-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>'; }
+// triângulo de atenção para o título dos alertas
+function _alertSVG(){ return '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px"><path d="M12 3l9 16H3z"/><path d="M12 10v4"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>'; }
 
 // —— BUSCA DO CLIMA ————————————————————————————————————————
 async function buscarClima(lat,lon,nome){
@@ -2142,18 +2163,23 @@ async function buscarClima(lat,lon,nome){
 
     document.getElementById('weather').innerHTML=
       '<div class="weather-card'+(muitos?' compacto':'')+'">'
-      + '<div class="wc-row">'
-      +   '<div style="font-size:36px">'+(WMO_IC[c.weather_code]||'🌡️')+'</div>'
-      +   '<div><div class="wc-temp">'+Math.round(c.temperature_2m)+'°C</div>'
-      +     '<div class="wc-desc">'+(WMO_DS[c.weather_code]||'')+' · 📍 '+nome+'</div>'
-      +     '<div class="wc-meta">💧 '+c.relative_humidity_2m+'% · 💨 '+c.wind_speed_10m+' km/h · chuva hoje '+((dl.precipitation_probability_max||[])[i0]??0)+'%</div>'
+      + '<div class="wc-left">'
+      +   '<div class="wc-now">'
+      +     '<div class="wc-now-ic">'+(WMO_IC[c.weather_code]||'🌡️')+'</div>'
+      +     '<div><div class="wc-temp">'+Math.round(c.temperature_2m)+'°C</div>'
+      +       '<div class="wc-desc">'+(WMO_DS[c.weather_code]||'')+'</div>'
+      +       '<div class="wc-loc">'+_pinSVG()+' '+nome+'</div>'
+      +       '<div class="wc-meta">💧 '+c.relative_humidity_2m+'% · 💨 '+c.wind_speed_10m+' km/h · chuva hoje '+((dl.precipitation_probability_max||[])[i0]??0)+'%</div>'
+      +     '</div>'
       +   '</div>'
-      +   alertas
-      +   '<div class="wc-fc">'+fc+'</div>'
+      +   '<div class="wc-inp-row">'
+      +     '<div class="wc-search"><input class="wc-inp" id="wc-cidade" placeholder="Trocar cidade… (ex: Londrina)" autocomplete="off" oninput="wcSug(this)" onkeydown="wcKey(event)"><div class="wc-drop" id="wc-drop"></div></div>'
+      +     '<button class="wc-btn" onclick="usarMinhaLocalizacao()" title="Usar minha localização atual">'+_pinSVG()+' Minha localização</button>'
+      +   '</div>'
       + '</div>'
-      + '<div class="wc-inp-row">'
-      +   '<div class="wc-search"><input class="wc-inp" id="wc-cidade" placeholder="Trocar cidade… (ex: Londrina)" autocomplete="off" oninput="wcSug(this)" onkeydown="wcKey(event)"><div class="wc-drop" id="wc-drop"></div></div>'
-      +   '<button class="wc-btn" onclick="usarMinhaLocalizacao()" title="Usar minha localização atual">📍 Minha localização</button>'
+      + '<div class="wc-right">'
+      +   '<div class="wc-alerts-wrap">'+alertas+'</div>'
+      +   '<div class="wc-fc-wrap"><div class="wc-sec-title">Previsão · Próximos dias</div><div class="wc-fc">'+fc+'</div></div>'
       + '</div>'
       + '</div>';
   }catch(e){ document.getElementById('weather').innerHTML=''; }
