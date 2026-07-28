@@ -2301,6 +2301,35 @@ function _pdfMinSideAllVisible(map){
   try{ (S.extras||[]).forEach(ex=>{ if(ex._nut){ const m=_pdfLayerMinSide(map, ex._nut); if(m!=null) sides.push(m); } }); }catch(e){}
   return sides.length ? Math.min(...sides) : null;
 }
+// todos os lados (menor dimensão) das zonas de um layer, em px de tela
+function _pdfLayerSides(map, layerObj){
+  const sides=[];
+  try{
+    layerObj.eachLayer(lyr=>{
+      const f=lyr.feature; if(!f||!_isPoly(f)) return;
+      try{
+        const b=lyr.getBounds();
+        const sw=map.latLngToContainerPoint(b.getSouthWest());
+        const ne=map.latLngToContainerPoint(b.getNorthEast());
+        sides.push(Math.min(Math.abs(ne.x-sw.x), Math.abs(ne.y-sw.y)));
+      }catch(e){}
+    });
+  }catch(e){}
+  return sides;
+}
+// Relatório B: régua ROBUSTA para o tamanho do rótulo. Usa um percentil baixo das zonas
+// em vez do mínimo absoluto, para que uma única zona muito estreita (sliver) não force
+// a fonte de TODOS os rótulos ao piso, deixando o mapa ilegível.
+function _mbRulerSide(map, pct){
+  let all=[];
+  try{ if(S.layer) all=all.concat(_pdfLayerSides(map, S.layer)); }catch(e){}
+  try{ (S.extras||[]).forEach(ex=>{ if(ex._nut) all=all.concat(_pdfLayerSides(map, ex._nut)); }); }catch(e){}
+  if(!all.length) return null;
+  all.sort((a,b)=>a-b);
+  const p=(pct==null?0.25:pct);
+  const i=Math.min(all.length-1, Math.max(0, Math.floor(all.length*p)));
+  return all[i];
+}
 function _pdfUniformFontSize(map, layerObj, scaleOverride){
   const scl = (scaleOverride!=null) ? scaleOverride : S.labelScale;
   const fallback={idSize:(9*scl).toFixed(1), valSize:(12*scl).toFixed(1)};
@@ -3612,17 +3641,16 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
     try{ if(b) S.map.fitBounds(b,{padding:[14,14],animate:false}); }catch(e){}
     // afasta ~15% (conteúdo a 85% do tamanho) para dar mais margem
     try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.85),{animate:false}); }catch(e){}
-    // dimensionamento dinâmico dos rótulos: mede a menor zona entre TODOS os talhões
-    // e fixa um único tamanho (evita rótulos grandes se sobrepondo em talhões estreitos)
-    if(S.extras && S.extras.length){
-      S._pdfFixedFontSize=null;
-      try{
-        const ms=_pdfMinSideAllVisible(S.map);
-        if(ms!=null){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(ms, S.labelScale, S._pdfCapFactor||3.0); }
-      }catch(e){}
-      // re-renderiza rótulos com o tamanho fixo já definido
-      try{ multiRenderExtrasNutrient(); if(S.showLabels){ clearLabels(); drawLabels(); } }catch(e){}
-    }
+    // dimensionamento dos rótulos (Relatório B): usa um PERCENTIL baixo das zonas como
+    // régua, em vez do mínimo absoluto. Antes, uma única zona-sliver derrubava a fonte de
+    // TODOS os rótulos para o piso (7px) — por isso variava de cliente para cliente.
+    S._pdfFixedFontSize=null;
+    try{
+      const rs=_mbRulerSide(S.map, 0.25);
+      if(rs!=null){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(rs, S.labelScale, S._pdfCapFactor||3.0); }
+    }catch(e){}
+    // re-renderiza rótulos com o tamanho fixo já definido
+    try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); if(S.showLabels){ clearLabels(); drawLabels(); } }catch(e){}
     if(S.activeBase==='satelite'){ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }
     else { await new Promise(r=>setTimeout(r, 520)); }
     const _timeout=(ms)=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout captura')),ms));
