@@ -733,23 +733,33 @@ function toggleSidebar(){
   if(!session){ location.href='index.html'; return; }
   USER = session.user;
 
-  // garante registro do consultor (primeiro login)
-  await sb.from('consultores').upsert({
-    id: USER.id, email: USER.email,
-    nome: USER.user_metadata?.nome || USER.email.split('@')[0]
-  }, { onConflict:'id' });
-
-  // bloqueio: se o admin desativou o acesso, impede a entrada
+  // Registro do consultor. ATENÇÃO: antes havia um upsert com "nome" aqui — ele rodava
+  // a CADA login e sobrescrevia o nome definido pelo admin/consultor de volta para o
+  // prefixo do e-mail. Agora o nome só é definido na CRIAÇÃO do registro.
   let CROW=null;
   try{
     const { data:cRow } = await sb.from('consultores').select('ativo,nome_completo,nome').eq('id', USER.id).single();
     CROW=cRow;
-    if(cRow && cRow.ativo===false){
-      await sb.auth.signOut();
-      alert('Seu acesso está bloqueado. Procure o administrador da plataforma.');
-      location.href='index.html'; return;
-    }
   }catch(e){}
+  if(!CROW){
+    // primeiro login: cria o registro com um nome inicial
+    try{
+      await sb.from('consultores').insert({ id:USER.id, email:USER.email,
+        nome: USER.user_metadata?.nome || USER.email.split('@')[0] });
+      const { data:novo } = await sb.from('consultores').select('ativo,nome_completo,nome').eq('id', USER.id).single();
+      CROW=novo;
+    }catch(e){}
+  }else{
+    // mantém só o e-mail sincronizado com o login, sem tocar no nome
+    try{ await sb.from('consultores').update({ email:USER.email }).eq('id', USER.id); }catch(e){}
+  }
+
+  // bloqueio: se o admin desativou o acesso, impede a entrada
+  if(CROW && CROW.ativo===false){
+    await sb.auth.signOut();
+    alert('Seu acesso está bloqueado. Procure o administrador da plataforma.');
+    location.href='index.html'; return;
+  }
 
   // nome exibido vem do Cadastro do Consultor (nome completo); só cai no
   // e-mail se o cadastro ainda estiver vazio.

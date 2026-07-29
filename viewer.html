@@ -3482,6 +3482,7 @@ function _extraRecCmpLayer(ex, col, sc, targetMap){
 function multiRenderExtrasRecCompare(L1, R1, scL, scR){
   if(!S.extras||!S.extras.length) return;
   S.extras.forEach(ex=>{
+    _mbEnsureExtraRec(ex);
     _extraClearCompare(ex); _clearExtraRecLabels(ex);
     if(ex.rec&&ex.rec._layer){ try{S.map.removeLayer(ex.rec._layer);}catch(e){} ex.rec._layer=null; }
     if(ex._nut){try{S.map.removeLayer(ex._nut);}catch(e){}ex._nut=null;} if(ex._empty){try{S.map.removeLayer(ex._empty);}catch(e){}ex._empty=null;}
@@ -5981,6 +5982,29 @@ function _extraRecData(ex, col){
   (ex.geo.features||[]).forEach(f=>{ if(!_isPoly(f)) return; const row=joined[_zkey(f.properties[jg])]; let d=row?recNum(row[useCol]):NaN; d=isNaN(d)?null:d*fator; const ha=zoneHa(f); out.recs.push({d,ha}); if(d!=null) out.vals.push(d); });
   return out;
 }
+// Relatório B: garante que o talhão EXTRA tenha recomendação derivada da sua PRÓPRIA
+// planilha de nutrientes (zona + colunas após o último Enxofre) — mesma regra que
+// _deriveRecFromNutri aplica ao talhão principal.
+// Feito no RENDER (e não em buildExtras) porque a flag do Modelo B é carregada de forma
+// assíncrona e pode ainda não estar resolvida quando os extras são montados.
+function _mbEnsureExtraRec(ex){
+  if(!(S.modeloB && S.modeloB.on)) return;
+  if(!ex || !ex.rec) return;
+  if(ex.rec._fromNutri) return;                        // já derivado
+  if(ex.rec.rows && ex.rec.rows.length) return;        // já tem planilha de recomendação própria
+  const fields=ex.fields||[], rows=ex.rows||[];
+  if(!fields.length || !rows.length) return;
+  const li=_lastEnxofreIdx(fields); if(li<0) return;
+  const z=ex.sheetZone || _pickZoneField(fields) || fields[0];
+  const cols=fields.slice(li+1).filter(c=>c!==ex.depthCol && c!==z);
+  if(!cols.length) return;
+  const rf=[z, ...cols];
+  ex.rec.fields=rf;
+  ex.rec.rows=rows.map(r=>{ const o={}; rf.forEach(c=>{ o[c]=r[c]; }); return o; });
+  ex.rec.zone=z;
+  try{ ex.rec.insumoCols=detectInsumoCols(rf, ex.rec.rows); }catch(e){}
+  ex.rec._fromNutri=true;
+}
 function multiRenderExtrasRec(){
   if(!S.extras||!S.extras.length||S.mapMode!=='recomendacao') return;
   const palRev=[...PALS.rdylgn.c].reverse();
@@ -5988,6 +6012,7 @@ function multiRenderExtrasRec(){
   const sc=S.recScale||{mn:0,mx:0};
   const corRec=(d)=>{ if(d==null||isNaN(d)) return '#bbb'; const tt=(sc.mx===sc.mn)?0:(d-sc.mn)/(sc.mx-sc.mn); return lerpColor(palRev,Math.max(0,Math.min(1,tt))); };
   S.extras.forEach(ex=>{
+    _mbEnsureExtraRec(ex);
     if(ex.rec && ex.rec._layer){ try{S.map.removeLayer(ex.rec._layer);}catch(e){} ex.rec._layer=null; }
     _clearExtraRecLabels(ex);
     _extraClearCompare(ex);

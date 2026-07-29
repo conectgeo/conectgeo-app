@@ -268,9 +268,12 @@ tr:hover td{background:var(--sand);}
       <div class="form-group"><label>E-mail de acesso</label><input type="email" id="e-email" required><div class="form-hint">Alterar aqui muda o login do consultor.</div></div>
       <div class="form-group"><label>Empresa</label><input type="text" id="e-empresa"></div>
       <div class="form-group"><label>Nova Senha</label><input type="password" id="e-senha" placeholder="Deixe em branco para não alterar"><div class="form-hint">Preencha apenas se quiser trocar a senha.</div></div>
-      <div class="modal-buttons">
-        <button type="button" class="btn-cancel" onclick="closeModal('modal-editar')">Cancelar</button>
-        <button type="submit" class="btn-save">Salvar</button>
+      <div class="modal-buttons" style="justify-content:space-between">
+        <button type="button" class="btn-cancel" id="e-excluir" style="background:#e74c3c;color:#fff" onclick="excluirDoModal()">Excluir consultor</button>
+        <div style="display:flex;gap:8px">
+          <button type="button" class="btn-cancel" onclick="closeModal('modal-editar')">Cancelar</button>
+          <button type="submit" class="btn-save">Salvar</button>
+        </div>
       </div>
     </form>
   </div>
@@ -426,7 +429,6 @@ function renderConfig(){
     tc.innerHTML='';
     DATA.consultores.forEach(c=>{
       const tr=document.createElement('tr');
-      const delBtn=c.is_admin?'':'<button class="action-btn danger" onclick="deletarConsultor(\''+c.id+'\',\''+(c.nome||'').replace(/'/g,'')+'\')">Excluir</button>';
       const bloq=(c.ativo===false);
       const bloqBtn=c.is_admin?'':'<button class="action-btn" style="background:'+(bloq?'#e8852b':'#5fa832')+';color:#fff;border-color:transparent" onclick="toggleBloqueio(\''+c.id+'\','+(bloq?'true':'false')+')">'+(bloq?'🔒 Bloqueado':'🔓 Desbloqueado')+'</button>';
       const mbOn=(c.usar_modelo_b===true);
@@ -434,7 +436,7 @@ function renderConfig(){
       const mbBtn=c.is_admin?'':'<button class="action-btn" style="background:'+(mbOn?'#6cb32d':'#9aa08f')+';color:#fff;border-color:transparent" onclick="admToggleModeloB(\''+c.id+'\','+(mbOn?'true':'false')+')">'+(mbOn?'✓ Relatório B':'Relatório padrão')+'</button>';
       tr.innerHTML='<td><strong>'+(c.nome||'—')+'</strong></td><td>'+c.email+'</td><td>'+(c.empresa||'—')+'</td>'+
         '<td><span class="badge '+(c.is_admin?'admin':'consultor')+'">'+(c.is_admin?'Admin':'Consultor')+'</span></td>'+
-        '<td><button class="action-btn" onclick="abrirEdicao(\''+c.id+'\')">Editar acesso</button> '+bloqBtn+' '+mbBtn+' '+imBtn+' '+delBtn+'</td>';
+        '<td><button class="action-btn" onclick="abrirEdicao(\''+c.id+'\')">Editar acesso</button> '+bloqBtn+' '+mbBtn+' '+imBtn+'</td>';
       tc.appendChild(tr);
     });
   }
@@ -470,13 +472,12 @@ function verConsultor(cid){
   });
   if(!clientesHtml) clientesHtml='<tr><td colspan="6" class="empty">Nenhum cliente ainda.</td></tr>';
 
-  const delBtn=c.is_admin?'':'<button class="action-btn danger" onclick="deletarConsultor(\''+c.id+'\',\''+(c.nome||'').replace(/'/g,'')+'\')">Excluir</button>';
   const v=document.getElementById('view-detalhe');
   v.innerHTML='<button class="back-btn" onclick="showView(\'dashboard\')">← Voltar à visão geral</button>'+
     '<div class="stat-card" style="margin-bottom:22px;"><div style="display:flex;justify-content:space-between;align-items:start;flex-wrap:wrap;gap:14px;">'+
     '<div><div style="font-family:var(--fd);font-size:20px;font-weight:700;">'+(c.nome||'—')+' <span class="badge '+(c.is_admin?'admin':'consultor')+'">'+(c.is_admin?'Admin':'Consultor')+'</span></div>'+
     '<div style="color:var(--muted);font-size:13px;margin-top:5px;">'+c.email+(c.empresa?' · '+c.empresa:'')+'</div></div>'+
-    '<div><button class="action-btn" onclick="abrirEdicao(\''+c.id+'\')">Editar acesso</button> '+delBtn+'</div></div></div>'+
+    '<div><button class="action-btn" onclick="abrirEdicao(\''+c.id+'\')">Editar acesso</button></div></div></div>'+
     '<div class="stats"><div class="stat-card"><div class="stat-label">Clientes</div><div class="stat-value">'+st.clientes+'</div></div>'+
     '<div class="stat-card"><div class="stat-label">Fazendas</div><div class="stat-value">'+st.fazendas+'</div></div>'+
     '<div class="stat-card"><div class="stat-label">Talhões</div><div class="stat-value">'+st.talhoes+'</div></div>'+
@@ -756,7 +757,17 @@ function abrirEdicao(cid){
   document.getElementById('e-empresa').value=c.empresa||'';
   document.getElementById('e-senha').value='';
   document.getElementById('editar-erro').classList.remove('show');
+  // o próprio admin não pode se excluir
+  const bx=document.getElementById('e-excluir');
+  if(bx) bx.style.display = c.is_admin ? 'none' : '';
   openModal('modal-editar');
+}
+// Excluir a partir do modal de edição (o botão saiu da listagem)
+function excluirDoModal(){
+  const id=document.getElementById('e-id').value;
+  const c=DATA.consultores.find(x=>x.id===id); if(!c) return;
+  closeModal('modal-editar');
+  deletarConsultor(c.id, c.nome||'');
 }
 async function salvarEdicao(e){
   e.preventDefault();
@@ -767,8 +778,23 @@ async function salvarEdicao(e){
   const empresa=document.getElementById('e-empresa').value.trim();
   const senha=document.getElementById('e-senha').value;
   try{
-    const {error:dbErr}=await sb.from('consultores').update({nome,email,empresa}).eq('id',id);
-    if(dbErr) throw dbErr;
+    // 1) caminho correto: RPC SECURITY DEFINER (contorna o RLS, como as demais ações do admin)
+    let ok=false;
+    try{
+      const { data, error } = await sb.rpc('admin_editar_consultor',{ p_id:id, p_nome:nome, p_email:email, p_empresa:empresa });
+      if(!error){
+        const d=(typeof data==='string')?JSON.parse(data):data;
+        if(d && d.erro) throw new Error(d.erro);
+        ok=true;
+      }
+    }catch(eRpc){ if(eRpc && eRpc.message && !/function|does not exist|schema cache/i.test(eRpc.message)) throw eRpc; }
+    // 2) fallback: update direto. IMPORTANTE: .select() revela se o RLS bloqueou
+    //    (sem isso o Supabase devolve "sucesso" mesmo sem alterar nenhuma linha)
+    if(!ok){
+      const { data:upd, error:dbErr } = await sb.from('consultores').update({nome,email,empresa}).eq('id',id).select('id');
+      if(dbErr) throw dbErr;
+      if(!upd || !upd.length) throw new Error('O banco não permitiu salvar (política RLS). Rode o script onda14_admin_consultor.sql no Supabase para habilitar a edição pelo admin.');
+    }
     showSuccess('Dados do consultor atualizados!');
     if(senha){
       erro.textContent='Nome/empresa salvos. Para trocar a SENHA de login é preciso a função de servidor (ver guia) — o registro no banco foi atualizado, mas a senha de acesso não muda só por aqui.';
@@ -783,8 +809,16 @@ async function salvarEdicao(e){
 async function deletarConsultor(id,nome){
   if(!confirm('Excluir o consultor "'+nome+'"? Os clientes e dados dele ficarão órfãos. Esta ação não pode ser desfeita.')) return;
   try{
-    const {error}=await sb.from('consultores').delete().eq('id',id);
-    if(error) throw error;
+    let ok=false;
+    try{
+      const { data, error } = await sb.rpc('admin_excluir_consultor',{ p_id:id });
+      if(!error){ const d=(typeof data==='string')?JSON.parse(data):data; if(d && d.erro) throw new Error(d.erro); ok=true; }
+    }catch(eRpc){ if(eRpc && eRpc.message && !/function|does not exist|schema cache/i.test(eRpc.message)) throw eRpc; }
+    if(!ok){
+      const {data:del,error}=await sb.from('consultores').delete().eq('id',id).select('id');
+      if(error) throw error;
+      if(!del || !del.length) throw new Error('O banco não permitiu excluir (política RLS). Rode o script onda14_admin_consultor.sql no Supabase.');
+    }
     showSuccess('Consultor excluído.');
     setTimeout(carregarTudo,500);
   }catch(err){ showError('Erro ao excluir: '+err.message); }
