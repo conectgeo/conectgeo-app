@@ -4331,6 +4331,17 @@ const REC_MODELOS={
   caseih:{nome:'Case IH', subs:['Shapefile']},
   raiz:{nome:'Genérico', subs:[]}
 };
+// Pasta de destino dos shapefiles dentro do zip.
+// • Modelos com subpastas (Trimble/Stara/John Deere/Case IH): as subpastas do monitor
+//   viram o primeiro nível e TODOS os insumos ficam juntos na última pasta.
+//   Não existe mais uma pasta com o nome do insumo.
+// • Genérico (sem subpastas): mantém a pasta com o nome do insumo, senão os arquivos
+//   ficariam soltos na raiz do zip.
+function _expDir(raiz, modelo, ins){
+  if(!modelo.subs || !modelo.subs.length) return raiz.folder(ins);   // Genérico
+  let dir=raiz; modelo.subs.forEach(s=>{ dir=dir.folder(s); });
+  return dir;
+}
 const PRJ_WGS84='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]';
 // nome de arquivo padronizado: "Parte - Parte - ...". Preserva acentos e espaços;
 // remove apenas caracteres inválidos em nomes de arquivo; ignora partes vazias ou '—'.
@@ -4481,27 +4492,38 @@ function recExpPreview(){
     if(hint){ hint.style.display=''; hint.textContent='Sem "Exportar unificado": o zip terá uma pasta para cada talhão ('+alvos.map(a=>a.nome).join(', ')+'), cada uma com a estrutura abaixo.'; }
   }
 
+  // desenha a estrutura seguindo EXATAMENTE a regra do _expDir:
+  // com subpastas de monitor → subpastas no topo e todos os insumos juntos na última;
+  // Genérico → uma pasta por insumo.
+  const _arvore=(itens, nomeArq, ind0)=>{
+    const base0=ind0||'';
+    let t='';
+    const cols=itens.filter(c=>c!=='(nenhum)').map(c=>_normNome(c));
+    if(!cols.length) return base0+'(selecione ao menos um insumo)\n';
+    if(modelo.subs && modelo.subs.length){
+      modelo.subs.forEach((s,i)=>{ t+=base0+'  '.repeat(i)+s+'/\n'; });
+      const ind=base0+'  '.repeat(modelo.subs.length);
+      cols.forEach(ins=>{ t+=ind+ins+'_'+nomeArq+'.shp (.shx .dbf .prj)\n'; });
+    }else{
+      cols.forEach(ins=>{
+        t+=base0+ins+'/\n';
+        t+=base0+'  '+ins+'_'+nomeArq+'.shp (.shx .dbf .prj)\n';
+      });
+    }
+    return t;
+  };
+
   let txt='';
   if(alvos.length>1 && !unif){
-    // múltiplos talhões, modo padrão: mostra a estrutura de 1 talhão como exemplo, com a pasta do talhão envolvendo tudo
+    // múltiplos talhões: a pasta do talhão envolve a estrutura
     const nomeEx=_normNome(alvos[0].nome||'talhao');
     txt+=nomeEx+'/\n';
-    (itens.length?itens:['(nenhum)']).forEach(col=>{
-      if(col==='(nenhum)'){ txt+='  (selecione ao menos um insumo)\n'; return; }
-      const ins=_normNome(col); txt+='  '+ins+'/\n'; let ind='  ';
-      modelo.subs.forEach((s,i)=>{ txt+=ind.repeat(i+2)+s+'/\n'; });
-      txt+=ind.repeat(modelo.subs.length+2)+ins+'_'+nomeEx+'.shp (.shx .dbf .prj)\n';
-    });
-    txt+='  ...\n'+_normNome(alvos[1]?alvos[1].nome:'talhao_2')+'/\n  ...';
+    txt+=_arvore(itens, nomeEx, '  ');
+    txt+='...\n'+_normNome(alvos[1]?alvos[1].nome:'talhao_2')+'/\n  ...';
   } else {
-    // 1 talhão, OU múltiplos unificados: sem pasta de talhão, 1 shapefile por insumo
+    // 1 talhão, OU múltiplos unificados: sem pasta de talhão
     const nomeArq = unif ? 'unificado' : _normNome(alvos[0]?alvos[0].nome:((S.linkData&&S.linkData.talhao)||'talhao'));
-    itens.forEach(col=>{
-      if(col==='(nenhum)'){ txt+='(selecione ao menos um insumo)'; return; }
-      const ins=_normNome(col); txt+=ins+'/\n'; let ind='  ';
-      modelo.subs.forEach((s,i)=>{ txt+=ind.repeat(i+1)+s+'/\n'; });
-      txt+=ind.repeat(modelo.subs.length+1)+ins+'_'+nomeArq+'.shp (.shx .dbf .prj)\n';
-    });
+    txt+=_arvore(itens, nomeArq, '');
   }
   pre.textContent=txt.trim();
 }
@@ -4560,7 +4582,7 @@ async function doRecExport(){
       sel.forEach(col=>{
         const sf=_shapefileInsumo(col); if(!sf) return;
         const ins=_normNome(col);
-        let dir=zip.folder(ins); modelo.subs.forEach(s=>{ dir=dir.folder(s); });
+        const dir=_expDir(zip, modelo, ins);
         const base=ins+'_'+talhao;
         dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
         ok++;
@@ -4577,7 +4599,7 @@ async function doRecExport(){
         });
         const sf=_shpFromRecords(col, records, values); if(!sf) return;
         const ins=_normNome(col);
-        let dir=zip.folder(ins); modelo.subs.forEach(s=>{ dir=dir.folder(s); });
+        const dir=_expDir(zip, modelo, ins);
         const base=ins+'_unificado';
         dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
         ok++;
@@ -4593,7 +4615,7 @@ async function doRecExport(){
           const {records,values}=_shpRecordsFromAlvo(alvo, col);
           const sf=_shpFromRecords(col, records, values); if(!sf) return;
           const ins=_normNome(col);
-          let dir=talDir.folder(ins); modelo.subs.forEach(s=>{ dir=dir.folder(s); });
+          const dir=_expDir(talDir, modelo, ins);
           const base=ins+'_'+talhao;
           dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
           ok++;
