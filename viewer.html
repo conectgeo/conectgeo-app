@@ -2938,7 +2938,8 @@ async function generatePDF(nutrients){
 
 // ══ MODO LINK (visualização por URL) ══
 async function fetchBuf(url){
-  const resp=await fetch(url);
+  // no-store: sem isso o navegador podia devolver a planilha ANTIGA do cache
+  const resp=await fetch(url, {cache:'no-store'});
   if(!resp.ok) throw new Error(`Não foi possível carregar: ${url} (HTTP ${resp.status})`);
   return await resp.arrayBuffer();
 }
@@ -3209,6 +3210,44 @@ function _isNaoInsumo(f){
       || /^(cod|codigo|id|fid|objectid)/.test(kn)
       || /interessado|codinteress|coordenad/.test(kn);
 }
+// ── Validação de UNIDADE dos corretivos (calcário/gesso) na hora do upload ──
+// Regra agronômica: calcário/gesso são aplicados acima de ~500 kg/ha. Uma dose final
+// abaixo de 100 kg/ha é impossível na prática e indica erro de unidade na planilha.
+// Também acusa coluna com unidade MISTURADA (t/ha e kg/ha na mesma coluna), caso em que
+// um único valor alto desliga a conversão de todas as outras linhas.
+function _validarUnidadeCorretivos(fields, rows){
+  const avisos=[];
+  (fields||[]).forEach(col=>{
+    if(!isInsumoConvertivel(col)) return;
+    const vals=[]; (rows||[]).forEach(r=>{ const v=recNum(r[col]); if(!isNaN(v)&&v>0) vals.push(v); });
+    if(!vals.length) return;
+    const mx=Math.max(...vals);
+    const fator=(mx>0 && mx<100)?1000:1;
+    // (a) unidade misturada: convive t/ha (<100) e kg/ha (>=100) na mesma coluna
+    const pequenos=vals.filter(v=>v<100).length, grandes=vals.filter(v=>v>=100).length;
+    if(pequenos && grandes){
+      avisos.push('"'+col+'": a coluna mistura valores pequenos ('+pequenos+' linhas < 100) e grandes ('
+        +grandes+' linhas ≥ 100). Parece haver t/ha e kg/ha juntos — a conversão é feita pela coluna inteira, '
+        +'então parte das doses ficaria 1000× errada.');
+      return;
+    }
+    // (b) dose final impossível para corretivo
+    const finais=vals.map(v=>v*fator);
+    const baixas=finais.filter(v=>v<100);
+    if(baixas.length){
+      avisos.push('"'+col+'": '+baixas.length+' zona(s) com dose final abaixo de 100 kg/ha (menor: '
+        +Math.round(Math.min(...finais))+' kg/ha). Corretivo costuma passar de 500 kg/ha — confira a unidade.');
+    }
+  });
+  return avisos;
+}
+// mostra os avisos de unidade (não bloqueia o upload; é orientação ao consultor)
+function _alertarUnidadeCorretivos(fields, rows){
+  const av=_validarUnidadeCorretivos(fields, rows);
+  if(!av.length) return;
+  alert('⚠ Atenção à unidade dos corretivos\n\n'+av.join('\n\n')
+    +'\n\nA planilha foi carregada mesmo assim. Se a unidade estiver errada, corrija na planilha e reenvie.');
+}
 function detectInsumoCols(fields, rows){
   const zoneF=_pickZoneField(fields);
   const depthF=detectDepthColumn(fields);
@@ -3372,8 +3411,9 @@ async function loadRecData(){
   try{ const best=await _freshestRecUrl(S.tokenAtual, url); if(best) url=best; }catch(e){}
   if(!url) return;
 
-  // se a URL não mudou e já temos dados carregados, não precisa refetchar
-  const sameUrl = S.rec.loaded && S.rec._loadedUrl && (S.rec._loadedUrl.split('?')[0] === url.split('?')[0]);
+  // só evita refetch se a URL for EXATAMENTE a mesma (incluindo o ?v= do save).
+  // Antes comparava só o caminho, então um novo upload no mesmo caminho era ignorado.
+  const sameUrl = S.rec.loaded && S.rec._loadedUrl && (S.rec._loadedUrl === url);
   if(sameUrl && S.rec.rows && S.rec.rows.length){ return; }
 
   S.rec.url=url;
@@ -5312,8 +5352,17 @@ function wireColetaControls(){
         const buf=await f.arrayBuffer();
         const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
         temRec=!!(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length);
+        // avisa se a unidade dos corretivos parecer errada (calcário/gesso)
+        try{
+          const fr=(parsed.hasRecSheet&&parsed.recFields&&parsed.recFields.length)?parsed.recFields:parsed.fields;
+          const rr=(parsed.hasRecSheet&&parsed.recRows&&parsed.recRows.length)?parsed.recRows:parsed.rows;
+          _alertarUnidadeCorretivos(fr, rr);
+        }catch(e){}
       }catch(e){}
-      const path='nutrientes/'+S.tokenAtual+'/planilha.'+ext;
+      // nome ÚNICO por save (nut_<ts>.ext). Com nome fixo + upsert, a URL base não mudava
+      // e o navegador/CDN continuava servindo a planilha ANTIGA — por isso "subir por cima"
+      // não atualizava e só funcionava depois de excluir e reenviar.
+      const path='nutrientes/'+S.tokenAtual+'/nut_'+Date.now()+'.'+ext;
       const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
       if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
       const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
@@ -5322,7 +5371,7 @@ function wireColetaControls(){
       // planilha combinada: a nova planilha também vira a fonte da RECOMENDAÇÃO,
       // substituindo qualquer edição anterior (que o banco ainda apontava).
       if(temRec){
-        const pathRec='recomendacao/'+S.tokenAtual+'/planilha.'+ext;
+        const pathRec='recomendacao/'+S.tokenAtual+'/rec_'+Date.now()+'.'+ext;
         const upRec=await sb.storage.from('arquivos').upload(pathRec, f, {upsert:true});
         if(!(upRec&&upRec.error)){
           const urlRec=sb.storage.from('arquivos').getPublicUrl(pathRec).data.publicUrl + '?v=' + Date.now();
