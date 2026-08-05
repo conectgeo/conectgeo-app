@@ -3161,7 +3161,11 @@ function infoZonaColeta(props){
 S.rec = { rows:[], fields:[], col:null, insumoCols:[], url:null, loaded:false, layer:null, labels:[], showLabels:false, labelScale:1 };
 // normaliza número em formato PT-BR: trata ponto como separador de MILHAR quando apropriado
 // "1.000" → 1000 | "1.000,50" → 1000.5 | "1,5" → 1.5 | "6.42" → 6.42 | "10.000" → 10000
+// IMPORTANTE: se o valor JÁ é number (veio do Excel/JSON), devolve como está. Converter
+// para texto e reinterpretar corrompia valores como 78.325, que o regex de milhar lia
+// como 78325 (ponto seguido de exatamente 3 dígitos).
 function _brNum(x){
+  if(typeof x==='number') return isFinite(x)?x:NaN;
   let s=String(x==null?'':x).replace(/\u00a0/g,'').replace(/\s+/g,'').trim();
   if(s==='') return NaN;
   const temVirgula=s.indexOf(',')>=0;
