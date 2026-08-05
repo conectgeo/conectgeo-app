@@ -2485,7 +2485,13 @@ document.getElementById('btn-pdf').addEventListener('click',()=>{
   if(!S.geoData||!S.colorCol){toast('Carregue os dados primeiro','wrn');return;}
   if(S.modeloB && S.modeloB.on){ openMbModal(); return; }
   const rows=getActiveRows();
-  const numCols=S.csvFields.filter(f=>f!==S.joinCsv&&f!==S.depthCol&&rows.some(r=>typeof r[f]==='number'));
+  let numCols=S.csvFields.filter(f=>f!==S.joinCsv&&f!==S.depthCol&&rows.some(r=>typeof r[f]==='number'));
+  // Padrão com planilha única: o que está à DIREITA da coluna divisória é recomendação
+  // (KCl, Calcário, Gesso…) e não deve aparecer na lista de nutrientes do PDF.
+  try{
+    const di=_idxColunaDivisoria(S.csvFields, rows);
+    if(di>=0){ const ok=new Set(S.csvFields.slice(0,di)); numCols=numCols.filter(c=>ok.has(c)); }
+  }catch(e){}
   const grid=document.getElementById('nut-grid');grid.innerHTML='';
   numCols.forEach(col=>{
     const chip=document.createElement('div');
@@ -3345,6 +3351,19 @@ function _idxColunaDivisoria(fields, rows){
   }
   return -1;
 }
+// Corta a planilha única no divisor e devolve SÓ o lado direito (recomendação).
+// Retorna null quando não há divisor. Usado ao ler e ao enviar a planilha.
+function _cortarRecPorDivisor(fields, rows){
+  try{
+    const di=_idxColunaDivisoria(fields, rows); if(di<0) return null;
+    const vazia=f=>{ const n=String(f==null?'':f).trim(); return n==='' || /^__EMPTY(_\d+)?$/i.test(n); };
+    const zoneF=_pickZoneField(fields)||fields[0];
+    const cols=fields.slice(di+1).filter(c=>!vazia(c) && c!==zoneF);
+    if(!cols.length) return null;
+    const rf=[zoneF, ...cols];
+    return { fields:rf, rows:(rows||[]).map(r=>{ const o={}; rf.forEach(c=>{ o[c]=r[c]; }); return o; }) };
+  }catch(e){ return null; }
+}
 // Deriva a recomendação a partir da planilha única do Padrão (colunas à direita do divisor).
 // NÃO é usada no Modelo B — lá a regra continua sendo o último Enxofre/SO4.
 function _deriveRecPadraoPorDivisor(){
@@ -3431,22 +3450,11 @@ async function loadRecData(){
       S.rec.rows=parsed.recRows; S.rec.fields=parsed.recFields;
     } else {
       S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[];
-      // Padrão: se o arquivo enviado é a planilha ÚNICA (nutrientes | vazia | recomendação),
+      // Padrão: se o arquivo é a planilha ÚNICA (nutrientes | vazia | recomendação),
       // fica só com o lado DIREITO — senão Cálcio, Magnésio etc. virariam "insumos".
       if(!(S.modeloB && S.modeloB.on)){
-        try{
-          const di=_idxColunaDivisoria(S.rec.fields, S.rec.rows);
-          if(di>=0){
-            const vazia=f=>{ const n=String(f==null?'':f).trim(); return n==='' || /^__EMPTY(_\d+)?$/i.test(n); };
-            const zoneF=_pickZoneField(S.rec.fields)||S.rec.fields[0];
-            const cols=S.rec.fields.slice(di+1).filter(c=>!vazia(c) && c!==zoneF);
-            if(cols.length){
-              const rf=[zoneF, ...cols];
-              S.rec.rows=S.rec.rows.map(r=>{ const o={}; rf.forEach(c=>{ o[c]=r[c]; }); return o; });
-              S.rec.fields=rf;
-            }
-          }
-        }catch(e){}
+        const corte=_cortarRecPorDivisor(S.rec.fields, S.rec.rows);
+        if(corte){ S.rec.fields=corte.fields; S.rec.rows=corte.rows; }
       }
     }
     S.rec.loaded=true; S.rec._loadedUrl=url;
@@ -5367,12 +5375,15 @@ function wireColetaControls(){
     st.textContent='Enviando planilha…';
     try{
       const ext=(f.name.split('.').pop()||'csv').toLowerCase();
-      // detecta se a planilha é combinada (tem aba REC) — para atualizar também a recomendação
+      // detecta se a planilha é combinada — por ABA "rec" ou por COLUNA DIVISÓRIA.
+      // Nos dois casos ela também é a fonte da recomendação e precisa atualizar os DOIS
+      // registros; senão o upload por uma tela ficava desatualizado em relação à outra.
       let temRec=false;
       try{
         const buf=await f.arrayBuffer();
         const parsed=(ext==='csv')?parseCSVText(decodeBuffer(buf)):parseXLSX(buf);
-        temRec=!!(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length);
+        const temDivisor = !(S.modeloB&&S.modeloB.on) && _idxColunaDivisoria(parsed.fields, parsed.rows)>=0;
+        temRec=!!((parsed.hasRecSheet && parsed.recRows && parsed.recRows.length) || temDivisor);
         // avisa se a unidade dos corretivos parecer errada (calcário/gesso)
         try{
           const fr=(parsed.hasRecSheet&&parsed.recFields&&parsed.recFields.length)?parsed.recFields:parsed.fields;
@@ -5465,9 +5476,15 @@ function wireColetaControls(){
       // planilha combinada (abas "nutri" e "rec"): usa a aba REC para a recomendação,
       // não o main (que é a aba nutri). Assim funciona igual ao upload pela janela de Nutrientes.
       const _combinada = !!(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length);
+      // planilha ÚNICA do Padrão (nutrientes | coluna vazia | recomendação) também é combinada
+      const _corte = _combinada ? null : (!(S.modeloB&&S.modeloB.on) ? _cortarRecPorDivisor(parsed.fields, parsed.rows) : null);
+      const _temDivisor = !!_corte;
       if(_combinada){
         S.rec.rows=parsed.recRows; S.rec.fields=parsed.recFields;
         toast(`✅ Aba "rec" detectada — ${parsed.recRows.length} zonas de recomendação carregadas`,'ok');
+      } else if(_temDivisor){
+        S.rec.rows=_corte.rows; S.rec.fields=_corte.fields;
+        toast(`✅ Planilha única detectada — ${_corte.fields.length-1} insumo(s) após a coluna divisória`,'ok');
       } else {
         S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[];
       }
@@ -5477,7 +5494,7 @@ function wireColetaControls(){
 
       // planilha combinada: a aba "nutri" também alimenta os NUTRIENTES (em memória + persistência),
       // espelhando o upload feito pela tela de Nutrientes.
-      if(_combinada && parsed.rows && parsed.rows.length){
+      if((_combinada || _temDivisor) && parsed.rows && parsed.rows.length){
         try{ applyCsvData(parsed.rows, parsed.fields, f.name, parsed.idealRow); joinData(); renderMap(); }catch(e){}
         if(sb && S.tokenAtual){
           try{
