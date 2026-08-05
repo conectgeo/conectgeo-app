@@ -4899,7 +4899,7 @@ async function recEditSalvar(){
     const csv=_buildRecCSVFrom(S.csvFields, S.csvData);
     _validaCSV(csv, (S.csvFields||[]).length, (S.csvData||[]).length);
     const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
-    const path='nutrientes/'+token+'/planilha.csv';
+    const path='nutrientes/'+token+'/nut_'+Date.now()+'.csv';
     const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'text/csv;charset=utf-8'});
     if(up && up.error){ throw new Error('upload: '+(up.error.message||up.error)); }
     const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
@@ -5277,7 +5277,7 @@ function wireColetaControls(){
         let gj=await shp(buf); if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.flatMap(l=>l.features||[])};
         const tipos=(gj.features||[]).map(ft=>ft.geometry&&ft.geometry.type);
         const ehPonto=tipos.some(t=>t==='Point'||t==='MultiPoint');
-        const path='coleta/'+S.tokenAtual+'/'+(ehPonto?'pontos':'zonas')+'.zip';
+        const path='coleta/'+S.tokenAtual+'/'+(ehPonto?'pontos':'zonas')+'_'+Date.now()+'.zip';
         const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
         if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
         const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
@@ -5296,7 +5296,7 @@ function wireColetaControls(){
     if(!sb||!S.tokenAtual){ st.textContent='Sem conexão para salvar.'; return; }
     st.textContent='Enviando raster…';
     try{
-      const path='coleta/'+S.tokenAtual+'/raster.tif';
+      const path='coleta/'+S.tokenAtual+'/raster_'+Date.now()+'.tif';
       const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true, contentType:'image/tiff'});
       if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
       const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
@@ -5328,7 +5328,7 @@ function wireColetaControls(){
         geojson=JSON.parse(await f.text());
       }
       const blob=new Blob([JSON.stringify(geojson)],{type:'application/json'});
-      const path='nutrientes/'+S.tokenAtual+'/zonas.geojson';
+      const path='nutrientes/'+S.tokenAtual+'/zonas_'+Date.now()+'.geojson';
       const up=await sb.storage.from('arquivos').upload(path, blob, {upsert:true, contentType:'application/json'});
       if(up&&up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message+' (ajuste a política do Storage).');
       const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
@@ -5418,7 +5418,7 @@ function wireColetaControls(){
       if(f.size>5*1024*1024){ pulou.push(f.name+' (>5MB)'); continue; }
       st.textContent='Enviando '+tipo.toUpperCase()+'…';
       try{
-        const path='relatorio/'+S.tokenAtual+'/'+tipo+'.tif';
+        const path='relatorio/'+S.tokenAtual+'/'+tipo+'_'+Date.now()+'.tif';
         const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true, contentType:'image/tiff'});
         if(up&&up.error) throw new Error('bucket: '+up.error.message);
         const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
@@ -5462,7 +5462,7 @@ function wireColetaControls(){
           try{
             const csvNut=_buildRecCSVFrom(parsed.fields, parsed.rows);
             const blobNut=new Blob(['\ufeff'+csvNut],{type:'text/csv;charset=utf-8'});
-            const pathNut='nutrientes/'+S.tokenAtual+'/planilha.csv';
+            const pathNut='nutrientes/'+S.tokenAtual+'/nut_'+Date.now()+'.csv';
             const upNut=await sb.storage.from('arquivos').upload(pathNut, blobNut, {upsert:true, contentType:'text/csv'});
             if(!(upNut&&upNut.error)){
               const urlNut=sb.storage.from('arquivos').getPublicUrl(pathNut).data.publicUrl + '?v=' + Date.now();
@@ -5474,7 +5474,10 @@ function wireColetaControls(){
 
       if(sb && S.tokenAtual){
         try{
-          const path='recomendacao/'+S.tokenAtual+'/planilha.'+ext;
+          // nome ÚNICO por save. Com nome fixo + upsert a URL base não mudava, e o
+          // navegador/CDN devolvia a planilha ANTIGA — colunas removidas continuavam
+          // aparecendo (ex.: excluir "Gesso2" da planilha e ele seguir na lista).
+          const path='recomendacao/'+S.tokenAtual+'/rec_'+Date.now()+'.'+ext;
           const up=await sb.storage.from('arquivos').upload(path, f, {upsert:true});
           if(up&&up.error){ st.textContent='⚠ Falha no upload: '+(up.error.message||up.error); return; }
           const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now(); S.rec.url=url; S.rec._loadedUrl=url;
