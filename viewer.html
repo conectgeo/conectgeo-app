@@ -945,14 +945,19 @@ function autoPalette(colName){
   // Areia / Arena -> branco -> amarelo escuro
   if(/(^|[^a-z])(areia|arena)([^a-z]|%|$)/.test(n) || n.startsWith('areia') || n.startsWith('arena'))
     return {pal:'areia', invert:false};
-  // Silte -> branco -> cinza escuro
-  if(n.startsWith('silte') || /(^|[^a-z])silte/.test(n))
+  // Silte / Limo -> branco -> cinza escuro
+  if(n.startsWith('silte') || /(^|[^a-z])silte/.test(n)
+     || n.startsWith('limo') || /(^|[^a-z])limo([^a-z]|%|$)/.test(n))
     return {pal:'silte', invert:false};
-  // Argila -> Yl-Or-Br (sem inversão)
-  if(n.startsWith('argila') || /(^|[^a-z])argila/.test(n) || n.includes('argila'))
+  // Argila / Arcilla / Arcila -> Yl-Or-Br (sem inversão)
+  if(n.startsWith('argila') || /(^|[^a-z])argila/.test(n) || n.includes('argila')
+     || n.startsWith('arcilla') || n.startsWith('arcila') || /(^|[^a-z])arcill?a/.test(n))
     return {pal:'ylorbr', invert:false};
   // Matéria Orgânica -> RdYlGn (normal)
-  if(/mat[eé]riaorg|m\.?o\.?%?$|^mo%?$|^mo$/.test(n) || n.includes('materiaorg') || n.includes('matriaorg'))
+  // ATENÇÃO: o "m.o." precisa estar ANCORADO no início. Sem a âncora, qualquer nome
+  // terminado em "mo" casava — era o caso de "Limo", que ganhava a paleta da M.O.
+  if(/mat[eé]riaorg/.test(n) || /^m\.?o\.?%?$/.test(n) || /^mo%?$/.test(n)
+     || n.includes('materiaorg') || n.includes('matriaorg'))
     return {pal:'rdylgn', invert:false};
 
   // ── Acidez / Alumínio / Sódio -> paleta INVERTIDA (alto = ruim = vermelho) ──
@@ -965,7 +970,12 @@ function autoPalette(colName){
   const unidAlNa  = /(^|[^a-z])(al|na)\s*(mg|cmol|meq|mmol|mol)/.test(na);
   // Alumínio / Sódio por extenso, e termos de acidez (H+Al, Hidrogênio, saturações, teores)
   const termosAcidez = /(alumin|sodio|hidrogenio|h\+al|teoral|teorh|indsaturh|saturh|saturacaoal|saturacaona|saturdeal|saturdena)/.test(na);
-  const isAl = cargaAlNa || unidAlNa || termosAcidez || /^al([\+%]|$)/.test(naS) || /^na([\+%]|$)/.test(naS);
+  // Saturação por ALUMÍNIO abreviada: "Sat. Al", "Sat Al", "Sat. de Al", "Satur. Al", "m Al".
+  // Compara sobre a versão só com letras/números, senão o ponto de "Sat. Al" impede o casamento.
+  const naAlpha = na.replace(/[^a-z0-9]/g,'');
+  const satAl = /^(m|sat|satur|saturacao)(de)?(al|aluminio)$/.test(naAlpha)
+             || /sat(ur(acao)?)?(de)?al(uminio)?($|[^a-z])/.test(naAlpha);
+  const isAl = cargaAlNa || unidAlNa || termosAcidez || satAl || /^al([\+%]|$)/.test(naS) || /^na([\+%]|$)/.test(naS);
   // Saturação por alumínio (m, m%, m³)
   const isSatM =
        ns==='m' || ns==='m%' || /^m[³²]/.test(ns)
