@@ -3396,9 +3396,6 @@ async function loadRecData(){
   await _loadRecGeo();
   // Relatório B: usa a PRÓPRIA planilha de nutrientes (ZG + colunas após o último Enxofre)
   if(S.modeloB && S.modeloB.on && _deriveRecFromNutri()){ S.rec.loaded=true; S.rec._fromNutri=true; return; }
-  // Relatório PADRÃO: planilha única com nutrientes | (coluna vazia) | recomendação.
-  // Só entra aqui quando NÃO é Modelo B — as duas regras não se cruzam.
-  if(!(S.modeloB && S.modeloB.on) && _deriveRecPadraoPorDivisor()){ S.rec.loaded=true; S.rec._fromNutri=true; return; }
   S.rec._fromNutri=false;
 
   // busca SEMPRE a URL mais recente do banco (para pegar edições salvas)
@@ -3407,8 +3404,15 @@ async function loadRecData(){
     try{ const { data } = await sb.rpc('get_recomendacao_url',{p_token:S.tokenAtual}); if(data && data.recomendacao_url) freshUrl=data.recomendacao_url; }catch(e){}
   }
   let url = freshUrl || S.rec.url || (S.linkData && S.linkData.recomendacao_url);
-  // prefere o CSV editado se for mais recente que o arquivo do banco (independe da RPC)
   try{ const best=await _freshestRecUrl(S.tokenAtual, url); if(best) url=best; }catch(e){}
+
+  // Relatório PADRÃO: planilha única com nutrientes | (coluna vazia) | recomendação.
+  // IMPORTANTE: só deriva quando NÃO existe planilha de recomendação enviada. Um arquivo
+  // enviado pela tela de Recomendação tem prioridade — antes a derivação rodava primeiro
+  // e dava return, fazendo o upload por aquela tela ser ignorado.
+  if(!url && !(S.modeloB && S.modeloB.on) && _deriveRecPadraoPorDivisor()){
+    S.rec.loaded=true; S.rec._fromNutri=true; return;
+  }
   if(!url) return;
 
   // só evita refetch se a URL for EXATAMENTE a mesma (incluindo o ?v= do save).
@@ -3427,6 +3431,23 @@ async function loadRecData(){
       S.rec.rows=parsed.recRows; S.rec.fields=parsed.recFields;
     } else {
       S.rec.rows=parsed.rows||[]; S.rec.fields=parsed.fields||[];
+      // Padrão: se o arquivo enviado é a planilha ÚNICA (nutrientes | vazia | recomendação),
+      // fica só com o lado DIREITO — senão Cálcio, Magnésio etc. virariam "insumos".
+      if(!(S.modeloB && S.modeloB.on)){
+        try{
+          const di=_idxColunaDivisoria(S.rec.fields, S.rec.rows);
+          if(di>=0){
+            const vazia=f=>{ const n=String(f==null?'':f).trim(); return n==='' || /^__EMPTY(_\d+)?$/i.test(n); };
+            const zoneF=_pickZoneField(S.rec.fields)||S.rec.fields[0];
+            const cols=S.rec.fields.slice(di+1).filter(c=>!vazia(c) && c!==zoneF);
+            if(cols.length){
+              const rf=[zoneF, ...cols];
+              S.rec.rows=S.rec.rows.map(r=>{ const o={}; rf.forEach(c=>{ o[c]=r[c]; }); return o; });
+              S.rec.fields=rf;
+            }
+          }
+        }catch(e){}
+      }
     }
     S.rec.loaded=true; S.rec._loadedUrl=url;
   }catch(e){}
