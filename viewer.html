@@ -3179,15 +3179,14 @@ function _brNum(x){
   return isNaN(v)?NaN:v;
 }
 function recNum(x){ return _brNum(x); }
+// Doses de recomendação são exibidas como NÚMERO INTEIRO.
+// Motivo: as planilhas trazem valores calculados com ruído de ponto flutuante
+// (ex.: 171.06180000000006) que o Excel já exibe arredondado pelo formato da célula.
+// Mostrar as casas decimais poluía o mapa (171,062 parecia "171 mil").
 function recFmt(n){
   try{
     const v=Number(n); if(isNaN(v)) return String(n);
-    if(Number.isInteger(v)) return v.toLocaleString('pt-BR');
-    // mantém até 3 casas, remove zeros à direita: 2960,10 -> "2960,1"
-    let s=v.toFixed(3).replace(/0+$/,'').replace(/\.$/,'');
-    const [int,dec]=s.split('.');
-    const intFmt=Number(int).toLocaleString('pt-BR');
-    return dec!=null ? intFmt+','+dec : intFmt;
+    return Math.round(v).toLocaleString('pt-BR');
   }catch(e){ return String(n); }
 }
 // colunas de calcário/gesso etc. que podem vir em tonelada (×1000)
@@ -4451,19 +4450,15 @@ function _buildShp(records){
     shx.setInt32(sx,off/2,false); shx.setInt32(sx+4,cl/2,false); sx+=8; off+=8+cl; });
   return {shp:new Uint8Array(shp.buffer), shx:new Uint8Array(shx.buffer)};
 }
-// formata o valor numérico do DBF: inteiro quando o valor é inteiro (2960,00 -> 2960),
-// senão mantém as casas decimais SEM zeros supérfluos (2960,1 -> 2960.1).
-// Usa PONTO como separador decimal (padrão de shapefile/DBF numérico).
+// valor da dose no DBF: sempre INTEIRO (mesma regra da exibição no mapa).
+// Vazio quando não há dose para a zona.
 function _dbfNum(v){
   if(v==null || isNaN(v)) return '';
-  let n=Number(v);
-  if(Number.isInteger(n)) return String(n);
-  return n.toFixed(3).replace(/0+$/,'').replace(/\.$/,'');
+  return String(Math.round(Number(v)));
 }
 function _buildDbf(fieldName, values){
-  // casas decimais do campo = 0 se TODOS os valores forem inteiros; senão 3
-  const anyDec = values.some(v=>v!=null && !isNaN(v) && !Number.isInteger(Number(v)));
-  const fname=fieldName, FL=18, FD=anyDec?3:0, n=values.length;
+  // dose é inteira → campo numérico sem casas decimais
+  const fname=fieldName, FL=18, FD=0, n=values.length;
   const headerSize=32+32+1, recSize=1+FL, total=headerSize+n*recSize+1;
   const buf=new Uint8Array(total), dv=new DataView(buf.buffer);
   buf[0]=0x03; const d=new Date(); buf[1]=d.getFullYear()-1900; buf[2]=d.getMonth()+1; buf[3]=d.getDate();
