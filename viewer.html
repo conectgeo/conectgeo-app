@@ -1719,6 +1719,9 @@ function applyActiveDepth(){
   let numCols=S.csvFields.filter(f=>f!==S.joinCsv&&f!==S.depthCol&&!_isAreaCol(f)&&rows.some(r=>typeof r[f]==='number'));
   // Relatório B: o seletor de nutrientes vai só até o último Enxofre (insumos ficam na Recomendação)
   if(S.modeloB&&S.modeloB.on){ const li=_lastEnxofreIdx(S.csvFields); if(li>=0){ const ok=new Set(S.csvFields.slice(0,li+1)); numCols=numCols.filter(c=>ok.has(c)); } }
+  // Relatório PADRÃO (planilha única): nutrientes só até a coluna divisória; o que vem
+  // depois é recomendação e não deve aparecer no seletor de nutrientes.
+  else { const di=_idxColunaDivisoria(S.csvFields, rows); if(di>=0){ const ok=new Set(S.csvFields.slice(0,di)); numCols=numCols.filter(c=>ok.has(c)); } }
   // profundidade pelo nome das colunas
   const _comparando = !!(S.compare && S.compare.on && S.depthByName);
   if(S.depthByName){
@@ -3276,6 +3279,44 @@ async function _loadRecGeo(){
 // Relatório B: a planilha de nutrientes também traz a recomendação.
 // Divisor = ÚLTIMA coluna de Enxofre/SO4. Nutrientes vão até ela; ZG + colunas após = recomendação.
 function _lastEnxofreIdx(fields){ let idx=-1; (fields||[]).forEach((f,i)=>{ if(/enxofre|so4/i.test(String(f))) idx=i; }); return idx; }
+// ── RELATÓRIO PADRÃO: planilha única com nutrientes à ESQUERDA e recomendação à
+// DIREITA, separadas por uma COLUNA VAZIA (o consultor costuma pintá-la; a cor é só
+// orientação visual — o código se guia pela coluna sem cabeçalho/sem dados).
+// Retorna o índice da coluna divisória, ou -1 se não houver.
+// Exige conteúdo real DEPOIS do divisor, senão uma coluna vazia sobrando no fim da
+// planilha (comum ao arrastar a seleção no Excel) seria confundida com separador.
+function _idxColunaDivisoria(fields, rows){
+  if(!fields || fields.length<3 || !rows || !rows.length) return -1;
+  const vazia=f=>{
+    const nome=String(f==null?'':f).trim();
+    // cabeçalho em branco (o SheetJS nomeia como __EMPTY, __EMPTY_1, ...)
+    if(nome==='' || /^__EMPTY(_\d+)?$/i.test(nome)) return true;
+    return false;
+  };
+  const temDado=f=>rows.some(r=>{ const v=r[f]; return v!=null && String(v).trim()!==''; });
+  for(let i=1;i<fields.length-1;i++){
+    if(!vazia(fields[i])) continue;
+    if(temDado(fields[i])) continue;                 // "vazia" precisa estar mesmo sem dados
+    // precisa sobrar conteúdo REAL à direita para valer como divisor
+    const dir=fields.slice(i+1).filter(f=>!vazia(f) && temDado(f));
+    if(dir.length) return i;
+  }
+  return -1;
+}
+// Deriva a recomendação a partir da planilha única do Padrão (colunas à direita do divisor).
+// NÃO é usada no Modelo B — lá a regra continua sendo o último Enxofre/SO4.
+function _deriveRecPadraoPorDivisor(){
+  const fields=S.csvFields||[], rows=S.csvData||[];
+  const di=_idxColunaDivisoria(fields, rows); if(di<0) return false;
+  const zoneF=S.joinCsv || _pickZoneField(fields) || fields[0];
+  const vazia=f=>{ const n=String(f==null?'':f).trim(); return n==='' || /^__EMPTY(_\d+)?$/i.test(n); };
+  const recCols=fields.slice(di+1).filter(c=>!vazia(c) && c!==S.depthCol && c!==zoneF);
+  if(!recCols.length) return false;
+  const recFields=[zoneF, ...recCols];
+  S.rec.fields=recFields;
+  S.rec.rows=rows.map(r=>{ const o={}; recFields.forEach(c=>{ o[c]=r[c]; }); return o; });
+  return true;
+}
 function _deriveRecFromNutri(){
   const fields=S.csvFields||[], rows=S.csvData||[];
   if(!fields.length || !rows.length) return false;
@@ -3313,6 +3354,9 @@ async function loadRecData(){
   await _loadRecGeo();
   // Relatório B: usa a PRÓPRIA planilha de nutrientes (ZG + colunas após o último Enxofre)
   if(S.modeloB && S.modeloB.on && _deriveRecFromNutri()){ S.rec.loaded=true; S.rec._fromNutri=true; return; }
+  // Relatório PADRÃO: planilha única com nutrientes | (coluna vazia) | recomendação.
+  // Só entra aqui quando NÃO é Modelo B — as duas regras não se cruzam.
+  if(!(S.modeloB && S.modeloB.on) && _deriveRecPadraoPorDivisor()){ S.rec.loaded=true; S.rec._fromNutri=true; return; }
   S.rec._fromNutri=false;
 
   // busca SEMPRE a URL mais recente do banco (para pegar edições salvas)
