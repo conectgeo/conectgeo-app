@@ -1035,16 +1035,28 @@ function normDepth(v){
 }
 function _sameDepth(a,b){ return !!a && !!b && normDepth(a)===normDepth(b); }
 function _colNaProfundidade(refCol, depth){ const w=_nutBase(refCol); const cands=(S.csvFields||[]).filter(f=>_sameDepth(_depthFromName(f), depth) && _nutBase(f)===w); return cands.length?cands[0]:null; }
+// A faixa de profundidade faz sentido? Barra coisas como "00-00" (KCl 00-00-60) e
+// valores absurdos vindos de fórmulas de adubo lidas por engano.
+function _depthValida(d){
+  const m=String(d||'').match(/^(\d{1,2})-(\d{1,2})$/); if(!m) return false;
+  const a=+m[1], b=+m[2];
+  return b>a && b<=99;
+}
 // coluna tem ao menos um valor numérico? (cabeçalho presente mas sem dados = ignorar)
 function _colTemDados(f){ return (S.csvData||[]).some(r=>typeof r[f]==='number' && isFinite(r[f])); }
 // Relatório B: força a leitura de profundidades pelos nomes das colunas (ex.: "Cálcio (00-20cm)")
 function _mbRecomputeDepthsFromNames(){
   try{
     if(!(S.modeloB && S.modeloB.on)) return false;
-    const fields=S.csvFields||[]; if(!fields.length) return false;
+    const todos=S.csvFields||[]; if(!todos.length) return false;
+    // Só as colunas de NUTRIENTE (até o último Enxofre). As colunas de recomendação
+    // trazem fórmulas de adubo com hífen — "KCl (00-00-60)", "NPK 00-19-19" — que eram
+    // lidas como profundidade e liberavam o Modo Comparação indevidamente.
+    const li=_lastEnxofreIdx(todos);
+    const fields = li>=0 ? todos.slice(0, li+1) : todos;
     // só considera a profundidade se ALGUMA coluna dela tiver valor.
     // (planilha com colunas "20-40" apenas no cabeçalho, vazias, deve ser ignorada)
-    const ds=[]; fields.forEach(f=>{ const d=_depthFromName(f); if(d && !ds.includes(d) && _colTemDados(f)) ds.push(d); });
+    const ds=[]; fields.forEach(f=>{ const d=_depthFromName(f); if(d && _depthValida(d) && !ds.includes(d) && _colTemDados(f)) ds.push(d); });
     if(!ds.length) return false;
     S.depthCol=null; S.depthByName=true; S.availDepths=ds; S.manualDepth=null;
     if(!S.activeDepth || !ds.some(d=>normDepth(d)===normDepth(S.activeDepth))){
@@ -1700,6 +1712,12 @@ function _exHasDepthByName(ex, label){
 function renderDepthGrid(){
   const g=document.getElementById('depth-grid'); g.innerHTML='';
   const _temExtras=!!(S.extras&&S.extras.length);
+  // Modo Comparação só faz sentido com 2+ profundidades: esconde em vez de deixar
+  // clicável só para mostrar um aviso.
+  try{
+    const cr=document.getElementById('compare-row');
+    if(cr) cr.style.display=((S.availDepths||[]).length>=2)?'':'none';
+  }catch(e){}
   // determine which standard labels are available
   DEPTH_LABELS.forEach(label=>{
     const cell=document.createElement('div');
