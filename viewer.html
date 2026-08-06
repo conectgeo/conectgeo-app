@@ -1230,7 +1230,14 @@ function rankColor(v, sorted){
   let lo=0, hi=n;
   while(lo<hi){ const mid=(lo+hi)>>1; if(sorted[mid]<v) lo=mid+1; else hi=mid; }
   let hi2=lo; while(hi2<n && sorted[hi2]===v) hi2++;
-  const pos=(lo+hi2-1)/2;
+  // Empates: normalmente usa o MEIO do bloco. Mas quando o bloco encosta no mínimo ou no
+  // máximo, ele deve receber o EXTREMO da rampa — senão uma coluna quase toda igual
+  // (ex.: Alumínio com 139 zeros e um 0,30) jogava todos os zeros no meio da escala,
+  // pintando de amarelo o que agronomicamente é o melhor valor possível.
+  let pos;
+  if(lo===0) pos=0;              // empatados no MÍNIMO → extremo da rampa
+  else if(hi2>=n) pos=n-1;       // empatados no MÁXIMO → outro extremo
+  else pos=(lo+hi2-1)/2;
   return lerpColor(palColors(), Math.max(0,Math.min(1, pos/(n-1))));
 }
 // valor no quantil p (0..1) — inverso do rankColor. Usado na legenda para que o rótulo
@@ -1841,7 +1848,11 @@ function renderMap(){
   // tenta migrar para a coluna equivalente na profundidade ativa (não bloqueia).
   // Se não existir equivalente, mantém o nutriente atual e ajusta a profundidade ativa pra do nutriente.
   let effectiveCol = S.colorCol;
-  if(S.depthByName && S.activeDepth){
+  // Troca automática para a profundidade ATIVA da tela (navegação normal).
+  // Durante a geração do PDF (pdfMode) isso NÃO pode acontecer: cada página pede uma
+  // coluna específica (ex.: "Cálcio 20-40") e a troca a substituía pela da profundidade
+  // ativa (00-20), fazendo o trio 20-40 sair com dados do 00-20.
+  if(S.depthByName && S.activeDepth && !S.pdfMode){
     const colDepth = _depthFromName(S.colorCol);
     if(colDepth && normDepth(colDepth)!==normDepth(S.activeDepth)){
       const alt = _colNaProfundidade(S.colorCol, S.activeDepth);
