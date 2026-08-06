@@ -4471,9 +4471,14 @@ async function generateRecPDF(insumos){
 
     // container de captura ampliado (mais pixels). O rótulo é dimensionado pela fonte
     // dinâmica, normalizada pelo downscale REAL (tamanho capturado ÷ tamanho exibido de 660px).
-    const REC_CAP = insumos.length<=6 ? 3.0 : 2.4;
     const REC_DISPLAY_W = 660;                          // largura da célula do mapa no PDF
-    const capW=Math.round(SLOT_W*REC_CAP/2), capH=Math.round(SLOT_H*REC_CAP/2);
+    // Fator de captura ALVO, igual ao dos mapas de nutrientes (Modelo B usa 3.0x;
+    // Padrão usa 3.2x até 6 e 2.6x acima disso). Antes a fórmula era
+    // SLOT_W*REC_CAP/2, que resultava em apenas 1.96x (<=6 insumos) e 1.57x (7+) —
+    // por isso os rótulos da recomendação saíam visivelmente menos nítidos que os
+    // de nutrientes no mesmo PDF.
+    const REC_ALVO = insumos.length<=6 ? 3.0 : 2.6;
+    const capW=Math.round(REC_DISPLAY_W*REC_ALVO), capH=Math.round(capW*(SLOT_H/SLOT_W));
     S._pdfCapFactor = capW / REC_DISPLAY_W;             // downscale real → normaliza a fonte
 
     // enquadra o mapa no tamanho de captura e afasta ~10% (menos zoom)
