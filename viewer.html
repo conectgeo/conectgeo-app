@@ -1336,9 +1336,15 @@ function renderHistograma(vals, mn, mx, corDe){
 function initMap(){
   S.map=L.map('map',{zoomControl:true});
   // base layers
+  // maxNativeZoom:18 no satélite — o Esri não tem imagem além do zoom 18 em boa parte
+  // da área rural. Sem esse limite o Leaflet pedia o azulejo do zoom 19/20 e recebia o
+  // aviso cinza "Map data not yet available", que ia parar no PDF. Com o limite, ele
+  // reaproveita e amplia o azulejo do 18 (leve perda de nitidez, mas imagem de verdade).
+  // Isso aparecia mais no PDF que na tela: a captura amplia o mapa ~2x, o que empurra o
+  // fitBounds um nível de zoom acima do que se vê na tela.
   S.baseLayers = {
     mapa: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CartoDB',subdomains:'abcd',maxZoom:20,crossOrigin:true}),
-    satelite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri, Maxar, Earthstar Geographics',maxZoom:20,crossOrigin:true})
+    satelite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri, Maxar, Earthstar Geographics',maxZoom:20,maxNativeZoom:18,crossOrigin:true})
   };
   S.baseLayers.mapa.addTo(S.map);
   S.activeBase='mapa';
@@ -6687,7 +6693,7 @@ function ensureCompareMap(){
   const m = L.map('map2',{zoomControl:true});
   const baseLayers = {
     mapa: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OSM © CartoDB',subdomains:'abcd',maxZoom:20,crossOrigin:true}),
-    satelite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:20,crossOrigin:true})
+    satelite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:20,maxNativeZoom:18,crossOrigin:true})
   };
   baseLayers[S.activeBase || 'mapa'].addTo(m);
   m.setView(S.map.getCenter(), S.map.getZoom());
