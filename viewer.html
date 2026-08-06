@@ -1709,6 +1709,22 @@ function _exUsaDepthByName(ex){
 function _exHasDepthByName(ex, label){
   try{ return (ex.fields||[]).some(f=>_sameDepth(_depthFromName(f), label)); }catch(e){ return false; }
 }
+// Quantas zonas têm de fato algum valor nas colunas de uma profundidade.
+// (uma linha conta se QUALQUER coluna daquela profundidade estiver preenchida)
+function _contaZonasNaProfundidade(label){
+  try{
+    const rows=S.csvData||[]; if(!rows.length) return 0;
+    const todos=S.csvFields||[];
+    const li=(S.modeloB&&S.modeloB.on)?_lastEnxofreIdx(todos):-1;
+    const campos=(li>=0?todos.slice(0,li+1):todos)
+      .filter(f=>f!==S.joinCsv && _sameDepth(_depthFromName(f), label));
+    if(!campos.length) return 0;
+    return rows.filter(r=>campos.some(f=>{
+      const v=r[f];
+      return v!=null && String(v).trim()!=='' && !isNaN(Number(v));
+    })).length;
+  }catch(e){ return (S.csvData||[]).length; }
+}
 function renderDepthGrid(){
   const g=document.getElementById('depth-grid'); g.innerHTML='';
   const _temExtras=!!(S.extras&&S.extras.length);
@@ -1724,7 +1740,10 @@ function renderDepthGrid(){
     let isAvail=false, count=0;
     if(S.depthByName){
       isAvail = S.availDepths.some(d=>normDepth(d)===normDepth(label));
-      count = isAvail ? (S.csvData?S.csvData.length:0) : 0;
+      // conta as zonas que REALMENTE têm valor nesta profundidade. Antes usava o total
+      // de linhas da planilha, então 20-40 com 3 de 7 zonas preenchidas aparecia como
+      // "7 zonas", igual ao 00-20.
+      count = isAvail ? _contaZonasNaProfundidade(label) : 0;
     }else if(S.depthCol){
       const matching=S.csvData.filter(r=>normDepth(r[S.depthCol])===normDepth(label));
       isAvail=matching.length>0; count=matching.length;
