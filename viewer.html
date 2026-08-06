@@ -664,6 +664,10 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       <span data-i18n="genPdf">Gerar Relatório PDF</span>
     </button>
+    <button class="pdf-btn" id="btn-xls" style="margin-top:8px;background:#fff;color:var(--ink);border:1.5px solid var(--sand2)">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      <span data-i18n="expXls">Exportar planilha</span>
+    </button>
   </div>
 
   <div class="sec" id="sec-link" style="display:none">
@@ -1341,7 +1345,7 @@ const I18N = {
   upGeoTitle:'Zonas (GeoJSON / Shapefile)',upCsvTitle:'Carregar Excel / CSV',demo:'▶ Carregar demonstração',
   cmpTitle:'Modo Comparação',cmpSub:'Ver duas profundidades lado a lado',invert:'Inverter cores',
   nClasses:'Nº de classes',opacity:'Opacidade',lblSize:'Tamanho do rótulo',showVals:'Mostrar valores nas zonas',
-  genPdf:'Gerar Relatório PDF',genLink:'Gerar link de visualização',copyLink:'📋 Copiar link',
+  genPdf:'Gerar Relatório PDF',expXls:'Exportar planilha',genLink:'Gerar link de visualização',copyLink:'📋 Copiar link',
   lm1Title:'Modelo 1 — Dados prontos',lm1Sub:'O cliente abre e só interage com os dados do projeto',
   lm2Title:'Modelo 2 — Cliente importa',lm2Sub:'O cliente carrega as próprias zonas e planilha (fica salvo no dispositivo dele)',
   projName:'Nome do projeto (pasta no servidor)',openAt:'Abrir já na profundidade e nutriente atuais',
@@ -1381,7 +1385,7 @@ const I18N = {
   upGeoTitle:'Zonas (GeoJSON / Shapefile)',upCsvTitle:'Cargar Excel / CSV',demo:'▶ Cargar demostración',
   cmpTitle:'Modo Comparación',cmpSub:'Ver dos profundidades lado a lado',invert:'Invertir colores',
   nClasses:'N° de clases',opacity:'Opacidad',lblSize:'Tamaño de la etiqueta',showVals:'Mostrar valores en las zonas',
-  genPdf:'Generar Informe PDF',genLink:'Generar enlace de visualización',copyLink:'📋 Copiar enlace',
+  genPdf:'Generar Informe PDF',expXls:'Exportar planilla',genLink:'Generar enlace de visualización',copyLink:'📋 Copiar enlace',
   lm1Title:'Modelo 1 — Datos listos',lm1Sub:'El cliente abre y solo interactúa con los datos del proyecto',
   lm2Title:'Modelo 2 — Cliente importa',lm2Sub:'El cliente carga sus propias zonas y planilla (queda guardado en su dispositivo)',
   projName:'Nombre del proyecto (carpeta en el servidor)',openAt:'Abrir ya en la profundidad y nutriente actuales',
@@ -1908,6 +1912,8 @@ function renderMap(){
   document.body.classList.add('has-data');
   document.getElementById('sec-leg').style.display='';
   document.getElementById('sec-pdf').style.display='';
+  // "Exportar planilha" só aparece se existir o arquivo original enviado
+  try{ const _bx=document.getElementById('btn-xls'); if(_bx) _bx.style.display=_urlPlanilhaOriginal()?'':'none'; }catch(e){}
   if(!document.body.classList.contains('viewmode')) document.getElementById('sec-link').style.display='';
   if(S.extras && S.extras.length){ multiRenderExtrasNutrient(); }
 }
@@ -2491,6 +2497,40 @@ document.getElementById('btn-demo').addEventListener('click',()=>{
 
 // ══ PDF MODAL ══
 const modalBg=document.getElementById('modal-bg');
+// ── Exportar a planilha de nutrientes ORIGINAL ──────────────────────────────
+// Baixa o arquivo exatamente como foi enviado (bytes do storage), sem reconstruir
+// nada a partir dos dados já lidos — assim abas, formatação e colunas ficam intactas.
+// Vale para o Relatório Padrão e para o Modelo B (é o mesmo arquivo de origem).
+function _urlPlanilhaOriginal(){
+  const d=S.linkData||{};
+  return d.planilha_url || d.analises_url || (S.rec && S.rec.urlNut) || '';
+}
+function _nomeArqPlanilha(url){
+  const d=S.linkData||{};
+  const ext=((String(url).split('?')[0].split('.').pop())||'xlsx').toLowerCase();
+  const partes=['Planilha de Nutrientes', d.cliente, d.fazenda, d.talhao].filter(Boolean);
+  const limpa=s=>String(s).replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim();
+  return partes.map(limpa).join(' - ')+'.'+(/^(xlsx|xls|csv)$/.test(ext)?ext:'xlsx');
+}
+async function exportarPlanilhaOriginal(){
+  const url=_urlPlanilhaOriginal();
+  if(!url){ toast('Nenhuma planilha de nutrientes foi enviada para este talhão','wrn'); return; }
+  try{
+    toast('Baixando planilha…','ok');
+    const resp=await fetch(url, {cache:'no-store'});
+    if(!resp.ok) throw new Error('HTTP '+resp.status);
+    const blob=await resp.blob();
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=_nomeArqPlanilha(url);
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }catch(err){
+    toast('Não foi possível baixar a planilha: '+(err.message||err),'err');
+  }
+}
+const _bx=document.getElementById('btn-xls');
+if(_bx) _bx.addEventListener('click', exportarPlanilhaOriginal);
 document.getElementById('btn-pdf').addEventListener('click',()=>{
   if(!S.geoData||!S.colorCol){toast('Carregue os dados primeiro','wrn');return;}
   if(S.modeloB && S.modeloB.on){ openMbModal(); return; }
@@ -6711,6 +6751,8 @@ function renderCompare(){
   document.body.classList.add('has-data');
   document.getElementById('sec-leg').style.display='';
   document.getElementById('sec-pdf').style.display='';
+  // "Exportar planilha" só aparece se existir o arquivo original enviado
+  try{ const _bx=document.getElementById('btn-xls'); if(_bx) _bx.style.display=_urlPlanilhaOriginal()?'':'none'; }catch(e){}
 }
 function setCompareMode(on){
   if(on && !S.geoData){ toast('Carregue os dados primeiro','wrn'); return; }
