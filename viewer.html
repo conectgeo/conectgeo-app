@@ -1350,6 +1350,23 @@ function initMap(){
 }
 // espera os tiles do basemap ativo terminarem de carregar antes de capturar o mapa
 // (evita "buracos" brancos no satélite quando os tiles ainda não chegaram). timeout de segurança.
+// Espera o mapa terminar de desenhar, em vez de um atraso fixo.
+// Aguarda 2 quadros de animação (o Leaflet já aplicou transforms e o SVG já pintou) e
+// resolve. O maxMs é só teto de segurança. Antes havia um setTimeout fixo de 520ms por
+// captura — com 15 nutrientes, ~8s de espera desnecessária por relatório.
+function _waitRender(maxMs){
+  return new Promise(resolve=>{
+    let done=false;
+    const fim=()=>{ if(done) return; done=true; resolve(); };
+    const t=setTimeout(fim, Math.max(60, maxMs||500));
+    try{
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        // uma folga curta para o navegador pintar antes do html2canvas ler o DOM
+        setTimeout(()=>{ clearTimeout(t); fim(); }, 40);
+      }));
+    }catch(e){ }
+  });
+}
 function _waitTiles(maxMs){
   return new Promise(resolve=>{
     try{
@@ -3926,11 +3943,13 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
     // re-renderiza rótulos com o tamanho fixo já definido
     try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); if(S.showLabels){ clearLabels(); drawLabels(); } }catch(e){}
     if(S.activeBase==='satelite'){ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }
-    else { await new Promise(r=>setTimeout(r, 520)); }
+    else { await _waitRender(520); }
     const _timeout=(ms)=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout captura')),ms));
-    const _h2c=async()=>{ const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:Math.max(3,(window.devicePixelRatio||1)*2),logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); return cv.toDataURL('image/png'); };
+    // JPEG em vez de PNG: o mapa é imagem colorida contínua, onde o PNG gera um base64
+    // muito maior e mais lento de inserir no PDF, sem ganho visual perceptível.
+    const _h2c=async()=>{ const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:Math.max(3,(window.devicePixelRatio||1)*2),logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); return cv.toDataURL('image/jpeg',0.92); };
     try{
-      const cap = S.shooter ? S.shooter.takeScreen('image',{mimeType:'image/png'}) : _h2c();
+      const cap = S.shooter ? S.shooter.takeScreen('image',{mimeType:'image/jpeg'}) : _h2c();
       img = await Promise.race([cap, _timeout(9000)]);
     }catch(e1){
       console.warn('[modeloB] captura principal falhou/timeout; tentando html2canvas:', col, e1);
@@ -4254,30 +4273,58 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
         const niv=(idealMap&&idealMap[it.def.key])||{};
         caps.push({it,img,valor:(niv.valor!=null?niv.valor:''),unidade:(niv.unidade!=null?niv.unidade:it.def.uid)});
       }
-      const page=document.createElement('div');
-      page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
-      let html='';
+      // ── DESENHO DIRETO NO jsPDF ──────────────────────────────────────────────
+      // Antes: montava um <div> A4 e fotografava com html2canvas @3x (8,7 Mpx por
+      // página, ~2,5s cada). Agora só as IMAGENS dos mapas são bitmap; títulos, molduras
+      // e caixas são vetoriais — mais rápido, arquivo menor e texto nítido/selecionável.
+      if(!first) doc.addPage(); first=false;
+      const K=PW/pageW;                       // px do layout → mm no PDF
+      const mm=v=>v*K;
+      const fpt=px=>px*K*2.834645669;         // px do layout → pt de fonte
+      doc.setDrawColor(51,51,51); doc.setTextColor(34,34,34);
+
       if(trio){
         const hd=pg.header||'Potencial Químico para o Crescimento de Raiz em Profundidade (20-40cm)';
-        html+='<div style="position:absolute;left:'+marg+'px;right:'+marg+'px;top:18px;height:'+headerH+'px;border:1px solid #444;border-radius:3px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:17px;font-weight:700;padding:0 18px;">'+hd+'</div>';
+        doc.setLineWidth(0.25); doc.setDrawColor(68,68,68);
+        doc.roundedRect(mm(marg), mm(18), mm(pageW-2*marg), mm(headerH), 0.8, 0.8);
+        doc.setFont('helvetica','bold'); doc.setFontSize(fpt(17));
+        doc.text(hd, mm(pageW/2), mm(18+headerH/2)+1.5, {align:'center', maxWidth:mm(pageW-2*marg-36)});
       }
+
       caps.forEach((cap,i)=>{
         const cx=leftOf(i), d=cap.it.def;
         const linhas=[d.nome, d.uni, '('+cap.it.prof+'cm)'].filter(Boolean);
-        html+='<div style="position:absolute;left:'+(cx+cellW/2-90)+'px;top:'+topY+'px;width:180px;border:1px solid #444;border-radius:3px;padding:8px 6px;text-align:center;font-size:14px;font-weight:600;line-height:1.3;">'+linhas.join('<br>')+'</div>';
-        html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;">'
-          +'<img src="'+cap.img+'" style="width:100%;height:100%;object-fit:cover;display:block;">'
-          +'<div style="position:absolute;left:10px;top:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:11px;">Nível Ideal: '+(cap.valor!==''?cap.valor:'—')+(cap.unidade?(' '+cap.unidade):'')+'</div>'
-          +(i===caps.length-1?'<img src="'+logoSrc+'" style="position:absolute;right:14px;bottom:12px;height:66px;max-width:250px;object-fit:contain;z-index:5;">':'')
-          +'</div>';
+        // caixa do título (180px de largura, centrada na célula)
+        const tw=180, tx=cx+cellW/2-tw/2;
+        const th=8+linhas.length*18+8;
+        doc.setLineWidth(0.25); doc.setDrawColor(68,68,68);
+        doc.roundedRect(mm(tx), mm(topY), mm(tw), mm(th), 0.8, 0.8);
+        doc.setFont('helvetica','bold'); doc.setFontSize(fpt(14));
+        linhas.forEach((ln,k)=>{
+          doc.text(ln, mm(cx+cellW/2), mm(topY+8+18*k)+mm(13), {align:'center', maxWidth:mm(tw-10)});
+        });
+        // moldura do mapa + imagem
+        doc.setDrawColor(51,51,51); doc.setLineWidth(0.25);
+        doc.rect(mm(cx), mm(mapTop), mm(cellW), mm(cellH));
+        if(cap.img){
+          try{ doc.addImage(cap.img,'JPEG', mm(cx), mm(mapTop), mm(cellW), mm(cellH), undefined, 'FAST'); }
+          catch(e){ console.warn('[modeloB] addImage falhou:', d.key, e); }
+        }
+        // caixa "Nível Ideal"
+        const txt='Nível Ideal: '+(cap.valor!==''?cap.valor:'—')+(cap.unidade?(' '+cap.unidade):'');
+        doc.setFont('helvetica','normal'); doc.setFontSize(fpt(11));
+        const bw=doc.getTextWidth(txt)+mm(16), bh=mm(20);
+        doc.setFillColor(255,255,255); doc.setDrawColor(51,51,51); doc.setLineWidth(0.2);
+        doc.rect(mm(cx+10), mm(mapTop+10), bw, bh, 'FD');
+        doc.text(txt, mm(cx+10)+mm(8), mm(mapTop+10)+bh/2+1);
+        // logo na última célula
+        if(i===caps.length-1 && logoSrc){
+          try{
+            const lh=mm(66), lw=mm(250);
+            doc.addImage(logoSrc, mm(cx+cellW-14)-lw, mm(mapTop+cellH-12)-lh, lw, lh, undefined, 'FAST');
+          }catch(e){}
+        }
       });
-      page.innerHTML=html;
-      document.body.appendChild(page);
-      await new Promise(r=>setTimeout(r,150));
-      let cv=null; try{ cv=await Promise.race([html2canvas(page,{scale:3,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
-      document.body.removeChild(page);
-      if(!first) doc.addPage(); first=false;
-      if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
     }
     // página final "Zonas de Manejo" (Biomassa/Umidade/Textura) — só renderiza se houver URLs configuradas E o consultor não desmarcou
     const zonasUrls=(S.modeloB&&S.modeloB.zonas)||{};
@@ -4296,35 +4343,65 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       const n=zonasItens.length;
       const cellW=(pageW-2*marg-(n-1)*gap)/n;
       const leftOf=i=>marg+i*(cellW+gap);
-      const page=document.createElement('div');
-      page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
-      let html='<div style="position:absolute;left:'+marg+'px;right:'+marg+'px;top:18px;height:'+headerH+'px;border:1px solid #444;border-radius:3px;display:flex;align-items:center;justify-content:center;text-align:center;font-size:17px;font-weight:700;padding:0 18px;">Levantamento Médio de Várias Safras para Elaboração das Zonas de Manejo</div>';
-      // LEGENDAS FIXAS POR TIPO — ajuste as cores/labels para casar com seus GeoTIFFs coloridos
+      // ── DESENHO DIRETO NO jsPDF (mesma abordagem das páginas de nutrientes) ──
       const legend={
         evi:[['Ótimo','#27ae60'],['Médio','#f1c40f'],['Ruim','#e67e22']],
         ndmi:[['Ótimo','#3498db'],['Médio','#eef0a8'],['Ruim','#e67e22']],
         textura:[['Mais Argilosa','#a0522d'],['Mais Arenosa','#f5deb3']]
       };
       const tituloLeg={evi:'Índice de Biomassa',ndmi:'Índice de Água',textura:'Índice de Textura'};
+      if(!first) doc.addPage(); first=false;
+      const K=PW/pageW, mm=v=>v*K, fpt=px=>px*K*2.834645669;
+      const _hex=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+      doc.setTextColor(34,34,34);
+      // faixa de cabeçalho
+      doc.setDrawColor(68,68,68); doc.setLineWidth(0.25);
+      doc.roundedRect(mm(marg), mm(18), mm(pageW-2*marg), mm(headerH), 0.8, 0.8);
+      doc.setFont('helvetica','bold'); doc.setFontSize(fpt(17));
+      doc.text('Levantamento Médio de Várias Safras para Elaboração das Zonas de Manejo',
+               mm(pageW/2), mm(18+headerH/2)+1.5, {align:'center', maxWidth:mm(pageW-2*marg-36)});
       zonasItens.forEach((z,i)=>{
         const cx=leftOf(i);
-        html+='<div style="position:absolute;left:'+cx+'px;top:'+(18+headerH)+'px;width:'+cellW+'px;height:'+(mapTop-(18+headerH))+'px;display:flex;align-items:center;justify-content:center;">'
-          +'<div style="width:180px;height:'+_tbH+'px;border:1px solid #444;border-radius:3px;font-size:14px;font-weight:600;line-height:1.2;display:flex;align-items:center;justify-content:center;text-align:center;padding:4px 6px;box-sizing:border-box;">'+z.nome+'</div>'
-          +'</div>';
-        html+='<div style="position:absolute;left:'+cx+'px;top:'+mapTop+'px;width:'+cellW+'px;height:'+cellH+'px;border:1px solid #333;background:#fff;overflow:hidden;display:flex;align-items:center;justify-content:center;">'
-          +'<img src="'+z.img+'" style="max-width:68%;max-height:68%;width:auto;height:auto;object-fit:contain;display:block;image-rendering:auto;">'
-          +'<div style="position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);border:1px solid #333;border-radius:2px;padding:4px 8px;font-size:10px;">'
-          +'<div style="font-weight:700;margin-bottom:3px;">'+(tituloLeg[z.key]||'')+'</div>'
-          +(legend[z.key]||[]).map(L=>'<div style="display:flex;align-items:center;gap:6px;margin:1px 0;"><span style="display:inline-block;width:12px;height:10px;background:'+L[1]+';border:1px solid #333;"></span>'+L[0]+'</div>').join('')
-          +'</div>'+(i===zonasItens.length-1?'<img src="'+logoSrc+'" style="position:absolute;right:14px;bottom:12px;height:66px;max-width:250px;object-fit:contain;z-index:5;">':'')+'</div>';
+        // caixa do título do índice
+        const tw=180, tx=cx+cellW/2-tw/2;
+        doc.setDrawColor(68,68,68); doc.setLineWidth(0.25);
+        doc.roundedRect(mm(tx), mm(_tTop), mm(tw), mm(_tbH), 0.8, 0.8);
+        doc.setFont('helvetica','bold'); doc.setFontSize(fpt(14));
+        doc.text(z.nome, mm(cx+cellW/2), mm(_tTop+_tbH/2)+1.5, {align:'center', maxWidth:mm(tw-10)});
+        // moldura + imagem (contida a 68%, centralizada, como no layout antigo)
+        doc.setDrawColor(51,51,51); doc.setLineWidth(0.25);
+        doc.rect(mm(cx), mm(mapTop), mm(cellW), mm(cellH));
+        if(z.img){
+          try{
+            const iw=cellW*0.68, ih=cellH*0.68;
+            doc.addImage(z.img,'PNG', mm(cx+(cellW-iw)/2), mm(mapTop+(cellH-ih)/2), mm(iw), mm(ih), undefined, 'FAST');
+          }catch(e){ console.warn('[modeloB] addImage zonas falhou:', z.key, e); }
+        }
+        // caixa de legenda (canto inferior esquerdo)
+        const itens=(legend[z.key]||[]);
+        const lgW=150, lgH=16+itens.length*14+6;
+        const lgX=cx+10, lgY=mapTop+cellH-10-lgH;
+        doc.setFillColor(255,255,255); doc.setDrawColor(51,51,51); doc.setLineWidth(0.2);
+        doc.rect(mm(lgX), mm(lgY), mm(lgW), mm(lgH), 'FD');
+        doc.setFont('helvetica','bold'); doc.setFontSize(fpt(10));
+        doc.text(tituloLeg[z.key]||'', mm(lgX+6), mm(lgY+6)+mm(8));
+        doc.setFont('helvetica','normal');
+        itens.forEach((L,k)=>{
+          const yy=lgY+18+k*14;
+          const c=_hex(L[1]);
+          doc.setFillColor(c[0],c[1],c[2]); doc.setDrawColor(51,51,51); doc.setLineWidth(0.15);
+          doc.rect(mm(lgX+6), mm(yy), mm(12), mm(10), 'FD');
+          doc.setTextColor(34,34,34);
+          doc.text(String(L[0]), mm(lgX+22), mm(yy)+mm(8.5));
+        });
+        // logo na última célula
+        if(i===zonasItens.length-1 && logoSrc){
+          try{
+            const lh=mm(66), lw=mm(250);
+            doc.addImage(logoSrc, mm(cx+cellW-14)-lw, mm(mapTop+cellH-12)-lh, lw, lh, undefined, 'FAST');
+          }catch(e){}
+        }
       });
-      page.innerHTML=html;
-      document.body.appendChild(page);
-      await new Promise(r=>setTimeout(r,150));
-      let cv=null; try{ cv=await Promise.race([html2canvas(page,{scale:3,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
-      document.body.removeChild(page);
-      if(!first) doc.addPage(); first=false;
-      if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
     }
     if(first){ restore(); hideLoading(); toast('Nada para imprimir — nenhuma página foi gerada','wrn'); return; }
     restore(); hideLoading();
