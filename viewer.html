@@ -10,6 +10,10 @@
 <script src="https://unpkg.com/shpjs@4.0.4/dist/shp.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- SnapDOM: captura de DOM bem mais rápida que o html2canvas. O html2canvas continua
+     carregado como RESERVA: se o SnapDOM falhar (ex.: azulejo de satélite bloqueado por
+     CORS), a captura cai automaticamente para ele. Ver _capturaImg(). -->
+<script src="https://cdn.jsdelivr.net/npm/@zumer/snapdom@2.24.1/dist/snapdom.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
@@ -2876,7 +2880,7 @@ async function generatePDF(nutrients){
     else { await new Promise(r=>setTimeout(r, 550)); }
     let img;
     if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/png'}); }
-    else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:Math.max(3,(window.devicePixelRatio||1)*2),logging:false,backgroundColor:'#ffffff'}); img=cv.toDataURL('image/png'); }
+    else { img=await _capturaImg(mapEl,{backgroundColor:'#ffffff'}); }
     // combined stats across primary + extras for this depth
     const st=computeCombinedStats();
     return {img, st};
@@ -3079,7 +3083,7 @@ async function generatePDF(nutrients){
       page.innerHTML=headerHTML+mapsHTML+rightHTML+footerHTML;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      const pageCanvas=await html2canvas(page,{scale:_pdfScale,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
+      const pageCanvas=await _capturaCanvas(page,{scale:_pdfScale});
       document.body.removeChild(page);
       if(n>0) doc.addPage();
       doc.addImage(pageCanvas.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
@@ -3089,6 +3093,7 @@ async function generatePDF(nutrients){
     hideLoading();
     // nome padrão: Relatório de Fertilidade - cliente - fazenda - talhão
     doc.save(_nomeArquivo('Relatório de Fertilidade', produtor, fazenda, talhoes)+'.pdf');
+    try{ _capResumo(); }catch(e){}
     toast(t('tPdfOk',nutrients.length),'ok');
   }catch(err){
     restore(); hideLoading();
@@ -3097,6 +3102,65 @@ async function generatePDF(nutrients){
 }
 
 // ══ MODO LINK (visualização por URL) ══
+// ═══════════════════════════════════════════════════════════════
+// CAPTURA DE TELA (PDF) — SnapDOM com reserva no html2canvas
+//
+// O SnapDOM clona o DOM e renderiza via SVG, em vez de reconstruir o layout
+// comando a comando como o html2canvas. Na prática é bem mais rápido, sobretudo
+// com muitos polígonos e rótulos, que é o caso dos mapas de nutrientes.
+//
+// A reserva existe porque as duas bibliotecas dependem de Canvas e, portanto, de
+// CORS: se algum azulejo de satélite não for liberado, a captura falha. Nesse caso
+// caímos automaticamente no html2canvas, que já funcionava antes.
+//
+// Para comparar: no console do navegador use
+//    CG_CAPTURA = 'html2canvas'   (força o método antigo)
+//    CG_CAPTURA = 'snapdom'       (força o novo)
+//    CG_CAPTURA = 'auto'          (padrão: SnapDOM com reserva)
+// Os tempos de cada captura são impressos no console.
+// ═══════════════════════════════════════════════════════════════
+window.CG_CAPTURA = window.CG_CAPTURA || 'auto';
+const _capStats = { snapdom:{n:0,ms:0}, html2canvas:{n:0,ms:0} };
+function _capResumo(){
+  const f=(o)=>o.n?`${o.n} capturas, ${(o.ms/1000).toFixed(1)}s total, ${Math.round(o.ms/o.n)}ms cada`:'não usado';
+  console.log('[captura] SnapDOM     :', f(_capStats.snapdom));
+  console.log('[captura] html2canvas :', f(_capStats.html2canvas));
+}
+// Captura um elemento e devolve um CANVAS. opts: {scale, backgroundColor}
+async function _capturaCanvas(el, opts){
+  opts = opts || {};
+  const escala = opts.scale || Math.max(3,(window.devicePixelRatio||1)*2);
+  const fundo  = opts.backgroundColor || '#ffffff';
+  const modo   = window.CG_CAPTURA || 'auto';
+
+  // 1) SnapDOM (rápido)
+  if(modo!=='html2canvas' && window.snapdom){
+    const t0=performance.now();
+    try{
+      const cv = await window.snapdom.toCanvas(el, {scale:escala, backgroundColor:fundo});
+      if(cv && cv.width>1 && cv.height>1){
+        _capStats.snapdom.n++; _capStats.snapdom.ms+=performance.now()-t0;
+        return cv;
+      }
+      console.warn('[captura] SnapDOM devolveu canvas vazio; usando html2canvas');
+    }catch(e){
+      console.warn('[captura] SnapDOM falhou; usando html2canvas:', e && e.message);
+    }
+  }
+  // 2) html2canvas (reserva — comportamento anterior)
+  const t1=performance.now();
+  const cv = await html2canvas(el,{useCORS:true,allowTaint:true,scale:escala,logging:false,backgroundColor:fundo});
+  _capStats.html2canvas.n++; _capStats.html2canvas.ms+=performance.now()-t1;
+  return cv;
+}
+// Mesma captura, já devolvendo dataURL. opts aceita ainda {formato:'png'|'jpeg', qualidade}
+async function _capturaImg(el, opts){
+  opts = opts || {};
+  const cv = await _capturaCanvas(el, opts);
+  const fmt=(opts.formato||'png').toLowerCase();
+  return (fmt==='jpeg'||fmt==='jpg') ? cv.toDataURL('image/jpeg', opts.qualidade||0.92)
+                                     : cv.toDataURL('image/png');
+}
 async function fetchBuf(url){
   // no-store: sem isso o navegador podia devolver a planilha ANTIGA do cache
   const resp=await fetch(url, {cache:'no-store'});
@@ -3935,7 +3999,7 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
     if(S.activeBase==='satelite'){ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }
     else { await new Promise(r=>setTimeout(r, 520)); }
     const _timeout=(ms)=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout captura')),ms));
-    const _h2c=async()=>{ const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:Math.max(3,(window.devicePixelRatio||1)*2),logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); return cv.toDataURL('image/png'); };
+    const _h2c=async()=>_capturaImg(mapEl,{backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')});
     try{
       const cap = S.shooter ? S.shooter.takeScreen('image',{mimeType:'image/png'}) : _h2c();
       img = await Promise.race([cap, _timeout(9000)]);
@@ -4281,7 +4345,7 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       page.innerHTML=html;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      let cv=null; try{ cv=await Promise.race([html2canvas(page,{scale:3,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
+      let cv=null; try{ cv=await Promise.race([_capturaCanvas(page,{scale:3}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
       document.body.removeChild(page);
       if(!first) doc.addPage(); first=false;
       if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
@@ -4328,7 +4392,7 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       page.innerHTML=html;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      let cv=null; try{ cv=await Promise.race([html2canvas(page,{scale:3,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
+      let cv=null; try{ cv=await Promise.race([_capturaCanvas(page,{scale:3}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
       document.body.removeChild(page);
       if(!first) doc.addPage(); first=false;
       if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
@@ -4339,6 +4403,7 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
     const _ldB=S.linkData||{};
     const _tlsB=[_ldB.talhao].concat((S.extras||[]).map(ex=>ex.nome)).filter(Boolean).join(', ');
     doc.save(_nomeArquivo('Relatório de Fertilidade', _ldB.cliente, _ldB.fazenda, _tlsB)+'.pdf');
+    try{ _capResumo(); }catch(e){}
     toast('Relatório (Modelo B) gerado','ok');
   }catch(err){ restore(); hideLoading(); toast('Erro ao gerar Modelo B: '+(err.message||err),'err'); console.error(err); }
 }
@@ -4536,7 +4601,7 @@ async function generateRecPDF(insumos){
 
       let mapImg;
       if(S.shooter){ mapImg=await S.shooter.takeScreen('image',{mimeType:'image/png'}); }
-      else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:Math.max(3,(window.devicePixelRatio||1)*2),logging:false,backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); mapImg=cv.toDataURL('image/png'); }
+      else { mapImg=await _capturaImg(mapEl,{backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); }
 
       const st=recComputeStats(col);
       const sb=recScaleBar(660);
@@ -4589,7 +4654,7 @@ async function generateRecPDF(insumos){
       page.innerHTML=headerHTML+mapCellHTML+rightHTML+footerHTML;
       document.body.appendChild(page);
       await new Promise(r=>setTimeout(r,150));
-      const pageCanvas=await html2canvas(page,{scale:3,logging:false,backgroundColor:'#ffffff',useCORS:true,allowTaint:true});
+      const pageCanvas=await _capturaCanvas(page,{scale:3});
       document.body.removeChild(page);
 
       if(n>0) doc.addPage();
@@ -4601,6 +4666,7 @@ async function generateRecPDF(insumos){
     // nome padrão: Taxa Variável de <insumo> (1 insumo) | Taxa Variável Geral (vários)
     const _tvTitulo=(insumos.length===1)?('Taxa Variável de '+insumos[0]):'Taxa Variável Geral';
     doc.save(_nomeArquivo(_tvTitulo, cliente, regiao, talhao)+'.pdf');
+    try{ _capResumo(); }catch(e){}
     toast('Relatório gerado ('+insumos.length+' '+(insumos.length>1?'insumos':'insumo')+')','ok');
   }catch(err){
     restore(); hideLoading();
@@ -4743,6 +4809,11 @@ function _exportAlvos(){
     });
   }
   (S.extras||[]).forEach(ex=>{
+    // Relatório B: a recomendação do extra é derivada da planilha de nutrientes dele.
+    // Isso só acontecia ao DESENHAR o mapa, nunca aqui — então a exportação enxergava
+    // apenas o talhão principal: o zip saía incompleto e o botão "Exportar unificado"
+    // (que exige 2+ talhões) nunca aparecia no Modelo B.
+    try{ _mbEnsureExtraRec(ex); }catch(e){}
     if(ex.rec && ex.rec.rows && ex.rec.rows.length){
       alvos.push({
         nome: ex.nome||'talhao',
