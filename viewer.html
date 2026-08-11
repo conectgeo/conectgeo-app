@@ -2784,6 +2784,7 @@ function _pdfBaseHide(){
 }
 
 async function generatePDF(nutrients){
+  _zeraFases(); window._tIniPDF=performance.now();
   showLoading(t('loadingPrep'));
   // garante que extras estejam no modo nutrientes (sem camadas de coleta/recomendação)
   if(S.extras && S.extras.length){ try{ multiApplyMode('nutrientes'); }catch(e){} }
@@ -2876,10 +2877,12 @@ async function generatePDF(nutrients){
     });
     try{ if(b) S.map.fitBounds(b,{padding:[20,20],animate:false}); }catch(e){}
     try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.90),{animate:false}); }catch(e){}   // afasta ~10%
-    if(S.activeBase==='satelite'){ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }
-    else { await new Promise(r=>setTimeout(r, 550)); }
+    if(S.activeBase==='satelite'){ await _medir('espera satélite',async()=>{ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }); }
+    else { await _medir('espera mapa',()=>new Promise(r=>setTimeout(r, 550))); }
     let img;
-    if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/png'}); }
+    // O plugin simpleMapScreenshoter usa html2canvas por dentro e é o real gargalo
+    // (além de gerar dezenas de erros de CSS no console). O SnapDOM é bem mais rápido.
+    if(window.CG_PLUGIN_MAPA && S.shooter){ img=await _medir('mapa (plugin)',()=>S.shooter.takeScreen('image',{mimeType:'image/png'})); }
     else { img=await _capturaImg(mapEl,{backgroundColor:'#ffffff'}); }
     // combined stats across primary + extras for this depth
     const st=computeCombinedStats();
@@ -3082,11 +3085,12 @@ async function generatePDF(nutrients){
       page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
       page.innerHTML=headerHTML+mapsHTML+rightHTML+footerHTML;
       document.body.appendChild(page);
-      await new Promise(r=>setTimeout(r,150));
+      await _medir('montar página',()=>new Promise(r=>setTimeout(r,150)));
       const pageCanvas=await _capturaCanvas(page,{scale:_pdfScale});
       document.body.removeChild(page);
       if(n>0) doc.addPage();
-      doc.addImage(pageCanvas.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
+      { const _u=_medirSync('codificar JPEG',()=>pageCanvas.toDataURL('image/jpeg',CG_JPEG_Q));
+        _medirSync('inserir no PDF',()=>doc.addImage(_u,'JPEG',0,0,PW,PH,undefined,CG_PDF_COMP)); }
     }
 
     restore();
@@ -3120,11 +3124,40 @@ async function generatePDF(nutrients){
 // Os tempos de cada captura são impressos no console.
 // ═══════════════════════════════════════════════════════════════
 window.CG_CAPTURA = window.CG_CAPTURA || 'auto';
+// Usar o plugin simpleMapScreenshoter para capturar os mapas? Ele usa html2canvas por
+// dentro, é o principal gargalo do relatório e enche o console de erros de CSS.
+// Padrão: false (usa SnapDOM). Para comparar: CG_PLUGIN_MAPA = true no console.
+if(typeof window.CG_PLUGIN_MAPA==='undefined') window.CG_PLUGIN_MAPA = false;
+// Qualidade do JPEG da página. 0.98 é compressão quase sem perda: muito lenta e pesada.
+// 0.92 é visualmente equivalente e bem mais rápida.
+if(typeof window.CG_JPEG_Q==='undefined') window.CG_JPEG_Q = 0.92;
+// Compressão do jsPDF. 'SLOW' RE-comprime uma imagem que já veio comprimida em JPEG,
+// gastando tempo com ganho mínimo de tamanho. 'FAST' evita esse trabalho dobrado.
+if(typeof window.CG_PDF_COMP==='undefined') window.CG_PDF_COMP = 'FAST';
 const _capStats = { snapdom:{n:0,ms:0}, html2canvas:{n:0,ms:0} };
+// cronômetro por FASE — mostra onde o tempo do relatório realmente vai
+const _fases = {};
+function _cron(nome, ms){ const f=(_fases[nome]=_fases[nome]||{n:0,ms:0}); f.n++; f.ms+=ms; }
+function _medirSync(nome, fn){ const t=performance.now(); const r=fn(); _cron(nome, performance.now()-t); return r; }
+async function _medir(nome, fn){ const t=performance.now(); const r=await fn(); _cron(nome, performance.now()-t); return r; }
+function _zeraFases(){ for(const k in _fases) delete _fases[k]; _capStats.snapdom={n:0,ms:0}; _capStats.html2canvas={n:0,ms:0}; }
 function _capResumo(){
-  const f=(o)=>o.n?`${o.n} capturas, ${(o.ms/1000).toFixed(1)}s total, ${Math.round(o.ms/o.n)}ms cada`:'não usado';
-  console.log('[captura] SnapDOM     :', f(_capStats.snapdom));
-  console.log('[captura] html2canvas :', f(_capStats.html2canvas));
+  const f=(o)=>o.n?`${o.n}x, ${(o.ms/1000).toFixed(1)}s total, ${Math.round(o.ms/o.n)}ms cada`:'não usado';
+  console.log('%c=== TEMPO POR FASE ===','font-weight:bold');
+  console.log('  captura SnapDOM     :', f(_capStats.snapdom));
+  console.log('  captura html2canvas :', f(_capStats.html2canvas));
+  const ord=Object.keys(_fases).sort((a,b)=>_fases[b].ms-_fases[a].ms);
+  let tot=0; ord.forEach(k=>tot+=_fases[k].ms);
+  ord.forEach(k=>{
+    const o=_fases[k], pct=tot?Math.round(o.ms/tot*100):0;
+    console.log(`  ${k.padEnd(20)}: ${f(o)}  (${pct}% do medido)`);
+  });
+  console.log('  ---------------------');
+  console.log('  soma das fases medidas: '+(tot/1000).toFixed(1)+'s');
+  if(window._tIniPDF){ const T=performance.now()-window._tIniPDF;
+    console.log('  TEMPO TOTAL do relatório : '+(T/1000).toFixed(1)+'s');
+    console.log('  não medido (resto)       : '+((T-tot)/1000).toFixed(1)+'s  <- se for alto, o gargalo está fora das fases acima');
+  }
 }
 // Captura um elemento e devolve um CANVAS. opts: {scale, backgroundColor}
 async function _capturaCanvas(el, opts){
@@ -3996,12 +4029,14 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
     }catch(e){}
     // re-renderiza rótulos com o tamanho fixo já definido
     try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); if(S.showLabels){ clearLabels(); drawLabels(); } }catch(e){}
-    if(S.activeBase==='satelite'){ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }
-    else { await new Promise(r=>setTimeout(r, 520)); }
+    if(S.activeBase==='satelite'){ await _medir('espera satélite',async()=>{ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }); }
+    else { await _medir('espera mapa',()=>new Promise(r=>setTimeout(r, 520))); }
     const _timeout=(ms)=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout captura')),ms));
     const _h2c=async()=>_capturaImg(mapEl,{backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')});
     try{
-      const cap = S.shooter ? S.shooter.takeScreen('image',{mimeType:'image/png'}) : _h2c();
+      const cap = (window.CG_PLUGIN_MAPA && S.shooter)
+        ? _medir('mapa (plugin)',()=>S.shooter.takeScreen('image',{mimeType:'image/png'}))
+        : _h2c();   // padrão: SnapDOM (com reserva no html2canvas)
       img = await Promise.race([cap, _timeout(9000)]);
     }catch(e1){
       console.warn('[modeloB] captura principal falhou/timeout; tentando html2canvas:', col, e1);
@@ -4251,6 +4286,7 @@ async function _geotiffToPng(url){
 }
 
 async function generateModeloB(idealMap, selKeys, imprimirIndices){
+  _zeraFases(); window._tIniPDF=performance.now();
   let matched=modeloBMatch();
   if(!matched.length){ toast('Nenhum nutriente reconhecido para o Modelo B','wrn'); return; }
   // seleção vinda da modal: ARRAY (pode ser VAZIO = nenhum nutriente marcado,
@@ -4344,11 +4380,12 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       });
       page.innerHTML=html;
       document.body.appendChild(page);
-      await new Promise(r=>setTimeout(r,150));
+      await _medir('montar página',()=>new Promise(r=>setTimeout(r,150)));
       let cv=null; try{ cv=await Promise.race([_capturaCanvas(page,{scale:3}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
       document.body.removeChild(page);
       if(!first) doc.addPage(); first=false;
-      if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
+      if(cv){ const _u=_medirSync('codificar JPEG',()=>cv.toDataURL('image/jpeg',CG_JPEG_Q));
+        _medirSync('inserir no PDF',()=>doc.addImage(_u,'JPEG',0,0,PW,PH,undefined,CG_PDF_COMP)); }
     }
     // página final "Zonas de Manejo" (Biomassa/Umidade/Textura) — só renderiza se houver URLs configuradas E o consultor não desmarcou
     const zonasUrls=(S.modeloB&&S.modeloB.zonas)||{};
@@ -4391,11 +4428,12 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       });
       page.innerHTML=html;
       document.body.appendChild(page);
-      await new Promise(r=>setTimeout(r,150));
+      await _medir('montar página',()=>new Promise(r=>setTimeout(r,150)));
       let cv=null; try{ cv=await Promise.race([_capturaCanvas(page,{scale:3}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
       document.body.removeChild(page);
       if(!first) doc.addPage(); first=false;
-      if(cv) doc.addImage(cv.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
+      if(cv){ const _u=_medirSync('codificar JPEG',()=>cv.toDataURL('image/jpeg',CG_JPEG_Q));
+        _medirSync('inserir no PDF',()=>doc.addImage(_u,'JPEG',0,0,PW,PH,undefined,CG_PDF_COMP)); }
     }
     if(first){ restore(); hideLoading(); toast('Nada para imprimir — nenhuma página foi gerada','wrn'); return; }
     restore(); hideLoading();
@@ -4502,6 +4540,7 @@ function openRecPdfModal(){
 }
 
 async function generateRecPDF(insumos){
+  _zeraFases(); window._tIniPDF=performance.now();
   const savedCol=S.rec.col, savedShow=S.rec.showLabels, savedScale=S.rec.labelScale, savedHideId=S.rec.labelsHideId;
   const savedSnap=(S.map&&S.map.options)?S.map.options.zoomSnap:1;
   const sel=document.getElementById('sel-insumo');
@@ -4596,11 +4635,11 @@ async function generateRecPDF(insumos){
       _fitRec();
       renderRecomendacao();
       _fitRec();
-      if(S.activeBase==='satelite'){ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }
-      else { await new Promise(r=>setTimeout(r, 550)); }
+      if(S.activeBase==='satelite'){ await _medir('espera satélite',async()=>{ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }); }
+      else { await _medir('espera mapa',()=>new Promise(r=>setTimeout(r, 550))); }
 
       let mapImg;
-      if(S.shooter){ mapImg=await S.shooter.takeScreen('image',{mimeType:'image/png'}); }
+      if(window.CG_PLUGIN_MAPA && S.shooter){ mapImg=await _medir('mapa (plugin)',()=>S.shooter.takeScreen('image',{mimeType:'image/png'})); }
       else { mapImg=await _capturaImg(mapEl,{backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')}); }
 
       const st=recComputeStats(col);
@@ -4653,12 +4692,13 @@ async function generateRecPDF(insumos){
       page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
       page.innerHTML=headerHTML+mapCellHTML+rightHTML+footerHTML;
       document.body.appendChild(page);
-      await new Promise(r=>setTimeout(r,150));
+      await _medir('montar página',()=>new Promise(r=>setTimeout(r,150)));
       const pageCanvas=await _capturaCanvas(page,{scale:3});
       document.body.removeChild(page);
 
       if(n>0) doc.addPage();
-      doc.addImage(pageCanvas.toDataURL('image/jpeg',0.98),'JPEG',0,0,PW,PH,undefined,'SLOW');
+      { const _u=_medirSync('codificar JPEG',()=>pageCanvas.toDataURL('image/jpeg',CG_JPEG_Q));
+        _medirSync('inserir no PDF',()=>doc.addImage(_u,'JPEG',0,0,PW,PH,undefined,CG_PDF_COMP)); }
     }
 
     restore();
