@@ -1368,10 +1368,11 @@ function _waitTiles(maxMs){
       if(!layer){ setTimeout(resolve, 300); return; }
       let done=false;
       const finish=()=>{ if(done) return; done=true; try{ layer.off('load', onLoad); }catch(e){} resolve(); };
-      const onLoad=()=>{ setTimeout(finish, 150); };   // pequena folga após o último tile
+      const onLoad=()=>{ setTimeout(finish, 80); };   // pequena folga após o último tile
       try{ layer.on('load', onLoad); }catch(e){}
-      // se a camada não está carregando nada (tiles já em cache), resolve rápido
-      try{ if(typeof layer.isLoading==='function' && !layer.isLoading()){ setTimeout(finish, 350); return; } }catch(e){}
+      // tiles já em cache: não há o que esperar — resolve no próximo quadro.
+      // (antes eram 350ms fixos aqui + 250ms depois, por mapa: ~600ms x 24 = 14s à toa)
+      try{ if(typeof layer.isLoading==='function' && !layer.isLoading()){ requestAnimationFrame(()=>finish()); return; } }catch(e){}
       setTimeout(finish, maxMs||4000);                 // teto de segurança
     }catch(e){ setTimeout(resolve, 500); }
   });
@@ -2877,7 +2878,7 @@ async function generatePDF(nutrients){
     });
     try{ if(b) S.map.fitBounds(b,{padding:[20,20],animate:false}); }catch(e){}
     try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.90),{animate:false}); }catch(e){}   // afasta ~10%
-    if(S.activeBase==='satelite'){ await _medir('espera satélite',async()=>{ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }); }
+    if(S.activeBase==='satelite'){ await _medir('espera satélite',()=>_waitTiles(5000)); }
     else { await _medir('espera mapa',()=>new Promise(r=>setTimeout(r, 550))); }
     let img;
     // O plugin simpleMapScreenshoter usa html2canvas por dentro e é o real gargalo
@@ -3085,7 +3086,7 @@ async function generatePDF(nutrients){
       page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
       page.innerHTML=headerHTML+mapsHTML+rightHTML+footerHTML;
       document.body.appendChild(page);
-      await _medir('montar página',()=>new Promise(r=>setTimeout(r,150)));
+      await _medir('montar página',()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
       const pageCanvas=await _capturaCanvas(page,{scale:_pdfScale});
       document.body.removeChild(page);
       if(n>0) doc.addPage();
@@ -3147,7 +3148,8 @@ function _capResumo(){
   console.log('  captura SnapDOM     :', f(_capStats.snapdom));
   console.log('  captura html2canvas :', f(_capStats.html2canvas));
   const ord=Object.keys(_fases).sort((a,b)=>_fases[b].ms-_fases[a].ms);
-  let tot=0; ord.forEach(k=>tot+=_fases[k].ms);
+  let tot=_capStats.snapdom.ms+_capStats.html2canvas.ms;   // captura entra na soma
+  ord.forEach(k=>tot+=_fases[k].ms);
   ord.forEach(k=>{
     const o=_fases[k], pct=tot?Math.round(o.ms/tot*100):0;
     console.log(`  ${k.padEnd(20)}: ${f(o)}  (${pct}% do medido)`);
@@ -4009,14 +4011,13 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
   if(wrap) wrap.style.width=slotW+'px';
   let img='';
   try{
-    try{ S.map.invalidateSize(true); }catch(e){}
-    renderMap();
+    _medirSync('render mapa',()=>{ try{ S.map.invalidateSize(true); }catch(e){} renderMap(); });
     // multi-talhão: garante que os extras estejam desenhados para este nutriente/profundidade
     try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); }catch(e){}
     // enquadra o conjunto TODO (primário + extras), não só o primário
     let b=null; try{ if(S.layer) b=S.layer.getBounds(); }catch(e){}
     if(S.extras) S.extras.forEach(ex=>{ try{ if(ex.bounds) b=b?b.extend(ex.bounds):L.latLngBounds(ex.bounds.getSouthWest(),ex.bounds.getNorthEast()); }catch(e){} });
-    try{ if(b) S.map.fitBounds(b,{padding:[14,14],animate:false}); }catch(e){}
+    _medirSync('enquadrar',()=>{ try{ if(b) S.map.fitBounds(b,{padding:[14,14],animate:false}); }catch(e){} });
     // afasta ~15% (conteúdo a 85% do tamanho) para dar mais margem
     try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.85),{animate:false}); }catch(e){}
     // dimensionamento dos rótulos (Relatório B): usa um PERCENTIL baixo das zonas como
@@ -4028,8 +4029,8 @@ async function _mbCapture(col, inv, prof, slotW, slotH){
       if(rs!=null){ S._pdfFixedFontSize=_pdfFontSizeFromMinSide(rs, S.labelScale, S._pdfCapFactor||3.0); }
     }catch(e){}
     // re-renderiza rótulos com o tamanho fixo já definido
-    try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); if(S.showLabels){ clearLabels(); drawLabels(); } }catch(e){}
-    if(S.activeBase==='satelite'){ await _medir('espera satélite',async()=>{ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }); }
+    _medirSync('rótulos',()=>{ try{ if(S.extras && S.extras.length) multiRenderExtrasNutrient(); if(S.showLabels){ clearLabels(); drawLabels(); } }catch(e){} });
+    if(S.activeBase==='satelite'){ await _medir('espera satélite',()=>_waitTiles(5000)); }
     else { await _medir('espera mapa',()=>new Promise(r=>setTimeout(r, 520))); }
     const _timeout=(ms)=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout captura')),ms));
     const _h2c=async()=>_capturaImg(mapEl,{backgroundColor:(S.activeBase==='satelite'?'#e4e0d4':'#ffffff')});
@@ -4380,7 +4381,7 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       });
       page.innerHTML=html;
       document.body.appendChild(page);
-      await _medir('montar página',()=>new Promise(r=>setTimeout(r,150)));
+      await _medir('montar página',()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
       let cv=null; try{ cv=await Promise.race([_capturaCanvas(page,{scale:3}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
       document.body.removeChild(page);
       if(!first) doc.addPage(); first=false;
@@ -4428,7 +4429,7 @@ async function generateModeloB(idealMap, selKeys, imprimirIndices){
       });
       page.innerHTML=html;
       document.body.appendChild(page);
-      await _medir('montar página',()=>new Promise(r=>setTimeout(r,150)));
+      await _medir('montar página',()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
       let cv=null; try{ cv=await Promise.race([_capturaCanvas(page,{scale:3}), new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout pagina')),20000))]); }catch(_e){ console.warn('[modeloB] pagina falhou/timeout:',_e); }
       document.body.removeChild(page);
       if(!first) doc.addPage(); first=false;
@@ -4597,7 +4598,7 @@ async function generateRecPDF(insumos){
       let b=null; try{ if(S.rec.layer) b=S.rec.layer.getBounds(); }catch(e){}
       if(!b){ try{ if(S.layer) b=S.layer.getBounds(); }catch(e){} }
       if(S.extras) S.extras.forEach(ex=>{ if(ex.bounds){ try{ b=b?b.extend(ex.bounds):L.latLngBounds(ex.bounds.getSouthWest(),ex.bounds.getNorthEast()); }catch(e){} } });
-      try{ if(b) S.map.fitBounds(b,{padding:[14,14],animate:false}); }catch(e){}
+      _medirSync('enquadrar',()=>{ try{ if(b) S.map.fitBounds(b,{padding:[14,14],animate:false}); }catch(e){} });
       try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.90),{animate:false}); }catch(e){}   // afasta ~10%
     };
 
@@ -4635,7 +4636,7 @@ async function generateRecPDF(insumos){
       _fitRec();
       renderRecomendacao();
       _fitRec();
-      if(S.activeBase==='satelite'){ await _medir('espera satélite',async()=>{ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }); }
+      if(S.activeBase==='satelite'){ await _medir('espera satélite',()=>_waitTiles(5000)); }
       else { await _medir('espera mapa',()=>new Promise(r=>setTimeout(r, 550))); }
 
       let mapImg;
@@ -4692,7 +4693,7 @@ async function generateRecPDF(insumos){
       page.style.cssText='position:fixed;left:-99999px;top:0;width:'+pageW+'px;height:'+pageH+'px;background:#fff;font-family:Arial,sans-serif;color:#222;';
       page.innerHTML=headerHTML+mapCellHTML+rightHTML+footerHTML;
       document.body.appendChild(page);
-      await _medir('montar página',()=>new Promise(r=>setTimeout(r,150)));
+      await _medir('montar página',()=>new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r))));
       const pageCanvas=await _capturaCanvas(page,{scale:3});
       document.body.removeChild(page);
 
