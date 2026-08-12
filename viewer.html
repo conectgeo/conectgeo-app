@@ -1208,6 +1208,56 @@ function _decimaisPorColuna(ws, fields, headerRowIdx){
   }catch(e){}
   return out;
 }
+// ══ FORMATO "LABORATÓRIO" (planilha bruta de laboratório, ex.: Coopasam) ══
+// Cabeçalho na 1ª linha, com colunas administrativas que não são análise
+// (Control / Solicitante / Propietario / Lote), zona em "Muestra" e
+// profundidade em "Prof.". Onde o laboratório não analisou, vem "NS".
+// A detecção é por ASSINATURA do cabeçalho — nenhum formato já suportado
+// (padrão, Modelo B, Rec) tem esse conjunto, então nada muda para eles.
+// Só alimenta os mesmos mapas de nutrientes do RELATÓRIO PADRÃO.
+function _normHdr(s){
+  return String(s==null?'':s).toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+}
+const _FMT_LAB_ADMIN = ['control','solicitante','propietario','proprietario','lote'];
+const _FMT_LAB_ZONA  = ['muestra','amostra'];
+function _ehFormatoLab(fields){
+  if(!fields || fields.length < 6) return false;
+  const set = new Set(fields.map(_normHdr));
+  const temZona = _FMT_LAB_ZONA.some(z=>set.has(z));
+  const temProf = fields.some(f=>/^prof/.test(_normHdr(f)));
+  const nAdmin  = _FMT_LAB_ADMIN.filter(k=>set.has(k)).length;
+  return temZona && temProf && nAdmin >= 2;   // precisa das 3 marcas juntas
+}
+function _aplicarFormatoLab(out){
+  const fields=out.fields||[], rows=out.rows||[];
+  const ehNS=v=>String(v==null?'':v).trim().toUpperCase()==='NS';
+  const temValor=v=>v!=null && String(v).trim()!=='';
+  const manter=[], zerarNS=new Set();
+  for(const f of fields){
+    if(_FMT_LAB_ADMIN.includes(_normHdr(f))) continue;    // administrativa: descarta
+    let ns=0, num=0;
+    for(const r of rows){
+      const v=r[f];
+      if(ehNS(v)) ns++;
+      else if(temValor(v) && !isNaN(_brNum(v))) num++;
+    }
+    if(ns>0 && num===0) continue;       // coluna inteira "NS" (não analisada): descarta
+    if(ns>0 && num>0) zerarNS.add(f);   // mista: "NS" vira 0, os números ficam
+    manter.push(f);
+  }
+  const zonaCol=fields.find(f=>_FMT_LAB_ZONA.includes(_normHdr(f)));
+  const novas=[];
+  for(const r of rows){
+    const nr={};
+    for(const f of manter){ let v=r[f]; if(zerarNS.has(f)&&ehNS(v)) v=0; nr[f]=v; }
+    if(zonaCol) nr[zonaCol]=_normZoneVal(nr[zonaCol]);   // "ZG 01" → "1"
+    if(manter.some(f=>temValor(nr[f]))) novas.push(nr);  // some com linhas órfãs
+  }
+  const dec={};
+  if(out.decimais) manter.forEach(f=>{ if(out.decimais[f]!=null) dec[f]=out.decimais[f]; });
+  return {...out, fields:manter, rows:novas, decimais:dec, formatoLab:true};
+}
 function _parseSheet(wb, sheetName){
   const ws=wb.Sheets[sheetName||wb.SheetNames[0]];
   // lê como matriz crua para detectar linha de NÍVEIS IDEAIS no topo (Modelo B)
@@ -1249,6 +1299,8 @@ function _parseSheet(wb, sheetName){
   }));
   const outN={rows,fields:rows.length?Object.keys(rows[0]):[]};
   outN.decimais=_decimaisPorColuna(ws, outN.fields, 0);   // cabeçalho na 1ª linha
+  // formato de laboratório: limpa colunas administrativas / "NS" e normaliza a zona
+  if(_ehFormatoLab(outN.fields)) return _aplicarFormatoLab(outN);
   return outN;
 }
 function parseXLSX(buf){
@@ -5967,7 +6019,7 @@ function _pickZoneField(fields){
   // heurística por NOME (preferência); se nada casar, retorna null e o chamador usa a 1ª coluna
   if(!fields||!fields.length) return null;
   const norm=s=>String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
-  const exato=['zona','zone','zg','zi','identificacao','id'];        // match exato, nessa prioridade
+  const exato=['zona','zone','zg','zi','muestra','amostra','identificacao','id'];  // match exato, nessa prioridade
   for(const p of exato){ const f=fields.find(x=>norm(x)===p); if(f) return f; }
   const contem=['zona','zone','identificacao','manejo'];             // depois "contém" (só nomes longos, seguros)
   for(const p of contem){ const f=fields.find(x=>norm(x).includes(p)); if(f) return f; }
