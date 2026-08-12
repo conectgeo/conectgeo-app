@@ -1424,6 +1424,21 @@ function _waitTiles(maxMs){
     }catch(e){ setTimeout(resolve, 500); }
   });
 }
+// Desliga o fade-in dos tiles durante a captura do PDF.
+// O Leaflet anima a opacidade dos tiles via estilo INLINE e reescreve a cada quadro,
+// então ajustar im.style.opacity não adianta — ele volta atrás no quadro seguinte.
+// Uma regra de folha de estilo com !important vence o inline e encerra o assunto.
+function _pdfTilesFadeOff(ligar){
+  const ID='pdf-tiles-fade-off';
+  const old=document.getElementById(ID);
+  if(!ligar){ if(old) old.remove(); return; }
+  if(old) return;
+  const st=document.createElement('style');
+  st.id=ID;
+  st.textContent='.leaflet-tile{opacity:1 !important;transition:none !important;}'
+                +'.leaflet-tile-container{opacity:1 !important;transition:none !important;}';
+  document.head.appendChild(st);
+}
 // Espera de tiles ROBUSTA — usada só pela captura do RELATÓRIO PADRÃO.
 // Por que existe, além do _waitTiles: aquele só ouve o evento 'load' da camada e
 // resolve em 350ms se layer.isLoading() for false. Logo após redimensionar o mapa
@@ -1448,16 +1463,12 @@ function _pdfTilesProntos(container, maxMs, assinatura){
         const imgs=(container||document).querySelectorAll('.leaflet-tile-pane img.leaflet-tile');
         total=imgs.length;
         imgs.forEach(im=>{
-          try{
-            im.style.transition='none';                       // mata o fade-in
-            if(im.style.opacity!=='' && parseFloat(im.style.opacity)<1) im.style.opacity='1';
-            im.classList.add('leaflet-tile-loaded');
-            if(!(im.complete && im.naturalWidth>0)) pend++;    // ainda baixando (ou falhou)
-          }catch(e){}
+          try{ if(!(im.complete && im.naturalWidth>0)) pend++; }catch(e){}   // ainda baixando (ou falhou)
         });
       }catch(e){}
       const limpo = (pend===0 && total>0);
-      if(limpo && primeira && mesmaVista){ return resolve(); }   // vista já validada: sai na hora
+      // vista já validada e nada pendente: só um respiro para o navegador repintar
+      if(limpo && primeira && mesmaVista){ return setTimeout(resolve,150); }
       primeira=false;
       ok = limpo ? ok+1 : 0;
       if(ok>=3 || Date.now()-t0>lim){
@@ -2896,6 +2907,8 @@ async function generatePDF(nutrients){
   S.showLabels=true; S.pdfMode=true;
   document.body.classList.add('pdf-no-id');
   const _baseRestore=_pdfBaseHide();
+  _pdfTilesFadeOff(true);              // tiles sempre 100% opacos durante a captura
+  _pdfTilesProntos._ultima=null;       // zera o cache de vista a cada novo relatório
   try{ if(S.map&&S.map.options){ S.map.options.zoomSnap=0; S.map.options.zoomDelta=0.25; } }catch(e){}
 
   const fazenda=(document.getElementById('pdf-fazenda').value||'').trim()||(S.linkData&&S.linkData.fazenda)||'—';
@@ -2912,6 +2925,7 @@ async function generatePDF(nutrients){
     if(wrapEl) wrapEl.style.width=origWrapW;
     try{ if(S.map&&S.map.options) S.map.options.zoomSnap=savedSnap; }catch(e){}
     if(_baseRestore) _baseRestore();
+    _pdfTilesFadeOff(false);           // devolve o fade normal do Leaflet à tela
     S.colorCol=savedCol;S.pal=savedPal;S.invert=savedInv;S.showLabels=savedLabels;S.userTouchedPal=savedTouched;
     S.pdfMode=false; S._pdfLabelRects=null; S._pdfFixedFontSize=null; S._pdfCapFactor=null; S._pdfChosenDepths=null;
     document.body.classList.remove('pdf-no-id');
