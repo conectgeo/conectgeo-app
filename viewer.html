@@ -1424,6 +1424,58 @@ function _waitTiles(maxMs){
     }catch(e){ setTimeout(resolve, 500); }
   });
 }
+// Espera de tiles ROBUSTA — usada só pela captura do RELATÓRIO PADRÃO.
+// Por que existe, além do _waitTiles: aquele só ouve o evento 'load' da camada e
+// resolve em 350ms se layer.isLoading() for false. Logo após redimensionar o mapa
+// e dar fitBounds, o Leaflet ainda NÃO pediu os tiles novos — isLoading() é false
+// por um instante e a espera acaba cedo, capturando quadrados brancos.
+// Aqui olhamos os <img> reais do tile pane: só libera quando todos estão completos
+// E a situação fica estável por alguns ciclos. Também zera o fade-in do Leaflet,
+// que fazia tiles recém-chegados serem capturados translúcidos.
+//
+// CAMINHO RÁPIDO: a vista (centro+zoom+tamanho) é a MESMA em todas as capturas de
+// um relatório — só muda a cor das zonas. Então, se a assinatura da vista já foi
+// validada antes e nada está pendente na 1ª checagem, libera de imediato. Só a
+// primeira captura paga a espera completa.
+function _pdfTilesProntos(container, maxMs, assinatura){
+  return new Promise(resolve=>{
+    const t0=Date.now(), lim=maxMs||9000;
+    const mesmaVista = assinatura && assinatura===_pdfTilesProntos._ultima;
+    let ok=0, primeira=true;
+    const tick=()=>{
+      let pend=0, total=0;
+      try{
+        const imgs=(container||document).querySelectorAll('.leaflet-tile-pane img.leaflet-tile');
+        total=imgs.length;
+        imgs.forEach(im=>{
+          try{
+            im.style.transition='none';                       // mata o fade-in
+            if(im.style.opacity!=='' && parseFloat(im.style.opacity)<1) im.style.opacity='1';
+            im.classList.add('leaflet-tile-loaded');
+            if(!(im.complete && im.naturalWidth>0)) pend++;    // ainda baixando (ou falhou)
+          }catch(e){}
+        });
+      }catch(e){}
+      const limpo = (pend===0 && total>0);
+      if(limpo && primeira && mesmaVista){ return resolve(); }   // vista já validada: sai na hora
+      primeira=false;
+      ok = limpo ? ok+1 : 0;
+      if(ok>=3 || Date.now()-t0>lim){
+        if(limpo && assinatura) _pdfTilesProntos._ultima=assinatura;
+        return resolve();
+      }
+      setTimeout(tick,120);
+    };
+    tick();
+  });
+}
+// assinatura da vista atual: se não mudou, os tiles são os mesmos
+function _pdfVistaSig(){
+  try{
+    const c=S.map.getCenter(), sz=S.map.getSize();
+    return [S.activeBase, c.lat.toFixed(6), c.lng.toFixed(6), S.map.getZoom().toFixed(3), sz.x, sz.y].join('|');
+  }catch(e){ return null; }
+}
 function setBasemap(which){
   if(which===S.activeBase) return;
   S.map.removeLayer(S.baseLayers[S.activeBase]);
@@ -2924,11 +2976,24 @@ async function generatePDF(nutrients){
     });
     try{ if(b) S.map.fitBounds(b,{padding:[20,20],animate:false}); }catch(e){}
     try{ S.map.setZoom(S.map.getZoom()+Math.log2(0.90),{animate:false}); }catch(e){}   // afasta ~10%
-    if(S.activeBase==='satelite'){ await _waitTiles(5000); await new Promise(r=>setTimeout(r,250)); }
+    // _waitTiles antigo sai de cena aqui: _pdfTilesProntos faz o mesmo com mais
+    // garantia e, na 2ª captura em diante, sai na hora (vista idêntica).
+    if(S.activeBase==='satelite'){ await _pdfTilesProntos(mapEl, 9000, _pdfVistaSig()); }
     else { await new Promise(r=>setTimeout(r, 550)); }
+    // fundo bege no satélite (igual ao mar de tiles) em vez de branco, para que
+    // qualquer buraco remanescente não vire um quadrado branco gritante.
+    const _bgCap=(S.activeBase==='satelite')?'#e4e0d4':'#ffffff';
+    const _h2cCap=async()=>{ const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:Math.max(3,(window.devicePixelRatio||1)*2),logging:false,backgroundColor:_bgCap}); return cv.toDataURL('image/png'); };
+    const _timeoutCap=(ms)=>new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout captura')),ms));
     let img;
-    if(S.shooter){ img=await S.shooter.takeScreen('image',{mimeType:'image/png'}); }
-    else { const cv=await html2canvas(mapEl,{useCORS:true,allowTaint:true,scale:Math.max(3,(window.devicePixelRatio||1)*2),logging:false,backgroundColor:'#ffffff'}); img=cv.toDataURL('image/png'); }
+    try{
+      const cap = S.shooter ? S.shooter.takeScreen('image',{mimeType:'image/png'}) : _h2cCap();
+      img = await Promise.race([cap, _timeoutCap(12000)]);
+    }catch(e1){
+      console.warn('[pdf] captura principal falhou/timeout; tentando html2canvas:', e1);
+      try{ img = await Promise.race([_h2cCap(), _timeoutCap(12000)]); }
+      catch(e2){ console.warn('[pdf] html2canvas também falhou:', e2); img=''; }
+    }
     // combined stats across primary + extras for this depth
     const st=computeCombinedStats();
     return {img, st};
