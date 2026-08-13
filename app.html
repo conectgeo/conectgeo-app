@@ -887,10 +887,17 @@ function showView(name){
 // DASHBOARD
 // ═══════════════════════════════════════════════
 async function irParaMapa(){
-  if(window.PRIMEIRO_TALHAO){ abrirTalhao(window.PRIMEIRO_TALHAO); return; }
-  const { data } = await sb.from('talhoes').select('id').limit(1);
-  if(data && data[0]){ abrirTalhao(data[0].id); }
-  else { toast('Crie um talhão primeiro','ℹ️'); showView('novo'); }
+  // Entra no mapa LIMPO: sem produtor/fazenda/talhão pré-selecionados e com o
+  // fundo padrão. Antes abria o primeiro talhão, o que deixava o mapa mostrando
+  // um talhão e os seletores apontando para outro produtor/fazenda.
+  MAPA_CTX.clienteId=null; MAPA_CTX.fazendaId=null; MAPA_CTX.talhaoAtivo=null;
+  MV_FAZENDAS=[]; MV_TALHOES=[];
+  try{ sessionStorage.removeItem('cg_view_pref'); }catch(e){}  // não herda aba/satélite da sessão
+  const ttl=document.getElementById('mapa-title'); if(ttl) ttl.textContent='Mapa';
+  const sub=document.getElementById('mapa-sub');   if(sub) sub.textContent='';
+  const fr=document.getElementById('mapa-frame');  if(fr) fr.src='about:blank';
+  showView('mapa');
+  await mvPopularClientes(true);   // true = não pré-selecionar nada
 }
 async function carregarDashboard(){
   const [cli, faz, tal, lnk] = await Promise.all([
@@ -1410,9 +1417,19 @@ function mvFiltrarDD(which,q){
     : '<div style="padding:10px;color:var(--muted);font-size:12px">Nenhum resultado</div>';
 }
 
-async function mvPopularClientes(){
+async function mvPopularClientes(semAuto){
   const { data } = await sb.from('clientes').select('id,nome').eq('inativo',false).order('nome');
   MV_CLIENTES=data||[];
+  if(semAuto){
+    // modo "mapa limpo": lista os produtores mas não escolhe nenhum
+    // (mvRenderDD já escreve "Selecione" / "—" nos resumos quando não há seleção)
+    mvRenderDD('cli');
+    mvRenderDD('faz');
+    const stl=document.getElementById('mv-tal-summary'); if(stl) stl.textContent='Selecione talhões';
+    const box=document.getElementById('mv-talhao-list');
+    if(box) box.innerHTML='<div style="padding:12px;color:var(--muted);font-size:12px">Escolha o produtor e a fazenda para listar os talhões.</div>';
+    return;
+  }
   if(!MV_CLIENTES.some(c=>c.id===MAPA_CTX.clienteId) && MV_CLIENTES.length) MAPA_CTX.clienteId=MV_CLIENTES[0].id;
   mvRenderDD('cli');
   await mvPopularFazendas();

@@ -1508,7 +1508,7 @@ function _prefRestaurar(){
     const raw=sessionStorage.getItem(_PREF_KEY); if(!raw) return;
     const p=JSON.parse(raw); if(!p) return;
     const cli=String((S.linkData&&S.linkData.cliente)||'');
-    if(String(p.cliente||'')!==cli){ sessionStorage.removeItem(_PREF_KEY); return; }  // outro cliente: reseta
+    if(!cli || String(p.cliente||'')!==cli){ sessionStorage.removeItem(_PREF_KEY); return; }  // outro cliente (ou nenhum): reseta
     if(p.base && p.base!==S.activeBase && S.baseLayers && S.baseLayers[p.base]) setBasemap(p.base);
     if(p.mode && p.mode!=='nutrientes'){
       // só volta para a aba se ela existir neste talhão (o novo pode não ter aquele dado)
