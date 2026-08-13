@@ -517,6 +517,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
     <div class="sec" id="sec-rec-app">
       <div class="sec-label"><span class="txt"><span class="sec-num"></span><span data-i18n="secApp">Aparência</span></span></div>
+      <div class="ctrl"><div class="ctrl-label"><span data-i18n="opacity">Opacidade</span> <span class="ctrl-val" id="cv-rec-opa">82%</span></div><input type="range" id="sl-rec-opa" min="20" max="100" value="82"></div>
       <div class="ctrl"><div class="ctrl-label"><span data-i18n="lblSize">Tamanho do rótulo</span> <span class="ctrl-val" id="cv-rec-lbl">100%</span></div><input type="range" id="sl-rec-lbl" min="60" max="200" value="100"></div>
       <div class="invert-row" id="rec-labels-row">
         <span class="label">Mostrar valores nas zonas</span>
@@ -1487,6 +1488,36 @@ function _pdfVistaSig(){
     return [S.activeBase, c.lat.toFixed(6), c.lng.toFixed(6), S.map.getZoom().toFixed(3), sz.x, sz.y].join('|');
   }catch(e){ return null; }
 }
+// Preferências de tela que sobrevivem à troca de talhão. O viewer recarrega
+// inteiro quando o app.html troca o src do iframe, então aba ativa e camada base
+// se perdiam e voltavam sempre para Nutrientes / mapa claro.
+// Guardadas POR CLIENTE: ao trocar de produtor, tudo volta ao padrão.
+const _PREF_KEY='cg_view_pref';
+function _prefSalvar(){
+  try{
+    if(!S.linkData) return;
+    sessionStorage.setItem(_PREF_KEY, JSON.stringify({
+      cliente: String(S.linkData.cliente||''),
+      mode:    S.mapMode||'nutrientes',
+      base:    S.activeBase||'mapa'
+    }));
+  }catch(e){}
+}
+function _prefRestaurar(){
+  try{
+    const raw=sessionStorage.getItem(_PREF_KEY); if(!raw) return;
+    const p=JSON.parse(raw); if(!p) return;
+    const cli=String((S.linkData&&S.linkData.cliente)||'');
+    if(String(p.cliente||'')!==cli){ sessionStorage.removeItem(_PREF_KEY); return; }  // outro cliente: reseta
+    if(p.base && p.base!==S.activeBase && S.baseLayers && S.baseLayers[p.base]) setBasemap(p.base);
+    if(p.mode && p.mode!=='nutrientes'){
+      // só volta para a aba se ela existir neste talhão (o novo pode não ter aquele dado)
+      const id = p.mode==='coleta' ? 'mode-coleta' : (p.mode==='recomendacao' ? 'mode-recomendacao' : null);
+      const btn = id && document.getElementById(id);
+      if(btn && btn.style.display!=='none') setMapMode(p.mode);
+    }
+  }catch(e){}
+}
 function setBasemap(which){
   if(which===S.activeBase) return;
   S.map.removeLayer(S.baseLayers[S.activeBase]);
@@ -1505,6 +1536,7 @@ function setBasemap(which){
   S.labelLayers.forEach(l=>l.setZIndexOffset&&l.setZIndexOffset(1000));
   // update button states
   document.querySelectorAll('.base-btn').forEach(b=>b.classList.toggle('active',b.dataset.base===which));
+  _prefSalvar();
 }
 
 // ══ IDIOMA (PT/ES) ══
@@ -2627,7 +2659,7 @@ function buildPalUI(){
 document.getElementById('sel-gjf').addEventListener('change',function(){S.joinGeo=this.value;joinData();renderMap();});
 document.getElementById('sel-csvf').addEventListener('change',function(){S.joinCsv=this.value;joinData();renderMap();});
 document.getElementById('sel-col').addEventListener('change',function(){S.colorCol=this.value; if(S.depthByName && !(S.compare&&S.compare.on)){ const d=_depthFromName(S.colorCol); if(d && !_sameDepth(d,S.activeDepth)){ S.activeDepth=DEPTH_LABELS.find(l=>normDepth(l)===normDepth(d))||d; try{ renderDepthGrid(); }catch(e){} } } applyAutoPalette();buildPalUI();renderMap();});
-document.getElementById('sl-opa').addEventListener('input',function(){S.opacity=this.value/100;document.getElementById('cv-opa').textContent=this.value+'%';renderMap();});
+document.getElementById('sl-opa').addEventListener('input',function(){S.opacity=this.value/100;document.getElementById('cv-opa').textContent=this.value+'%';const _sr=document.getElementById('sl-rec-opa'),_cr=document.getElementById('cv-rec-opa');if(_sr)_sr.value=this.value;if(_cr)_cr.textContent=this.value+'%';renderMap();});
 document.getElementById('sl-lbl').addEventListener('input',function(){S.labelScale=this.value/100;document.getElementById('cv-lbl').textContent=this.value+'%';if(S.compare && S.compare.on){if(S.cmpIntPar&&S.cmpIntPar.on){_renderCompareIntAtual();}else{renderCompare();}return;}if(S.showLabels){clearLabels();drawLabels();}multiRefreshExtraLabels();});
 document.getElementById('invert-row').addEventListener('click',function(){S.invert=!S.invert;S.userTouchedPal=true;document.getElementById('invert-toggle').classList.toggle('on',S.invert);buildPalUI();renderMap();});
 document.getElementById('labels-row').addEventListener('click',function(){S.showLabels=!S.showLabels;document.getElementById('labels-toggle').classList.toggle('on',S.showLabels);if(S.compare&&S.compare.on){if(S.cmpIntPar&&S.cmpIntPar.on){_renderCompareIntAtual();}else{renderCompare();}return;}clearLabels();if(S.showLabels)drawLabels();multiRefreshExtraLabels();});
@@ -5307,6 +5339,7 @@ function _storagePathFromPublicUrl(url){
 
 function setMapMode(mode){
   S.mapMode=mode;
+  _prefSalvar();
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
   document.getElementById('mode-coleta').classList.toggle('active', mode==='coleta');
   const _mr=document.getElementById('mode-recomendacao'); if(_mr) _mr.classList.toggle('active', mode==='recomendacao');
@@ -5883,6 +5916,16 @@ function wireColetaControls(){
   // rótulos das zonas (padrão desligado) + tamanho
   const recLblTgl=document.getElementById('rec-labels-toggle');
   if(recLblTgl) recLblTgl.addEventListener('click',()=>{ recLblTgl.classList.toggle('on'); S.rec.showLabels=recLblTgl.classList.contains('on'); drawRecLabels(); multiRefreshExtraRecLabels(); });
+  const slRecOpa=document.getElementById('sl-rec-opa');
+  if(slRecOpa) slRecOpa.addEventListener('input',()=>{
+    S.opacity=slRecOpa.value/100;
+    const cv=document.getElementById('cv-rec-opa'); if(cv) cv.textContent=slRecOpa.value+'%';
+    // mantém o slider de nutrientes em sincronia (a opacidade é a mesma S.opacity)
+    const slNut=document.getElementById('sl-opa'), cvNut=document.getElementById('cv-opa');
+    if(slNut) slNut.value=slRecOpa.value;
+    if(cvNut) cvNut.textContent=slRecOpa.value+'%';
+    renderRecomendacao();
+  });
   const slRecLbl=document.getElementById('sl-rec-lbl');
   if(slRecLbl) slRecLbl.addEventListener('input',()=>{ S.rec.labelScale=slRecLbl.value/100; const cv=document.getElementById('cv-rec-lbl'); if(cv) cv.textContent=slRecLbl.value+'%'; drawRecLabels(); multiRefreshExtraRecLabels(); });
   // relatório (placeholder por enquanto) e exportação zip (inativo)
@@ -6707,6 +6750,9 @@ async function loadFromToken(token, params){
     const _mrec=document.getElementById('mode-recomendacao'); if(_mrec) _mrec.style.display=(temRec||S.consultorMode)?'':'none';
     // mostra a barra de abas se houver qualquer modo além de Nutrientes, ou se for o consultor
     const ms=document.getElementById('mode-switch'); if(ms && (temColeta || temRec || S.consultorMode)) ms.style.display='flex';
+
+    // mantém a aba e a camada base que o usuário estava usando ao trocar de talhão
+    _prefRestaurar();
 
     document.getElementById('loader-screen').classList.remove('show');
     return true;
