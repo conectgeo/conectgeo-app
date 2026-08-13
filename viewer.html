@@ -6216,6 +6216,32 @@ function _exRecCol(ex, col){
   if(mesmas.length===1) return mesmas[0];
   return null;
 }
+// Qualificador do nutriente: o que vem entre parênteses e NÃO é unidade.
+// "K (Cmolc) (cmolc/dm³)" → {cmolc} · "K (NH4Cl) (mg/dm³)" → {nh4cl}
+// "pH (CaCl2) Calculado ()" → {cacl2} · "Ca (cmolc/dm³)" → {} (só unidade)
+// Serve para distinguir nutrientes que compartilham a 1ª palavra mas são medidas
+// diferentes (extratores, métodos), e para casar o MESMO nutriente escrito de
+// formas diferentes entre planilhas ("pH (CaCl2) Calculado ()" vs "pH (CaCl2) ()").
+function _nutQualif(col){
+  const s=String(col||'');
+  const out=new Set();
+  const m=s.match(/\(([^)]*)\)/g)||[];
+  m.forEach(p=>{
+    const dentro=p.slice(1,-1).trim();
+    if(!dentro) return;                                   // "()" — ignora
+    if(/[\/%]/.test(dentro)) return;                      // "cmolc/dm³", "%" — unidade
+    if(/^\d{1,2}\s*-\s*\d{1,2}\s*(cm)?$/i.test(dentro)) return;  // "00-20cm" — profundidade
+    const n=dentro.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+    if(n) out.add(n);
+  });
+  return out;
+}
+function _mesmoQualif(a,b){
+  const qa=_nutQualif(a), qb=_nutQualif(b);
+  if(qa.size!==qb.size) return false;
+  for(const x of qa) if(!qb.has(x)) return false;
+  return true;
+}
 function _exResolveCol(ex, colorCol, depthLabel){
   if(!ex||!ex.fields||!ex.rows) return null;
   const colDepth=_depthFromName(colorCol);
@@ -6236,6 +6262,27 @@ function _exResolveCol(ex, colorCol, depthLabel){
     }
   }
 
+  // (1b) MESMO nutriente escrito de forma diferente entre planilhas: mesma 1ª palavra
+  // E mesmo qualificador entre parênteses. Resolve "pH (CaCl2) Calculado ()" ↔
+  // "pH (CaCl2) ()", que o passo (1) não pega e que o passo (3) rejeitaria por
+  // ambiguidade (há dois "pH"). O qualificador garante que CaCl2 não vire água.
+  {
+    const base=_nutBase(colorCol);
+    const cands=ex.fields.filter(f=>{
+      if(_nutBase(f)!==base) return false;
+      if(!_mesmoQualif(f,colorCol)) return false;
+      // se algum dos dois nomes carrega profundidade, elas precisam bater
+      const fd=_depthFromName(f);
+      if(colDepth || fd) return _sameDepth(fd, colDepth);
+      return true;
+    });
+    if(cands.length===1){
+      let useRows=ex.rows;
+      if(ex.depthCol && depthLabel){ const fr=ex.rows.filter(r=>normDepth(r[ex.depthCol])===normDepth(depthLabel)); if(!fr.length) return null; useRows=fr; }
+      return { col:cands[0], useRows };
+    }
+  }
+
   // (2) depthByName: o nome do nutriente carrega a profundidade (ex.: "M.O (00-20cm)").
   // resolve pela profundidade pedida, casando o nome-base (sem a parte de profundidade) E a prof.
   if(wantDepth && colDepth){
@@ -6250,11 +6297,12 @@ function _exResolveCol(ex, colorCol, depthLabel){
     if(ex.fields.some(f=>_depthFromName(f) && _nutBase(f)===base)) return null; // tem o nutriente por nome, mas não nessa prof
   }
 
-  // (3) ÚLTIMO RECURSO: nome-base igual (1ª palavra) — SÓ quando há UMA única candidata,
-  // para nunca confundir nutrientes que compartilham a 1ª palavra (Saturação K/V/Ca/Mg).
+  // (3) ÚLTIMO RECURSO: nome-base igual (1ª palavra) — SÓ quando há UMA única candidata
+  // E o qualificador entre parênteses bate. Sem essa segunda condição, "K (NH4Cl)"
+  // casava silenciosamente com "K (Cmolc)" — extrator diferente, valor errado no mapa.
   {
     const base=_nutBase(colorCol);
-    const mesmasBase=ex.fields.filter(f=>_nutBase(f)===base);
+    const mesmasBase=ex.fields.filter(f=>_nutBase(f)===base && _mesmoQualif(f,colorCol));
     let cand2 = (mesmasBase.length===1) ? mesmasBase[0] : null;
     if(cand2){
       let useRows=ex.rows;
