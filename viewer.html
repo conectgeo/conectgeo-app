@@ -3811,11 +3811,8 @@ function renderRecomendacao(){
   if(!S.pdfMode && !(S.extras && S.extras.length)){
     try{ S.map.fitBounds(S.rec.layer.getBounds(),{padding:[24,24]}); }catch(e){}
   }
-  // LEGENDA: 5 classes iguais entre mín e máx (dinâmico pelo insumo)
-  const NB=5; let buckets=[];
-  if(mx>mn){ const step=(mx-mn)/NB; for(let i=0;i<NB;i++) buckets.push({lo:mn+step*i, hi:mn+step*(i+1), ha:0}); }
-  else buckets.push({lo:mn, hi:mx, ha:0});
-  recs.forEach(rc=>{ if(rc.d==null) return; let idx=(mx>mn)?Math.floor((rc.d-mn)/((mx-mn)/NB)):0; if(idx>=buckets.length) idx=buckets.length-1; if(idx<0) idx=0; buckets[idx].ha+=rc.ha; });
+  // LEGENDA: 5 classes; se houver dose zero, ela ganha classe própria "0 - 0"
+  const buckets=recBuckets(recs, mn, mx, 5);
   const totHa=buckets.reduce((s,b)=>s+b.ha,0)||1;
   let html='<div class="rec-leg-head"><span>Doses (kg/ha)</span><span>Hectares</span><span>%</span></div>';
   buckets.forEach(b=>{ const sw=corRec((b.lo+b.hi)/2); const rng=recFmt(b.lo)+' - '+recFmt(b.hi);
@@ -3832,6 +3829,43 @@ function renderRecomendacao(){
   drawRecLabels();
 }
 
+// Classes da legenda de recomendação — mesma lógica do plugin QGIS.
+// Se existir dose zero (qualquer valor < 1), ela vira uma CLASSE PRÓPRIA "0 - 0"
+// e consome um dos NB espaços; as demais classes são distribuídas entre o MENOR
+// valor positivo e o máximo. Sem zeros, o comportamento é idêntico ao anterior
+// (NB classes iguais entre mín e máx). Acumulação: lower <= v < upper, com a
+// última classe inclusiva nas duas pontas — igual ao plugin.
+// Usada pela legenda da tela E pelo PDF, para as duas nunca divergirem.
+function recBuckets(recs, mn, mx, NB){
+  NB = NB || 5;
+  const vals = (recs||[]).filter(r=>r && r.d!=null && !isNaN(r.d)).map(r=>r.d);
+  const temZero = vals.some(v=>v>=0 && v<1);
+  const pos = vals.filter(v=>v>=1);
+  const buckets = [];
+  if(temZero) buckets.push({lo:0, hi:0, ha:0, zero:true});
+  const rest = NB - buckets.length;
+  if(pos.length && rest>0){
+    const p0=Math.min.apply(null,pos), p1=Math.max.apply(null,pos);
+    if(p1>p0){ const step=(p1-p0)/rest; for(let i=0;i<rest;i++) buckets.push({lo:p0+step*i, hi:p0+step*(i+1), ha:0}); }
+    else buckets.push({lo:p0, hi:p1, ha:0});
+  }
+  if(!buckets.length) buckets.push({lo:mn, hi:mx, ha:0});
+  (recs||[]).forEach(rc=>{
+    if(!rc || rc.d==null || isNaN(rc.d)) return;
+    let idx;
+    if(rc.d < 1) idx = 0;                                  // zeros na classe própria
+    else {
+      idx = -1;
+      for(let i=(temZero?1:0); i<buckets.length; i++){
+        const b=buckets[i];
+        if(rc.d>=b.lo && (rc.d<b.hi || i===buckets.length-1)){ idx=i; break; }
+      }
+      if(idx<0) idx = buckets.length-1;
+    }
+    buckets[idx].ha += rc.ha;
+  });
+  return buckets;
+}
 S.recCompare={on:false,left:null,right:null};
 function _primRecVals(col){
   if(!recGeo()||!col||!S.rec.rows.length) return [];
@@ -4502,10 +4536,7 @@ function recComputeStats(col){
   recGeo().features.forEach(f=>{ if(!_isPoly(f)) return; const d=doseDe(f), ha=zoneHa(f); areaTot+=ha; allRecs.push({d,ha}); if(d!=null){ totalHa+=ha; totalIns+=d*ha; if(d<mn)mn=d; if(d>mx)mx=d; } });
   if(S.extras && S.extras.length){ S.extras.forEach(ex=>{ const ed=_extraRecData(ex,col); ed.recs.forEach(rc=>{ areaTot+=rc.ha; allRecs.push(rc); if(rc.d!=null){ totalHa+=rc.ha; totalIns+=rc.d*rc.ha; if(rc.d<mn)mn=rc.d; if(rc.d>mx)mx=rc.d; } }); }); }
   if(!isFinite(mn)){ mn=0; mx=0; }
-  const NB=5; const buckets=[];
-  if(mx>mn){ const step=(mx-mn)/NB; for(let i=0;i<NB;i++) buckets.push({lo:mn+step*i,hi:mn+step*(i+1),ha:0}); }
-  else buckets.push({lo:mn,hi:mx,ha:0});
-  allRecs.forEach(rc=>{ const d=rc.d, ha=rc.ha; if(d==null) return; let idx=(mx>mn)?Math.floor((d-mn)/((mx-mn)/NB)):0; if(idx>=buckets.length)idx=buckets.length-1; if(idx<0)idx=0; buckets[idx].ha+=ha; });
+  const buckets=recBuckets(allRecs, mn, mx, 5);
   const taxa=totalHa>0?totalIns/totalHa:0;
   const totBucketHa=buckets.reduce((s,b)=>s+b.ha,0)||1;
   return {col,mn,mx,taxa,totalIns,totalHa,areaTot,buckets,totBucketHa};
