@@ -1651,7 +1651,7 @@ function setBasemap(which){
 const I18N = {
  pt:{
   viewBanner:'Visualização do projeto. Explore os nutrientes, ajuste cores e gere o relatório em PDF.',
-  modoNutrientes:'Nutrientes', modoColeta:'Coleta de Solo', modoRecomendacao:'Recomendação', recEmBreve:'Recomendação: em breve', secHist:'Distribuição do nutriente',
+  modoNutrientes:'Nutrientes', modoColeta:'Coleta de Solo', modoRecomendacao:'Recomendação', modoSatelite:'Satélite', recEmBreve:'Recomendação: em breve', secHist:'Distribuição do nutriente',
   cltCamadas:'Camadas', cltVerRaster:'Mostrar imagem (raster)', cltVerPontos:'Mostrar pontos de coleta', cltVerZonas:'Mostrar zonas de manejo',
   cltAjustes:'Ajustes dos Pontos', cltTamPonto:'Tamanho dos pontos', cltTamRotPonto:'Tamanho do rótulo dos pontos', cltMostrarRotPonto:'Mostrar rótulo dos pontos',
   cltRotZonas:'Rótulos das Zonas', cltMostrarRotZona:'Mostrar rótulo nas zonas', cltCampoZona:'Campo a mostrar', cltTamRotZona:'Tamanho do rótulo das zonas',
@@ -1691,7 +1691,7 @@ const I18N = {
  },
  es:{
   viewBanner:'Visualización del proyecto. Explore los nutrientes, ajuste colores y genere el informe en PDF.',
-  modoNutrientes:'Nutrientes', modoColeta:'Muestreo de Suelo', modoRecomendacao:'Recomendación', recEmBreve:'Recomendación: próximamente', secHist:'Distribución del nutriente',
+  modoNutrientes:'Nutrientes', modoColeta:'Muestreo de Suelo', modoRecomendacao:'Recomendación', modoSatelite:'Satélite', recEmBreve:'Recomendación: próximamente', secHist:'Distribución del nutriente',
   cltCamadas:'Capas', cltVerRaster:'Mostrar imagen (raster)', cltVerPontos:'Mostrar puntos de muestreo', cltVerZonas:'Mostrar zonas de manejo',
   cltAjustes:'Ajustes de los Puntos', cltTamPonto:'Tamaño de los puntos', cltTamRotPonto:'Tamaño de la etiqueta de puntos', cltMostrarRotPonto:'Mostrar etiqueta de puntos',
   cltRotZonas:'Etiquetas de Zonas', cltMostrarRotZona:'Mostrar etiqueta en zonas', cltCampoZona:'Campo a mostrar', cltTamRotZona:'Tamaño de la etiqueta de zonas',
@@ -5670,12 +5670,18 @@ function setMapMode(mode){
     if(S.layer) S.layer.addTo(S.map);
     if(S.colorCol) applyActiveDepth();
   }else{
-    // satélite: mantém o contorno das zonas, esconde a legenda de nutrientes
+    // satélite: some com QUALQUER camada de outro modo — nutrientes, coleta e
+    // recomendação. Sem isso, rótulos/polígonos da tela anterior ficavam por
+    // cima da imagem (ex.: doses de recomendação sobrepostas ao NDMI).
     Object.values(S.coletaLayers).forEach(l=>{ if(l) S.map.removeLayer(l); });
     S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l));
     document.body.classList.remove('mode-coleta');
     const _ml=document.getElementById('mleg-left'); if(_ml) _ml.style.display='none';
     clearLabels();
+    if(typeof clearRecLabels==='function') clearRecLabels();
+    if(S.rec && S.rec.layer){ try{ S.map.removeLayer(S.rec.layer); }catch(e){} S.rec.layer=null; }
+    if(S.rec && S.rec.layer2 && S.compare && S.compare.map2){ try{ S.compare.map2.removeLayer(S.rec.layer2); }catch(e){} S.rec.layer2=null; }
+    if(S.layer){ try{ S.map.removeLayer(S.layer); }catch(e){} }
   }
   // multi-talhão: aplica o mesmo modo aos demais talhões e reenquadra
   if(S.extras && S.extras.length && mode!=='satelite'){ multiApplyMode(mode); setTimeout(()=>{ try{ multiFitAll(); }catch(e){} }, 120); }
