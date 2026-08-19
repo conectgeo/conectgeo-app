@@ -746,6 +746,10 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     </select></div>
     <div class="ctrl" id="sat-sat-row"><div class="ctrl-label"><span>Saturação</span> <span class="ctrl-val" id="cv-sat-sat">20%</span></div><input type="range" id="sl-sat-sat" min="0" max="100" step="5" value="20"></div>
     <div class="ctrl"><div class="ctrl-label"><span data-i18n="opacity">Opacidade</span> <span class="ctrl-val" id="cv-sat-opa">80%</span></div><input type="range" id="sl-sat-opa" min="20" max="100" value="80"></div>
+    <div class="invert-row" id="sat-labels-row">
+      <span class="label">Mostrar rótulos das zonas</span>
+      <div class="toggle on" id="sat-labels-toggle"></div>
+    </div>
     <div id="sat-aviso" style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:4px"></div>
   </div>
 
@@ -5459,7 +5463,7 @@ function _storagePathFromPublicUrl(url){
 // ImageOverlay não tem tiles: é uma imagem só, sempre a mesma, sem cache
 // possível de ficar dessincronizado — elimina a categoria inteira do problema.
 S.sat = { capturas:[], idx:'evi', modo:'relativo', saturacao:20, opacidade:0.8,
-          atual:null, overlay:null, lo:0, hi:1, carregando:false, perimetroLayer:null };
+          atual:null, overlay:null, lo:0, hi:1, carregando:false, perimetroLayer:null, mostrarLabels:true };
 
 const SAT_ATRIB='Contém dados Copernicus Sentinel modificados';
 function _satAtribuicao(ligar){
@@ -5510,14 +5514,21 @@ async function satCalCarregarMes(){
   satCalRenderGrid(); // mostra a grade vazia (com dias do mês) enquanto carrega
   if(status) status.textContent='Consultando o catálogo…';
   try{
-    const { data, error } = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'listar', ano:S.satCal.ano, mes:S.satCal.mes } });
-    if(error) throw error;
-    if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao consultar o catálogo.');
+    const resp = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'listar', ano:S.satCal.ano, mes:S.satCal.mes } });
+    if(resp.error){
+      // FunctionsFetchError = não conseguiu nem chamar (função não existe, nome
+      // errado, CORS). FunctionsHttpError = chamou, mas a função devolveu !=2xx.
+      const nome=resp.error.name||'';
+      if(/FetchError/i.test(nome)) throw new Error("A função '"+SAT_FN+"' não respondeu. Confirme que ela está implantada no Supabase com esse nome exato e com a versão nova (que tem as ações listar/data).");
+      throw resp.error;
+    }
+    const data=resp.data;
+    if(!data || !data.ok) throw new Error((data&&data.erro)||'A função respondeu, mas sem dados. Provavelmente é a versão antiga, sem a ação "listar".');
     S.satCal.cenas=data.cenas||[];
     if(status) status.textContent = S.satCal.cenas.length ? (S.satCal.cenas.length+' data(s) com imagem neste mês.') : 'Nenhuma imagem Sentinel-2 catalogada neste mês.';
   }catch(e){
     console.warn('[sat] falha ao listar catálogo:', e);
-    if(status) status.textContent='Não consegui consultar o catálogo: '+String((e&&e.message)||e).slice(0,140);
+    if(status) status.textContent=String((e&&e.message)||e).slice(0,180);
   }finally{
     S.satCal.carregando=false;
     satCalRenderGrid();
@@ -5649,24 +5660,26 @@ function _satZonasDesenhar(){
   const campoArea=fields.find(_isAreaCol);
 
   S.sat.zonasLayer=L.geoJSON(S.geoData,{
-    style:{ fillOpacity:0, color:'#ffffff', weight:1.6, opacity:0.9 },
+    style:{ fillOpacity:0, color:'#000000', weight:1.4, opacity:0.85 },
     interactive:false
   }).addTo(S.map);
 
   S.sat.zonasLabels=[];
-  S.geoData.features.forEach(f=>{
-    const p=f.properties||{};
-    const nome=campoZona?String(p[campoZona]??'').trim():'';
-    const areaVal=campoArea?parseFloat(p[campoArea]):NaN;
-    const areaTxt=isFinite(areaVal)?(areaVal.toFixed(1)+' ha'):'';
-    const pos=_ipCached(f);
-    if(!pos) return;
-    const html='<div class="sat-zona-label">'+(nome?'<b>'+nome+'</b>':'')+(areaTxt?'<br>'+areaTxt:'')+'</div>';
-    try{
-      const lbl=L.marker(pos,{ icon:L.divIcon({ className:'sat-zona-label-wrap', html, iconSize:null }), interactive:false }).addTo(S.map);
-      S.sat.zonasLabels.push(lbl);
-    }catch(e){}
-  });
+  if(S.sat.mostrarLabels){
+    S.geoData.features.forEach(f=>{
+      const p=f.properties||{};
+      const nome=campoZona?String(p[campoZona]??'').trim():'';
+      const areaVal=campoArea?parseFloat(p[campoArea]):NaN;
+      const areaTxt=isFinite(areaVal)?(areaVal.toFixed(1)+' ha'):'';
+      const pos=_ipCached(f);
+      if(!pos) return;
+      const html='<div class="sat-zona-label">'+(nome?'<b>'+nome+'</b>':'')+(areaTxt?'<br>'+areaTxt:'')+'</div>';
+      try{
+        const lbl=L.marker(pos,{ icon:L.divIcon({ className:'sat-zona-label-wrap', html, iconSize:null }), interactive:false }).addTo(S.map);
+        S.sat.zonasLabels.push(lbl);
+      }catch(e){}
+    });
+  }
 }
 function _satZonasLimpar(){
   if(S.sat && S.sat.zonasLayer){ try{ S.map.removeLayer(S.sat.zonasLayer); }catch(e){} S.sat.zonasLayer=null; }
@@ -5819,6 +5832,13 @@ function _satLimparCamada(){
   on('sel-sat-data','change',function(){ S.sat.atual=+this.value; renderSatelite(); });
   on('sel-sat-idx','change',function(){ S.sat.idx=this.value; renderSatelite(); });
   on('sel-sat-modo','change',function(){ S.sat.modo=this.value; renderSatelite(); });
+  const satLblTgl=document.getElementById('sat-labels-toggle');
+  if(satLblTgl) satLblTgl.addEventListener('click',function(){
+    S.sat.mostrarLabels=!S.sat.mostrarLabels;
+    this.classList.toggle('on', S.sat.mostrarLabels);
+    _satZonasDesenhar();  // redesenha as zonas (com ou sem rótulos)
+    if(S.sat.overlay){ try{ S.sat.overlay.bringToFront(); if(S.sat.zonasLayer) S.sat.zonasLayer.bringToFront(); }catch(e){} }
+  });
   on('sl-sat-sat','input',function(){
     S.sat.saturacao=+this.value;
     const cv=document.getElementById('cv-sat-sat'); if(cv) cv.textContent=this.value+'%';
