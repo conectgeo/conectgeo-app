@@ -16,7 +16,6 @@
 <script src="https://unpkg.com/georaster@1.6.0/dist/georaster.browser.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/geotiff@2.1.3/dist-browser/geotiff.js"></script>
 <script src="https://unpkg.com/georaster-layer-for-leaflet@4.1.2/dist/georaster-layer-for-leaflet.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 :root{
@@ -292,6 +291,8 @@ body.mode-sat #painel-coleta,body.mode-sat #painel-rec,body.mode-sat #view-banne
 .sat-cal-dia.processada{outline:2px solid #24271f;outline-offset:1px;}
 .sat-cal-dia.fora-limite{opacity:.45;}
 .sat-cal-dia.carregando{opacity:.5;cursor:wait;}
+.sat-zona-label-wrap{background:none!important;border:none!important;}
+.sat-zona-label{background:rgba(0,0,0,.55);color:#fff;font-size:10.5px;line-height:1.25;padding:2px 5px;border-radius:4px;white-space:nowrap;text-align:center;transform:translate(-50%,-50%);pointer-events:none;}
 /* ── modo Recomendação ── */
 body.mode-rec #sec-depth, body.mode-rec #sec-nut-add, body.mode-rec #sec-join, body.mode-rec #sec-viz,
 body.mode-rec #sec-pal, body.mode-rec #sec-app, body.mode-rec #sec-leg, body.mode-rec #sec-stat,
@@ -1421,17 +1422,6 @@ function _satCor(val, lo, hi, tipo){
   const stops=SAT_PAL[tipo]||SAT_PAL.evi;
   const t=(hi>lo) ? Math.max(0, Math.min(1, (val-lo)/(hi-lo))) : 0.5;
   return lerpColor(stops, t);
-}
-
-// Devolve a função que o georaster-layer-for-leaflet espera.
-// bandaIdx: 0=EVI, 1=NDMI (conforme o TIFF cru da Edge Function)
-// validaIdx: banda "válido" (0/1) — nuvem, sombra e borda saem transparentes.
-function _satColorFn(tipo, lo, hi, bandaIdx, validaIdx){
-  return function(px){
-    if(!px) return null;
-    if(validaIdx!=null && px[validaIdx]!==1) return null;
-    return _satCor(px[bandaIdx], lo, hi, tipo);
-  };
 }
 
 // Rótulos da legenda: 5 marcas entre lo e hi, na ordem da paleta.
@@ -5456,15 +5446,21 @@ function _storagePathFromPublicUrl(url){
 
 
 
-// ══ MODO SATÉLITE — camada de índice colorida no navegador ═════════════
+// ══ MODO SATÉLITE — imagem colorida no navegador, via <canvas> ═════════
 // Lê o GeoTIFF CRU da Edge Function (bandas: 0=EVI 1=NDMI 2=R 3=G 4=B 5=válido)
-// e pinta com _satCor. Nada é pré-colorido no servidor, então trocar índice,
-// escala ou saturação não baixa a imagem de novo.
+// e pinta pixel a pixel num canvas, uma vez por mudança de controle — depois
+// exibe como L.imageOverlay (uma imagem só, fixada nas coordenadas do raster).
+//
+// Por que canvas e não georaster-layer-for-leaflet (como na 1ª versão):
+// depois de três rodadas de correção sem resolver banda/saturação trocando
+// sozinhas em certos zooms, a causa mais provável é cache interno de tiles
+// daquela biblioteca que não depende só do objeto georaster (como eu supunha),
+// e sim de alguma combinação com o próprio ciclo de zoom do Leaflet. Um
+// ImageOverlay não tem tiles: é uma imagem só, sempre a mesma, sem cache
+// possível de ficar dessincronizado — elimina a categoria inteira do problema.
 S.sat = { capturas:[], idx:'evi', modo:'relativo', saturacao:20, opacidade:0.8,
-          atual:null, georaster:null, layer:null, lo:0, hi:1, carregando:false };
+          atual:null, overlay:null, lo:0, hi:1, carregando:false, perimetroLayer:null };
 
-// Atribuição obrigatória da licença Copernicus. Só aparece quando a camada
-// Sentinel-2 está no mapa; some junto com ela.
 const SAT_ATRIB='Contém dados Copernicus Sentinel modificados';
 function _satAtribuicao(ligar){
   try{
@@ -5477,6 +5473,7 @@ function _satAtribuicao(ligar){
 // dia escolhido (isso sim consome PU). Espelha o seletor de nuvem + grade de
 // dias do Copernicus Browser, mas os dados vêm da própria Edge Function.
 S.satCal = { ano:0, mes:0, cenas:[], nuvemMax:30, carregando:false, diaEmCurso:null };
+const SAT_FN='sentinel-processar';  // nome da Edge Function no Supabase (um lugar só)
 
 function _satCalCorPorNuvem(nuvem){
   // azul (pouca nuvem) -> vermelho (muita nuvem), mesmo sentido do slider do CDSE
@@ -5498,26 +5495,36 @@ function satCalAtualizarNuvem(v){ S.satCal.nuvemMax=+v; document.getElementById(
 
 async function satCalCarregarMes(){
   const MESES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const titulo=document.getElementById('sat-cal-titulo');
-  if(titulo) titulo.textContent=MESES[S.satCal.mes-1]+' '+S.satCal.ano;
+  const selMes=document.getElementById('sel-sat-cal-mes'), selAno=document.getElementById('sel-sat-cal-ano');
+  if(selMes && !selMes.options.length){ selMes.innerHTML=MESES.map((m,i)=>'<option value="'+(i+1)+'">'+m+'</option>').join(''); }
+  if(selAno && !selAno.options.length){
+    const hoje=new Date().getUTCFullYear();
+    const anos=[]; for(let a=hoje-3;a<=hoje+1;a++) anos.push(a);
+    selAno.innerHTML=anos.map(a=>'<option value="'+a+'">'+a+'</option>').join('');
+  }
+  if(selMes) selMes.value=String(S.satCal.mes);
+  if(selAno) selAno.value=String(S.satCal.ano);
+
   const status=document.getElementById('sat-cal-status');
   S.satCal.carregando=true; S.satCal.cenas=[];
   satCalRenderGrid(); // mostra a grade vazia (com dias do mês) enquanto carrega
   if(status) status.textContent='Consultando o catálogo…';
   try{
-    const { data, error } = await sb.functions.invoke('sentinel-processar', { body:{ token:S.tokenAtual, action:'listar', ano:S.satCal.ano, mes:S.satCal.mes } });
+    const { data, error } = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'listar', ano:S.satCal.ano, mes:S.satCal.mes } });
     if(error) throw error;
     if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao consultar o catálogo.');
     S.satCal.cenas=data.cenas||[];
     if(status) status.textContent = S.satCal.cenas.length ? (S.satCal.cenas.length+' data(s) com imagem neste mês.') : 'Nenhuma imagem Sentinel-2 catalogada neste mês.';
   }catch(e){
     console.warn('[sat] falha ao listar catálogo:', e);
-    if(status) status.textContent='Não consegui consultar o catálogo. Tente novamente.';
+    if(status) status.textContent='Não consegui consultar o catálogo: '+String((e&&e.message)||e).slice(0,140);
   }finally{
     S.satCal.carregando=false;
     satCalRenderGrid();
   }
 }
+function satCalMesSelecionado(v){ S.satCal.mes=+v; satCalCarregarMes(); }
+function satCalAnoSelecionado(v){ S.satCal.ano=+v; satCalCarregarMes(); }
 
 function satCalRenderGrid(){
   const grid=document.getElementById('sat-cal-grid');
@@ -5550,7 +5557,7 @@ async function satCalEscolherDia(iso){
   S.satCal.diaEmCurso=iso;
   if(status) status.textContent='Carregando '+iso.split('-').reverse().join('/')+'… (pode levar até 30s se ainda não tiver sido processada)';
   try{
-    const { data, error } = await sb.functions.invoke('sentinel-processar', { body:{ token:S.tokenAtual, action:'data', data:iso } });
+    const { data, error } = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'data', data:iso } });
     if(error) throw error;
     if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao processar essa data.');
 
@@ -5599,25 +5606,18 @@ async function carregarSatCapturas(){
 }
 
 // baixa e decodifica o TIFF cru de uma captura (com cache por URL)
-// Cacheia só os BYTES brutos por URL (evita rebaixar da rede). O objeto
-// georaster em si é reconstruído a cada renderização — de propósito.
-// Motivo: versões recentes de georaster-layer-for-leaflet têm cache interno
-// de tiles já renderizados, aparentemente amarrado à identidade do objeto
-// georaster, não à função de cor. Reaproveitar o mesmo georaster ao trocar
-// de índice ou saturação fazia tiles antigos (outro índice, ou sem a nova
-// saturação) sobreviverem em certos níveis de zoom. Reparsear é barato
-// (bytes já estão em memória, sem nova requisição de rede) e elimina
-// qualquer cache que a biblioteca amarre ao objeto.
+// Cacheia o georaster parseado por URL. Antes (com georaster-layer-for-leaflet)
+// isso causava tiles trocando de índice sozinhos; agora não há mais tiles —
+// é um canvas pintado do zero a cada render (_satPintarCanvas) — então
+// reaproveitar o objeto parseado só economiza tempo, sem risco de staleness.
 async function _satCarregarRaster(url){
+  if(S.sat._gr && S.sat._url===url) return S.sat._gr;
   const _parse=(typeof parseGeoraster!=='undefined')?parseGeoraster:(window.parseGeoraster||window.parseGeoRaster);
   if(!_parse) throw new Error('biblioteca georaster indisponível');
-  if(!S.sat._bytes || S.sat._url!==url){
-    const buf=await fetch(url).then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.arrayBuffer(); });
-    S.sat._bytes=buf; S.sat._url=url;
-  }
-  // fatia uma cópia dos bytes: parseGeoraster pode reter/transferir o buffer,
-  // e o original precisa continuar intacto para a próxima reconstrução.
-  return await _parse(S.sat._bytes.slice(0));
+  const buf=await fetch(url).then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.arrayBuffer(); });
+  const gr=await _parse(buf);
+  S.sat._gr=gr; S.sat._url=url;
+  return gr;
 }
 
 // junta os valores válidos da banda do índice, para calcular os percentis
@@ -5637,37 +5637,40 @@ function _satValoresValidos(gr, bandaIdx){
   return out;
 }
 
-// Perímetro do talhão (contorno externo, sem as divisões de zona internas).
-// O Leaflet não une polígonos sozinho; usa turf.union em cascata sobre as
-// zonas de S.geoData. Se alguma zona tiver geometria inválida, essa zona é
-// pulada (não trava a união toda) — o resultado fica ligeiramente incompleto
-// só nesse caso raro, nunca quebra a tela.
-function _satPerimetroCalcular(){
-  if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return null;
-  if(typeof turf==='undefined'){ console.warn('[sat] turf.js indisponível, sem perímetro dissolvido'); return null; }
-  const polys=S.geoData.features.filter(f=>f.geometry && (f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'));
-  if(!polys.length) return null;
-  let acc=polys[0];
-  for(let i=1;i<polys.length;i++){
-    try{
-      const u=turf.union(turf.featureCollection([acc, polys[i]]));
-      if(u) acc=u;
-    }catch(e){ /* zona com geometria inválida: mantém o acumulado, segue sem ela */ }
-  }
-  return acc;
-}
-function _satPerimetroDesenhar(){
-  if(S.sat.perimetroLayer){ try{ S.map.removeLayer(S.sat.perimetroLayer); }catch(e){} S.sat.perimetroLayer=null; }
-  const geo=_satPerimetroCalcular();
-  if(!geo) return;
-  S.sat.perimetroLayer=L.geoJSON(geo,{
-    style:{ fillOpacity:0, color:'#ffffff', weight:2.5, opacity:0.95 },
+// Zonas do talhão SEM preenchimento (só contorno) + rótulo de número e área.
+// Reaproveita S.geoData (já carregado pro modo Nutrientes) e os mesmos
+// helpers de zona/área/centro que o resto do app usa — não precisa de
+// nenhuma biblioteca de geometria (sem turf: só contorno, não união).
+function _satZonasDesenhar(){
+  _satZonasLimpar();
+  if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return;
+  const fields=S.geoFields||Object.keys(S.geoData.features[0].properties||{});
+  const campoZona=_pickZoneField(fields);
+  const campoArea=fields.find(_isAreaCol);
+
+  S.sat.zonasLayer=L.geoJSON(S.geoData,{
+    style:{ fillOpacity:0, color:'#ffffff', weight:1.6, opacity:0.9 },
     interactive:false
   }).addTo(S.map);
-  try{ S.sat.perimetroLayer.bringToFront(); }catch(e){}
+
+  S.sat.zonasLabels=[];
+  S.geoData.features.forEach(f=>{
+    const p=f.properties||{};
+    const nome=campoZona?String(p[campoZona]??'').trim():'';
+    const areaVal=campoArea?parseFloat(p[campoArea]):NaN;
+    const areaTxt=isFinite(areaVal)?(areaVal.toFixed(1)+' ha'):'';
+    const pos=_ipCached(f);
+    if(!pos) return;
+    const html='<div class="sat-zona-label">'+(nome?'<b>'+nome+'</b>':'')+(areaTxt?'<br>'+areaTxt:'')+'</div>';
+    try{
+      const lbl=L.marker(pos,{ icon:L.divIcon({ className:'sat-zona-label-wrap', html, iconSize:null }), interactive:false }).addTo(S.map);
+      S.sat.zonasLabels.push(lbl);
+    }catch(e){}
+  });
 }
-function _satPerimetroLimpar(){
-  if(S.sat && S.sat.perimetroLayer){ try{ S.map.removeLayer(S.sat.perimetroLayer); }catch(e){} S.sat.perimetroLayer=null; }
+function _satZonasLimpar(){
+  if(S.sat && S.sat.zonasLayer){ try{ S.map.removeLayer(S.sat.zonasLayer); }catch(e){} S.sat.zonasLayer=null; }
+  if(S.sat && S.sat.zonasLabels){ S.sat.zonasLabels.forEach(l=>{ try{ S.map.removeLayer(l); }catch(e){} }); S.sat.zonasLabels=[]; }
 }
 
 // RGB cor natural: NÃO é um índice de uma banda só (não usa SAT_PAL/_satCor).
@@ -5690,16 +5693,56 @@ function _satRGBLimites(gr, modo, saturacao){
     return (hi>lo)?[lo,hi]:FIXO;
   });
 }
-function _satColorFnRGB(limites, validaIdx){
-  const clip=(v,lo,hi)=>Math.max(0,Math.min(255,Math.round(((v-lo)/(hi-lo))*255)));
-  return function(px){
-    if(!px) return null;
-    if(validaIdx!=null && px[validaIdx]!==1) return null;
-    const r=clip(px[2],limites[0][0],limites[0][1]);
-    const g=clip(px[3],limites[1][0],limites[1][1]);
-    const b=clip(px[4],limites[2][0],limites[2][1]);
-    return 'rgb('+r+','+g+','+b+')';
-  };
+
+// Pinta o georaster inteiro num canvas offscreen, pixel a pixel, e devolve
+// {canvas, bounds}. Chamado do zero a cada mudança de índice/escala/
+// saturação — é rápido (é um loop só, sem rede, sem worker) e garante que
+// não existe NENHUM estado sobrando de uma renderização anterior.
+function _satPintarCanvas(gr, idx, modo, saturacao){
+  const w=gr.width, h=gr.height;
+  const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+  const ctx=cv.getContext('2d');
+  const img=ctx.createImageData(w,h);
+  const px=img.data;
+
+  if(idx==='rgb'){
+    const lims=_satRGBLimites(gr, modo, saturacao);
+    const [bR,bG,bB]=[gr.values[2],gr.values[3],gr.values[4]], bV=gr.values[5];
+    const clip=(v,lo,hi)=>Math.max(0,Math.min(255,Math.round(((v-lo)/(hi-lo))*255)));
+    for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+      const i=(y*w+x)*4;
+      const valido=bV[y][x]===1;
+      if(!valido){ px[i+3]=0; continue; }
+      px[i]  =clip(bR[y][x], lims[0][0], lims[0][1]);
+      px[i+1]=clip(bG[y][x], lims[1][0], lims[1][1]);
+      px[i+2]=clip(bB[y][x], lims[2][0], lims[2][1]);
+      px[i+3]=255;
+    }
+    ctx.putImageData(img,0,0);
+    return { canvas:cv, lo:null, hi:null, vals:null };
+  }
+
+  const banda=(idx==='ndmi')?1:0;
+  const vals=_satValoresValidos(gr, banda);
+  const [lo,hi]=_satLimites(vals, idx, modo, saturacao);
+  const bV=gr.values[banda], bMask=gr.values[5];
+  const stops=(SAT_PAL[idx]||SAT_PAL.evi).map(hexToRgb);
+  const nStops=stops.length-1;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++){
+    const i=(y*w+x)*4;
+    if(bMask[y][x]!==1){ px[i+3]=0; continue; }
+    const v=bV[y][x];
+    if(v==null||!isFinite(v)){ px[i+3]=0; continue; }
+    const t=(hi>lo)?Math.max(0,Math.min(1,(v-lo)/(hi-lo))):0.5;
+    const f=t*nStops, si=Math.min(Math.floor(f),nStops-1), sf=f-si;
+    const a=stops[si], b=stops[Math.min(si+1,nStops)];
+    px[i]  =a[0]+(b[0]-a[0])*sf;
+    px[i+1]=a[1]+(b[1]-a[1])*sf;
+    px[i+2]=a[2]+(b[2]-a[2])*sf;
+    px[i+3]=255;
+  }
+  ctx.putImageData(img,0,0);
+  return { canvas:cv, lo, hi, vals };
 }
 
 async function renderSatelite(){
@@ -5711,42 +5754,25 @@ async function renderSatelite(){
   if(info) info.textContent='Carregando imagem…';
   try{
     const gr=await _satCarregarRaster(c.url);
-    const ehRGB=(S.sat.idx==='rgb');
-    let colorFn, vals=[];
-    if(ehRGB){
-      const lims=_satRGBLimites(gr, S.sat.modo, S.sat.saturacao);
-      S.sat.rgbLimites=lims;
-      colorFn=_satColorFnRGB(lims, 5);
-    }else{
-      const banda=(S.sat.idx==='ndmi')?1:0;
-      vals=_satValoresValidos(gr, banda);
-      const L=_satLimites(vals, S.sat.idx, S.sat.modo, S.sat.saturacao);
-      S.sat.lo=L[0]; S.sat.hi=L[1];
-      colorFn=_satColorFn(S.sat.idx, S.sat.lo, S.sat.hi, banda, 5);
-    }
+    if(!isFinite(gr.xmin)||!isFinite(gr.ymin)||!isFinite(gr.xmax)||!isFinite(gr.ymax)) throw new Error('GeoTIFF sem georreferenciamento reconhecível.');
 
-    if(S.sat.layer){ try{ S.map.removeLayer(S.sat.layer); }catch(e){} S.sat.layer=null; }
-    const GRL=window.GeoRasterLayer;
-    if(!GRL) throw new Error('GeoRasterLayer indisponível');
-    S.sat.layer=new GRL({
-      georaster:gr,
-      opacity:S.sat.opacidade,
-      resolution:256,
-      pixelValuesToColorFn:colorFn
-    });
-    S.sat.layer.addTo(S.map);
+    const { canvas, lo, hi, vals } = _satPintarCanvas(gr, S.sat.idx, S.sat.modo, S.sat.saturacao);
+    S.sat.lo=lo; S.sat.hi=hi;
+
+    if(S.sat.overlay){ try{ S.map.removeLayer(S.sat.overlay); }catch(e){} S.sat.overlay=null; }
+    const bounds=L.latLngBounds([[gr.ymin,gr.xmin],[gr.ymax,gr.xmax]]);
+    S.sat.overlay=L.imageOverlay(canvas.toDataURL('image/png'), bounds, { opacity:S.sat.opacidade, interactive:false }).addTo(S.map);
     _satAtribuicao(true);
-    try{ if(S.layer) S.layer.bringToFront(); }catch(e){}
-    try{ if(S.sat.perimetroLayer) S.sat.perimetroLayer.bringToFront(); }catch(e){}
+    try{ if(S.sat.zonasLayer) S.sat.zonasLayer.bringToFront(); }catch(e){}
 
-    if(info) info.textContent = ehRGB
+    if(info) info.textContent = (S.sat.idx==='rgb')
       ? ('Cor natural · imagem de '+String(c.data).split('-').reverse().join('/'))
-      : (vals.length
+      : ((vals&&vals.length)
           ? (vals.length.toLocaleString('pt-BR')+' pixels válidos · imagem de '+String(c.data).split('-').reverse().join('/'))
           : 'Imagem sem pixels válidos (possivelmente coberta por nuvem).');
   }catch(e){
     console.warn('[sat] falha ao renderizar:', e);
-    if(info) info.textContent='Não consegui abrir esta imagem.';
+    if(info) info.textContent='Não consegui abrir esta imagem: '+String((e&&e.message)||e).slice(0,140);
   }finally{
     S.sat.carregando=false;
     renderSatLegenda();
@@ -5784,7 +5810,7 @@ function renderSatLegenda(){
 }
 
 function _satLimparCamada(){
-  if(S.sat && S.sat.layer){ try{ S.map.removeLayer(S.sat.layer); }catch(e){} S.sat.layer=null; }
+  if(S.sat && S.sat.overlay){ try{ S.map.removeLayer(S.sat.overlay); }catch(e){} S.sat.overlay=null; }
   _satAtribuicao(false);
 }
 
@@ -5805,7 +5831,7 @@ function _satLimparCamada(){
   on('sl-sat-opa','input',function(){
     S.sat.opacidade=this.value/100;
     const cv=document.getElementById('cv-sat-opa'); if(cv) cv.textContent=this.value+'%';
-    if(S.sat.layer && S.sat.layer.setOpacity) S.sat.layer.setOpacity(S.sat.opacidade);
+    if(S.sat.overlay && S.sat.overlay.setOpacity) S.sat.overlay.setOpacity(S.sat.opacidade);
   });
 })();
 function setMapMode(mode){
@@ -5813,8 +5839,8 @@ function setMapMode(mode){
   _prefSalvar();
   document.body.classList.toggle('mode-sat', mode==='satelite');
   const _msb=document.getElementById('mode-satelite'); if(_msb) _msb.classList.toggle('active', mode==='satelite');
-  if(mode!=='satelite'){ _satLimparCamada(); _satPerimetroLimpar(); }
-  else { if(S.sat.atual==null) S.sat.atual=0; _satPerimetroDesenhar(); renderSatelite(); }
+  if(mode!=='satelite'){ _satLimparCamada(); _satZonasLimpar(); }
+  else { if(S.sat.atual==null) S.sat.atual=0; _satZonasDesenhar(); renderSatelite(); }
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
   document.getElementById('mode-coleta').classList.toggle('active', mode==='coleta');
   const _mr=document.getElementById('mode-recomendacao'); if(_mr) _mr.classList.toggle('active', mode==='recomendacao');
@@ -7693,10 +7719,11 @@ document.getElementById('sel-depth-right').addEventListener('change',function(){
     <div class="ctrl"><div class="ctrl-label"><span>Nuvem máxima (destaque)</span> <span class="ctrl-val" id="cv-sat-cal-nuvem">30%</span></div>
       <input type="range" id="sl-sat-cal-nuvem" min="0" max="100" step="5" value="30" oninput="satCalAtualizarNuvem(this.value)"></div>
 
-    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 8px;">
-      <span onclick="satCalMesAnterior()" style="cursor:pointer;font-size:16px;padding:2px 10px;">‹</span>
-      <strong id="sat-cal-titulo" style="font-size:13.5px;"></strong>
-      <span onclick="satCalMesProximo()" style="cursor:pointer;font-size:16px;padding:2px 10px;">›</span>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0 8px;gap:6px;">
+      <span onclick="satCalMesAnterior()" style="cursor:pointer;font-size:16px;padding:2px 8px;flex-shrink:0;">‹</span>
+      <select id="sel-sat-cal-mes" onchange="satCalMesSelecionado(this.value)" style="flex:1;padding:6px 8px;border:1.5px solid var(--sand2);border-radius:8px;font-size:12.5px;font-weight:700;"></select>
+      <select id="sel-sat-cal-ano" onchange="satCalAnoSelecionado(this.value)" style="width:80px;padding:6px 8px;border:1.5px solid var(--sand2);border-radius:8px;font-size:12.5px;font-weight:700;"></select>
+      <span onclick="satCalMesProximo()" style="cursor:pointer;font-size:16px;padding:2px 8px;flex-shrink:0;">›</span>
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;font-size:10px;color:var(--muted);text-align:center;margin-bottom:3px;">
