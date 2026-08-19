@@ -5598,13 +5598,18 @@ async function satCalEscolherDia(iso){
 }
 
 async function carregarSatCapturas(){
+  let temOutraVersao=false;
   try{
     const { data } = await sb.rpc('get_sentinel_capturas',{ p_token:S.tokenAtual, p_versao:SAT_VERSAO });
     const d=(typeof data==='string')?JSON.parse(data):data;
     S.sat.capturas = (d && d.ok && Array.isArray(d.capturas)) ? d.capturas : [];
+    temOutraVersao = !!(d && d.tem_outra_versao);
   }catch(e){ console.warn('[sat] não consegui listar capturas:', e); S.sat.capturas=[]; }
+  S.sat.temOutraVersao=temOutraVersao;
   const btn=document.getElementById('mode-satelite');
-  if(btn) btn.style.display = S.sat.capturas.length ? '' : 'none';
+  // aba aparece se há imagem na versão corrente OU se existe imagem de outra
+  // versão para reprocessar (senão o usuário não chegaria ao calendário).
+  if(btn) btn.style.display = (S.sat.capturas.length || temOutraVersao) ? '' : 'none';
   const sel=document.getElementById('sel-sat-data');
   if(sel){
     sel.innerHTML = S.sat.capturas.map((c,i)=>{
@@ -5614,7 +5619,12 @@ async function carregarSatCapturas(){
     }).join('');
   }
   const vazio=document.getElementById('sat-empty');
-  if(vazio) vazio.style.display = S.sat.capturas.length ? 'none' : 'block';
+  if(vazio){
+    if(S.sat.capturas.length){ vazio.style.display='none'; }
+    else { vazio.style.display='block'; vazio.textContent = temOutraVersao
+      ? 'As imagens deste talhão são de uma versão anterior. Abra "Buscar outra data" e clique numa data para gerar na versão atual.'
+      : 'Nenhuma imagem de satélite disponível para este talhão ainda.'; }
+  }
 }
 
 // baixa e decodifica o TIFF cru de uma captura (com cache por URL)
@@ -5861,7 +5871,17 @@ function setMapMode(mode){
   document.body.classList.toggle('mode-sat', mode==='satelite');
   const _msb=document.getElementById('mode-satelite'); if(_msb) _msb.classList.toggle('active', mode==='satelite');
   if(mode!=='satelite'){ _satLimparCamada(); _satZonasLimpar(); }
-  else { if(S.sat.atual==null) S.sat.atual=0; _satZonasDesenhar(); renderSatelite(); }
+  else {
+    _satZonasDesenhar();
+    if(S.sat.capturas.length){ if(S.sat.atual==null) S.sat.atual=0; renderSatelite(); }
+    else {
+      // sem imagem na versão corrente: nada a pintar. Se há de outra versão,
+      // abre o calendário direto para o usuário reprocessar.
+      const info=document.getElementById('sat-info');
+      if(info) info.textContent = S.sat.temOutraVersao ? 'Escolha uma data para gerar a imagem na versão atual.' : '';
+      if(S.sat.temOutraVersao) satCalAbrir();
+    }
+  }
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
   document.getElementById('mode-coleta').classList.toggle('active', mode==='coleta');
   const _mr=document.getElementById('mode-recomendacao'); if(_mr) _mr.classList.toggle('active', mode==='recomendacao');
