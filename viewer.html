@@ -5575,7 +5575,7 @@ async function satCalEscolherDia(iso){
 
     // adiciona (ou atualiza) a captura na lista local e seleciona ela
     const idx=S.sat.capturas.findIndex(c=>c.data===data.data_captura);
-    const entrada={ data:data.data_captura, nuvem:data.cobertura_nuvem, url:data.raw_url };
+    const entrada={ data:data.data_captura, nuvem:data.cobertura_nuvem, url:data.raw_url, versao:(data.versao||SAT_VERSAO) };
     if(idx>=0) S.sat.capturas[idx]=entrada; else S.sat.capturas.unshift(entrada);
     S.sat.capturas.sort((a,b)=> a.data<b.data?1:-1);
 
@@ -5783,17 +5783,35 @@ async function renderSatelite(){
     const { canvas, lo, hi, vals } = _satPintarCanvas(gr, S.sat.idx, S.sat.modo, S.sat.saturacao);
     S.sat.lo=lo; S.sat.hi=hi;
 
+    // médias dos índices dentro da área válida (nuvem/borda já excluídas pela
+    // banda "válido"). É de graça: os pixels já estão em memória. Guardadas na
+    // captura para não recalcular ao alternar de índice.
+    const media=arr=>arr.length ? arr.reduce((s,x)=>s+x,0)/arr.length : null;
+    if(c._eviMedio===undefined){
+      c._eviMedio = media(_satValoresValidos(gr,0));
+      c._ndmiMedio = media(_satValoresValidos(gr,1));
+    }
+
     if(S.sat.overlay){ try{ S.map.removeLayer(S.sat.overlay); }catch(e){} S.sat.overlay=null; }
     const bounds=L.latLngBounds([[gr.ymin,gr.xmin],[gr.ymax,gr.xmax]]);
     S.sat.overlay=L.imageOverlay(canvas.toDataURL('image/png'), bounds, { opacity:S.sat.opacidade, interactive:false }).addTo(S.map);
     _satAtribuicao(true);
     try{ if(S.sat.zonasLayer) S.sat.zonasLayer.bringToFront(); }catch(e){}
 
-    if(info) info.textContent = (S.sat.idx==='rgb')
-      ? ('Cor natural · imagem de '+String(c.data).split('-').reverse().join('/'))
-      : ((vals&&vals.length)
-          ? (vals.length.toLocaleString('pt-BR')+' pixels válidos · imagem de '+String(c.data).split('-').reverse().join('/'))
-          : 'Imagem sem pixels válidos (possivelmente coberta por nuvem).');
+    const dataFmt=String(c.data).split('-').reverse().join('/');
+    // marca acesso: reinicia o relógio de 24h da lista para esta captura
+    try{ sb.rpc('marcar_sentinel_acesso',{ p_token:S.tokenAtual, p_data:c.data, p_versao:(c.versao||SAT_VERSAO) }); }catch(e){}
+    const medias=[];
+    if(c._eviMedio!=null) medias.push('EVI médio '+c._eviMedio.toFixed(2));
+    if(c._ndmiMedio!=null) medias.push('NDMI médio '+c._ndmiMedio.toFixed(2));
+    const linhaMedia = medias.length ? (medias.join(' · ')) : '';
+    if(info){
+      const base = (S.sat.idx==='rgb')
+        ? ('Cor natural · '+dataFmt)
+        : ((vals&&vals.length) ? (vals.length.toLocaleString('pt-BR')+' pixels válidos · '+dataFmt)
+                               : 'Imagem sem pixels válidos (possivelmente nuvem).');
+      info.innerHTML = base + (linhaMedia ? ('<br><b>'+linhaMedia+'</b>') : '');
+    }
   }catch(e){
     console.warn('[sat] falha ao renderizar:', e);
     if(info) info.textContent='Não consegui abrir esta imagem: '+String((e&&e.message)||e).slice(0,140);
