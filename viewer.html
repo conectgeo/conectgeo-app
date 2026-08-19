@@ -5478,6 +5478,7 @@ function _satAtribuicao(ligar){
 // dias do Copernicus Browser, mas os dados vêm da própria Edge Function.
 S.satCal = { ano:0, mes:0, cenas:[], nuvemMax:30, carregando:false, diaEmCurso:null };
 const SAT_FN='sentinel-processar';  // nome da Edge Function no Supabase (um lugar só)
+const SAT_VERSAO='v2';  // versão corrente do produto — deve casar com PRODUTO_VERSAO na Edge Function
 
 function _satCalCorPorNuvem(nuvem){
   // azul (pouca nuvem) -> vermelho (muita nuvem), mesmo sentido do slider do CDSE
@@ -5598,7 +5599,7 @@ async function satCalEscolherDia(iso){
 
 async function carregarSatCapturas(){
   try{
-    const { data } = await sb.rpc('get_sentinel_capturas',{ p_token:S.tokenAtual });
+    const { data } = await sb.rpc('get_sentinel_capturas',{ p_token:S.tokenAtual, p_versao:SAT_VERSAO });
     const d=(typeof data==='string')?JSON.parse(data):data;
     S.sat.capturas = (d && d.ok && Array.isArray(d.capturas)) ? d.capturas : [];
   }catch(e){ console.warn('[sat] não consegui listar capturas:', e); S.sat.capturas=[]; }
