@@ -5742,10 +5742,25 @@ async function carregarSatCapturas(){
     temOutraVersao = !!(d && d.tem_outra_versao);
   }catch(e){ console.warn('[sat] não consegui listar capturas:', e); S.sat.capturas=[]; }
   S.sat.temOutraVersao=temOutraVersao;
+
+  // Feature-flag de acesso antecipado: libera a aba mesmo sem captura ainda,
+  // pra talhões de consultores marcados com satelite_beta=true no banco
+  // (token -> talhão -> fazenda -> cliente -> consultor). Falha na RPC (ex:
+  // função ainda não criada) não deve travar o resto da tela — cai pra
+  // "sem beta" e segue só com a condição antiga (já tem captura).
+  let betaHabilitado=false;
+  try{
+    const { data:betaData, error:betaErr } = await sb.rpc('sat_beta_habilitado', { p_token:S.tokenAtual });
+    if(!betaErr) betaHabilitado = (betaData===true);
+  }catch(e){ console.warn('[sat] checagem de beta indisponível (seguindo sem ela):', e); }
+  S.sat.betaHabilitado=betaHabilitado;
+
   const btn=document.getElementById('mode-satelite');
-  // aba aparece se há imagem na versão corrente OU se existe imagem de outra
-  // versão para reprocessar (senão o usuário não chegaria ao calendário).
-  if(btn) btn.style.display = (S.sat.capturas.length || temOutraVersao) ? '' : 'none';
+  // aba aparece se: já há imagem na versão corrente, OU existe imagem de
+  // outra versão pra reprocessar, OU o consultor deste talhão tem o beta
+  // do satélite liberado (mesmo sem nenhuma captura ainda — nesse caso o
+  // consultor entra e usa "Buscar outra data" pra gerar a primeira).
+  if(btn) btn.style.display = (S.sat.capturas.length || temOutraVersao || betaHabilitado) ? '' : 'none';
   const sel=document.getElementById('sel-sat-data');
   if(sel){
     sel.innerHTML = S.sat.capturas.map((c,i)=>{
@@ -5759,7 +5774,7 @@ async function carregarSatCapturas(){
     if(S.sat.capturas.length){ vazio.style.display='none'; }
     else { vazio.style.display='block'; vazio.textContent = temOutraVersao
       ? 'As imagens deste talhão são de uma versão anterior. Abra "Buscar outra data" e clique numa data para gerar na versão atual.'
-      : 'Nenhuma imagem de satélite disponível para este talhão ainda.'; }
+      : 'Nenhuma imagem de satélite disponível para este talhão ainda. Use "Buscar outra data" para buscar no calendário.'; }
   }
 }
 
