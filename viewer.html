@@ -317,6 +317,15 @@ body.mode-sat #painel-coleta,body.mode-sat #painel-rec,body.mode-sat #view-banne
 .satz-btn-perigo:hover{border-color:#c0392b;color:#c0392b;}
 .satz-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--sand2);border-radius:8px;background:#fff;font-size:11.5px;}
 .satz-item.editando{border-color:var(--leaf);box-shadow:0 0 0 2px rgba(108,179,45,.18);}
+.satz-item.selecionada{border-color:#222;box-shadow:0 0 0 2px rgba(0,0,0,.15);background:#f7f7f5;}
+/* Vértices de edição do Leaflet.draw: por padrão são quadrados brancos com
+   borda preta — troca pra pontinhos redondos, contorno cinza (mesmo tom da
+   linha do polígono em edição) e miolo esmaecido, mais discreto/GIS-like. */
+.leaflet-editing-icon, .leaflet-div-icon.leaflet-editing-icon{
+  width:8px !important; height:8px !important; margin-left:-4px !important; margin-top:-4px !important;
+  border-radius:50% !important; background:rgba(160,160,160,.55) !important;
+  border:1.5px solid #8a8d85 !important; box-shadow:none !important;
+}
 .satz-item input[type=text]{flex:1;border:none;outline:none;font-size:11.5px;font-weight:700;color:var(--ink);background:transparent;min-width:0;}
 .satz-item .satz-area{color:var(--muted);font-size:10.5px;white-space:nowrap;}
 .satz-item .satz-cor{width:12px;height:12px;border-radius:3px;flex-shrink:0;}
@@ -781,9 +790,10 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div id="satz-toolbar" style="display:none;margin-top:8px;gap:6px;flex-wrap:wrap;">
     <button type="button" onclick="satZonasComecarPoligono()" class="satz-btn">▢ Novo polígono</button>
     <button type="button" id="btn-satz-cortar" onclick="satZonasCortarComLinha()" class="satz-btn" title="Desenhe uma linha atravessando uma zona pra dividi-la em duas">✂ Cortar com linha</button>
-    <button type="button" onclick="satZonasReverter()" class="satz-btn satz-btn-perigo" title="Descarta tudo que você mudou nesta sessão e volta pro que está salvo oficialmente">↺ Reverter</button>
+    <button type="button" id="btn-satz-mesclar" onclick="satZonasMesclarSelecionadas()" class="satz-btn" style="display:none;">🔗 Mesclar (0)</button>
+    <button type="button" onclick="satZonasReverter()" class="satz-btn satz-btn-perigo" title="Desfaz a última ação (clique de novo pra desfazer a anterior)">↺ Reverter</button>
   </div>
-  <div style="font-size:10.5px;color:var(--muted);margin-top:4px;display:none;" id="satz-dica-editar">Toque no ✎ de uma zona na lista pra arrastar os vértices dela direto no mapa.</div>
+  <div style="font-size:10.5px;color:var(--muted);margin-top:4px;display:none;" id="satz-dica-editar">Toque no ✎ de uma zona na lista pra arrastar os vértices dela direto no mapa. Segure Ctrl e clique em zonas no mapa pra selecionar várias e mesclar.</div>
   <div id="satz-lista" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;"></div>
   <div id="satz-vazio" style="font-size:11.5px;color:var(--muted);margin-top:6px;">Nenhuma zona desenhada ainda.</div>
   <button type="button" id="btn-satz-salvar" onclick="satZonasSalvarOficial()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;display:none">💾 Salvar como zonas oficiais</button>
@@ -2263,6 +2273,20 @@ function renderZonasVazias(){
   const sh=document.getElementById('hist-chart'); if(sh) sh.innerHTML='';
   if(S.layer) S.map.removeLayer(S.layer);
   clearLabels();
+  // GeoJSON com 0 features (ex: consultor apagou todas as zonas e salvou,
+  // de propósito, pra "zerar" o talhão) é um caso válido — NÃO é o mesmo
+  // que "sem geoData". L.geoJSON({}).getBounds() de uma coleção vazia
+  // lança "Bounds are not valid" e travava a tela inteira. Trata como
+  // vazio de verdade: mostra a mensagem de "sem dados", sem tentar
+  // enquadrar limites que não existem.
+  if(!S.geoData.features || !S.geoData.features.length){
+    const em=document.getElementById('empty-msg');
+    if(em){ em.style.display='block'; em.innerHTML = S.consultorMode
+      ? 'Este talhão está sem zonas.<br>Use <strong>"Adicionar arquivos"</strong> ou a aba <strong>Satélite → Zonas de manejo</strong> para criar.'
+      : 'Este talhão ainda não tem zonas publicadas.'; }
+    try{ if(S.map){ S.map.setView([-15,-55],4); S.map.invalidateSize(); } }catch(e){}
+    return;
+  }
   S.layer=L.geoJSON(S.geoData,{
     style:{ color:'#333', weight:1.2, fillColor:'#cfd3cb', fillOpacity:0.2 },
     onEachFeature:(f,layer)=>{
@@ -2272,7 +2296,7 @@ function renderZonasVazias(){
       layer.on('mouseout',function(){S.layer.resetStyle(this);});
     }
   }).addTo(S.map);
-  if(!S.pdfMode) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
+  try{ if(!S.pdfMode) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]}); }catch(e){ console.warn('[renderZonasVazias] fitBounds falhou:', e); }
   document.getElementById('empty-msg').style.display='none';
   document.body.classList.add('has-data');
   if(S.extras && S.extras.length) multiRenderExtrasNutrient();
@@ -2366,7 +2390,7 @@ function renderMap(){
   }).addTo(S.map);
   // enquadramento: no multi-talhão quem enquadra é multiFitAll (todos os talhões);
   // aqui só enquadra no talhão único. Evita focar só no primário ao trocar de nutriente.
-  if(!S.pdfMode && !(S.extras && S.extras.length)) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]});
+  try{ if(!S.pdfMode && !(S.extras && S.extras.length)) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]}); }catch(e){ console.warn('[renderMap] fitBounds falhou:', e); }
   if(S.showLabels) drawLabels();
   document.getElementById('empty-msg').style.display='none';
   document.body.classList.add('has-data');
@@ -5872,7 +5896,19 @@ function _satZonasDesenhar(){
 
   S.sat.zonasLayer=L.geoJSON(S.geoData,{
     style:{ fillOpacity:0, color:'#000000', weight:1.4, opacity:0.85 },
-    interactive:false
+    // antes ficava interactive:false — não reagia a mouseover, diferente da
+    // aba Nutrientes (que já destaca a zona sob o cursor). Agora usa o
+    // mesmo padrão: engrossa a borda e traz pra frente no hover, com
+    // tooltip de nome+área — comportamento consistente entre as duas abas.
+    onEachFeature:(f,layer)=>{
+      const p=f.properties||{};
+      const nome=campoZona?String(p[campoZona]??'').trim():'';
+      const areaVal=campoArea?parseFloat(p[campoArea]):NaN;
+      const areaTxt=isFinite(areaVal)?(areaVal.toFixed(1)+' ha'):'';
+      layer.bindTooltip('<div class="tt-head">Zona '+(nome||'—')+'</div>'+(areaTxt?'<div class="tt-col">'+areaTxt+'</div>':''),{sticky:true,opacity:1,permanent:false});
+      layer.on('mouseover',function(){ this.setStyle({ weight:3, color:'#fff' }); this.bringToFront(); });
+      layer.on('mouseout',function(){ S.sat.zonasLayer.resetStyle(this); });
+    }
   }).addTo(S.map);
 
   S.sat.zonasLabels=[];
@@ -6068,7 +6104,7 @@ function satDownloadFechar(){ document.getElementById('sat-dl-modal').style.disp
 // um campo de zona nas properties (identificado por _zoneField, ex:
 // "ZG") — e é salvo pelo MESMO caminho que o upload manual de zonas já
 // usa hoje (Storage bucket "arquivos" + RPC atualizar_nutrientes). Ou
-S.satZonas = { ativo:false, grupo:null, labelGrupo:null, drawer:null, cortador:null, itens:[], seq:0, refLayer:null, refDispensada:false, editandoId:null, _importTentado:false };
+S.satZonas = { ativo:false, grupo:null, labelGrupo:null, drawer:null, cortador:null, itens:[], seq:0, refLayer:null, refDispensada:false, editandoId:null, _importTentado:false, historico:[], selecionados:new Set() };
 
 const SATZ_CORES=['#6cb32d','#2e7dd6','#f6990d','#e0392b','#8e44ad','#16a085','#d35400','#2c3e50','#c0392b','#27ae60'];
 
@@ -6109,6 +6145,23 @@ function satZonasAlternar(){
   if(S.satZonas.ativo) satZonasParar(); else satZonasIniciar();
 }
 
+// Numeração sempre sequencial: olha as zonas EXISTENTES com nome puramente
+// numérico e devolve o próximo (maior + 1). Zonas renomeadas pra texto
+// ("Alta fertilidade") são ignoradas nessa conta — não dá pra tirar "o
+// próximo número" de um nome que não é número. Se nenhuma zona tem nome
+// numérico, começa do 1.
+//   • 1,2,3,4,5 existentes -> próxima = 6
+//   • só a zona "100" existe -> próxima = 101
+//   • nenhuma zona numérica -> próxima = 1
+function _satZonasProximoNumero(){
+  let maior=0;
+  S.satZonas.itens.forEach(it=>{
+    const n=Number(it.nome);
+    if(Number.isInteger(n) && String(n)===String(it.nome).trim()) maior=Math.max(maior,n);
+  });
+  return String(maior+1);
+}
+
 // carrega as zonas OFICIAIS já salvas (S.geoData — vem do upload manual ou
 // de um save anterior deste mesmo módulo) como itens EDITÁVEIS no desenho.
 // MultiPolygon vira uma zona por parte (mesmo tratamento do corte por
@@ -6134,6 +6187,7 @@ function _satZonasCarregarDeGeoData(){
       const item={ id:'z'+S.satZonas.seq, nome, cor, layer };
       layer._satzId=item.id;
       S.satZonas.itens.push(item);
+      _satZonasAnexarEventos(item);
     });
   });
 }
@@ -6189,25 +6243,65 @@ function satZonasIniciar(){
   }
 }
 
-// Descarta TUDO que foi criado/editado/apagado nesta sessão de desenho e
-// recarrega exatamente o que está oficialmente salvo (S.geoData) — o
-// "desfazer geral" que faltava. Sem isso, apagar sem querer não tinha
-// volta a não ser recarregando a página inteira.
-function satZonasReverter(){
-  const ok=confirm('Isso vai descartar tudo que você mudou nesta sessão (zonas criadas, editadas ou apagadas) e voltar pro que está salvo oficialmente.\n\nContinuar?');
-  if(!ok) return;
+// ── Desfazer passo a passo ──
+// Antes de QUALQUER ação que muda a geometria/nome de uma zona (criar,
+// apagar, editar vértice, renomear, cortar, mesclar), empilha uma "foto"
+// simples (nome+cor+geometria em JSON puro, sem referência a objetos
+// Leaflet) do estado ATUAL. "Reverter" tira a última foto da pilha e
+// reconstrói os itens a partir dela — desfaz só aquela ação, uma de cada
+// vez. Quando a pilha esvazia, o próximo reverter volta pro que está
+// oficialmente salvo (S.geoData) — a base de tudo.
+function _satZonasSnapshot(){
+  return S.satZonas.itens.map(it=>({ nome:it.nome, cor:it.cor, geometry: JSON.parse(JSON.stringify(_satzGeometryDeLayer(it.layer))) }));
+}
+function _satZonasEmpilharHistorico(){
+  S.satZonas.historico.push(_satZonasSnapshot());
+  if(S.satZonas.historico.length>30) S.satZonas.historico.shift(); // limite de segurança, não cresce pra sempre
+}
+// reconstrói S.satZonas.itens a partir de uma "foto" (ou, se snap for null,
+// a partir do que está oficialmente salvo em S.geoData).
+function _satZonasAplicarSnapshot(snap){
   if(S.satZonas.editandoId) satZonasEditarToggle(S.satZonas.editandoId);
   if(S.satZonas.drawer){ try{ S.satZonas.drawer.disable(); }catch(e){} S.satZonas.drawer=null; }
   if(S.satZonas.cortador){ try{ S.satZonas.cortador.disable(); }catch(e){} S.satZonas.cortador=null; }
+  S.satZonas.selecionados.clear();
   S.satZonas.itens.forEach(it=>{
     try{ S.satZonas.grupo.removeLayer(it.layer); }catch(e){}
     if(it.labelMarker && S.satZonas.labelGrupo){ try{ S.satZonas.labelGrupo.removeLayer(it.labelMarker); }catch(e){} }
   });
   S.satZonas.itens=[];
   S.satZonas.seq=0;
-  _satZonasCarregarDeGeoData();
+  if(snap){
+    snap.forEach(s=>{
+      let layer; try{ layer=L.geoJSON(s.geometry).getLayers()[0]; }catch(e){ return; }
+      if(!layer) return;
+      S.satZonas.grupo.addLayer(layer);
+      S.satZonas.seq++;
+      layer.setStyle && layer.setStyle({ color:s.cor, weight:2, fillColor:s.cor, fillOpacity:0.28 });
+      const item={ id:'z'+S.satZonas.seq, nome:s.nome, cor:s.cor, layer };
+      layer._satzId=item.id;
+      S.satZonas.itens.push(item);
+      _satZonasAnexarEventos(item);
+    });
+  }else{
+    _satZonasCarregarDeGeoData();
+  }
   renderSatzLista();
-  toast(S.satZonas.itens.length ? ('Revertido: '+S.satZonas.itens.length+' zona(s) oficiais restauradas.') : 'Revertido: este talhão não tinha zonas oficiais salvas.', 'ok');
+}
+
+// desfaz só a ÚLTIMA ação (não tudo de uma vez). Clicar de novo desfaz a
+// ação anterior a essa, e assim por diante, até chegar no que está salvo.
+function satZonasReverter(){
+  if(S.satZonas.historico.length){
+    const snap=S.satZonas.historico.pop();
+    _satZonasAplicarSnapshot(snap);
+    toast('Última ação desfeita.'+(S.satZonas.historico.length?' (mais '+S.satZonas.historico.length+' no histórico)':''),'ok');
+  }else{
+    const ok=confirm('Não há mais ações pra desfazer nesta sessão. Isso vai voltar pro que está salvo oficialmente.\n\nContinuar?');
+    if(!ok) return;
+    _satZonasAplicarSnapshot(null);
+    toast(S.satZonas.itens.length ? ('Revertido: '+S.satZonas.itens.length+' zona(s) oficiais restauradas.') : 'Revertido: este talhão não tinha zonas oficiais salvas.','ok');
+  }
 }
 
 function satZonasParar(){
@@ -6241,17 +6335,100 @@ function _satZonasAoCriar(e){
   // o evento draw:created serve tanto pro polígono de zona quanto pra linha
   // de corte (ambos disparam o mesmo evento no mapa) — desvia pelo tipo.
   if(e.layerType==='polyline'){ _satZonasAplicarCorte(e.layer); return; }
+  _satZonasEmpilharHistorico(); // guarda o estado de ANTES desta zona nova existir
   const layer=e.layer;
   S.satZonas.grupo.addLayer(layer);
   S.satZonas.seq++;
   const cor=SATZ_CORES[(S.satZonas.seq-1)%SATZ_CORES.length];
   layer.setStyle && layer.setStyle({ color:cor, weight:2, fillColor:cor, fillOpacity:0.28 });
-  const item={ id:'z'+S.satZonas.seq, nome:String(S.satZonas.seq), cor, layer };
+  const item={ id:'z'+S.satZonas.seq, nome:_satZonasProximoNumero(), cor, layer };
   layer._satzId=item.id;
   S.satZonas.itens.push(item);
+  _satZonasAnexarEventos(item);
   _satZonasReferenciaEsconder(); // a partir da 1ª zona real, o contorno de referência não faz mais falta
   const dica=document.getElementById('satz-dica-editar'); if(dica) dica.style.display='block';
   renderSatzLista();
+}
+
+// ── Seleção por clique (Ctrl/Cmd+clique) pra mesclar zonas ──
+// Clique simples numa zona: limpa qualquer seleção em curso (não faz mais
+// nada — editar/renomear/excluir continuam pela lista, não pelo mapa).
+// Ctrl/Cmd+clique: entra/sai da seleção daquela zona. Com 2+ selecionadas,
+// o botão "Mesclar" aparece na toolbar.
+function _satZonasAnexarEventos(item){
+  item.layer.on('click', function(ev){
+    try{ L.DomEvent.stopPropagation(ev); }catch(e){}
+    const nativo=ev.originalEvent;
+    const ctrl=!!(nativo && (nativo.ctrlKey || nativo.metaKey));
+    if(!ctrl){
+      if(S.satZonas.selecionados.size){ S.satZonas.selecionados.clear(); _satZonasAtualizarSelecaoVisual(); renderSatzLista(); }
+      return;
+    }
+    if(S.satZonas.selecionados.has(item.id)) S.satZonas.selecionados.delete(item.id);
+    else S.satZonas.selecionados.add(item.id);
+    _satZonasAtualizarSelecaoVisual();
+    renderSatzLista();
+  });
+  // hover leve, igual ao resto do app (Nutrientes já faz isso; aqui não tinha)
+  item.layer.on('mouseover', function(){ if(!S.satZonas.selecionados.has(item.id)) this.setStyle({ weight:3.5 }); this.bringToFront(); });
+  item.layer.on('mouseout', function(){ if(!S.satZonas.selecionados.has(item.id)) this.setStyle({ weight:2 }); });
+}
+
+function _satZonasAtualizarSelecaoVisual(){
+  S.satZonas.itens.forEach(it=>{
+    const sel=S.satZonas.selecionados.has(it.id);
+    it.layer.setStyle && it.layer.setStyle({ color:sel?'#111':it.cor, weight:sel?4:2, dashArray:sel?'5,4':null, fillColor:it.cor, fillOpacity:0.28 });
+  });
+  const btn=document.getElementById('btn-satz-mesclar');
+  if(btn){
+    const n=S.satZonas.selecionados.size;
+    btn.style.display = n>=2 ? '' : 'none';
+    btn.textContent = '🔗 Mesclar ('+n+')';
+  }
+}
+
+// mescla as zonas selecionadas (Ctrl+clique) numa só, via turf.union (par a
+// par — a v6.5.0 do turf carregada aqui só aceita 2 argumentos diretos, não
+// FeatureCollection; testado e confirmado, mesmo caso do corte). A zona
+// resultante fica com o nome/cor da PRIMEIRA selecionada.
+function satZonasMesclarSelecionadas(){
+  const ids=[...S.satZonas.selecionados];
+  if(ids.length<2){ toast('Selecione pelo menos 2 zonas (Ctrl+clique) pra mesclar.','wrn'); return; }
+  if(typeof turf==='undefined'){ toast('Biblioteca de geometria (turf) não carregou — verifique a internet.','err'); return; }
+  const alvos=ids.map(id=>S.satZonas.itens.find(i=>i.id===id)).filter(Boolean);
+  if(alvos.length<2) return;
+  _satZonasEmpilharHistorico();
+  try{
+    let uniao=turf.feature(_satzGeometryDeLayer(alvos[0].layer));
+    for(let i=1;i<alvos.length;i++){
+      uniao=turf.union(uniao, turf.feature(_satzGeometryDeLayer(alvos[i].layer)));
+      if(!uniao) throw new Error('Falha ao unir uma das zonas (geometrias podem não se tocar).');
+    }
+    // remove as zonas originais
+    alvos.forEach(it=>{
+      S.satZonas.grupo.removeLayer(it.layer);
+      if(it.labelMarker && S.satZonas.labelGrupo) S.satZonas.labelGrupo.removeLayer(it.labelMarker);
+      S.satZonas.itens=S.satZonas.itens.filter(i=>i.id!==it.id);
+    });
+    // cria a zona mesclada com o nome/cor da primeira selecionada
+    const base=alvos[0];
+    const novaLayer=L.geoJSON(uniao.geometry).getLayers()[0];
+    S.satZonas.grupo.addLayer(novaLayer);
+    S.satZonas.seq++;
+    novaLayer.setStyle && novaLayer.setStyle({ color:base.cor, weight:2, fillColor:base.cor, fillOpacity:0.28 });
+    const novoItem={ id:'z'+S.satZonas.seq, nome:base.nome, cor:base.cor, layer:novaLayer };
+    novaLayer._satzId=novoItem.id;
+    S.satZonas.itens.push(novoItem);
+    _satZonasAnexarEventos(novoItem);
+    S.satZonas.selecionados.clear();
+    renderSatzLista();
+    _satZonasAtualizarSelecaoVisual();
+    toast(alvos.length+' zonas mescladas em "'+base.nome+'".','ok');
+  }catch(err){
+    S.satZonas.historico.pop(); // desfaz o empilhamento, já que a ação não completou
+    console.warn('[satZonas] falha ao mesclar:', err);
+    toast('Não consegui mesclar: '+String((err&&err.message)||err).slice(0,120),'err');
+  }
 }
 
 // converte a camada Leaflet de uma zona pro formato geometry (GeoJSON) usado
@@ -6305,19 +6482,43 @@ function renderSatzLista(){
   box.innerHTML = S.satZonas.itens.map(it=>{
     const ha=_satZonasAtualizarTooltip(it);
     const editando = (S.satZonas.editandoId===it.id);
-    return '<div class="satz-item'+(editando?' editando':'')+'">'+
+    const selecionada = S.satZonas.selecionados.has(it.id);
+    return '<div class="satz-item'+(editando?' editando':'')+(selecionada?' selecionada':'')+'" onclick="_satZonasCliqueNaLista(event,\''+it.id+'\')">'+
       '<span class="satz-cor" style="background:'+it.cor+'"></span>'+
-      '<input type="text" value="'+it.nome.replace(/"/g,'&quot;')+'" onchange="satZonasRenomear(\''+it.id+'\',this.value)">'+
+      '<input type="text" value="'+it.nome.replace(/"/g,'&quot;')+'" onclick="event.stopPropagation()" onchange="satZonasRenomear(\''+it.id+'\',this.value)">'+
       '<span class="satz-area">'+ha.toFixed(2)+' ha</span>'+
-      '<span class="satz-icone'+(editando?' editando':'')+'" onclick="satZonasEditarToggle(\''+it.id+'\')" title="'+(editando?'Concluir edição desta zona':'Arrastar vértices desta zona')+'">'+(editando?'💾':'✎')+'</span>'+
-      '<span class="satz-icone satz-del" onclick="satZonasExcluirUma(\''+it.id+'\')" title="Excluir esta zona">✕</span>'+
+      '<span class="satz-icone'+(editando?' editando':'')+'" onclick="event.stopPropagation();satZonasEditarToggle(\''+it.id+'\')" title="'+(editando?'Concluir edição desta zona':'Arrastar vértices desta zona')+'">'+(editando?'💾':'✎')+'</span>'+
+      '<span class="satz-icone satz-del" onclick="event.stopPropagation();satZonasExcluirUma(\''+it.id+'\')" title="Excluir esta zona">✕</span>'+
     '</div>';
   }).join('');
+  const btnMesclar=document.getElementById('btn-satz-mesclar');
+  if(btnMesclar){
+    const n=S.satZonas.selecionados.size;
+    btnMesclar.style.display = n>=2 ? '' : 'none';
+    btnMesclar.textContent = '🔗 Mesclar ('+n+')';
+  }
+}
+
+// clique na LISTA (não no mapa) também respeita Ctrl+clique pra selecionar
+// — dá pra montar a seleção de mesclagem sem precisar mirar no mapa.
+function _satZonasCliqueNaLista(ev, id){
+  const ctrl=!!(ev && (ev.ctrlKey || ev.metaKey));
+  if(!ctrl){
+    if(S.satZonas.selecionados.size){ S.satZonas.selecionados.clear(); _satZonasAtualizarSelecaoVisual(); renderSatzLista(); }
+    return;
+  }
+  if(S.satZonas.selecionados.has(id)) S.satZonas.selecionados.delete(id);
+  else S.satZonas.selecionados.add(id);
+  _satZonasAtualizarSelecaoVisual();
+  renderSatzLista();
 }
 
 function satZonasRenomear(id, novoNome){
   const it=S.satZonas.itens.find(i=>i.id===id); if(!it) return;
-  it.nome=(novoNome||'').trim()||it.nome;
+  const nomeNovo=(novoNome||'').trim();
+  if(!nomeNovo || nomeNovo===it.nome) return; // nada mudou, não polui o histórico
+  _satZonasEmpilharHistorico();
+  it.nome=nomeNovo;
   _satZonasAtualizarTooltip(it);
 }
 
@@ -6337,6 +6538,10 @@ function satZonasEditarToggle(id){
     if(S.satZonas.editandoId) satZonasEditarToggle(S.satZonas.editandoId); // só uma zona em edição por vez
     if(S.satZonas.drawer){ S.satZonas.drawer.disable(); S.satZonas.drawer=null; }
     if(S.satZonas.cortador){ S.satZonas.cortador.disable(); S.satZonas.cortador=null; }
+    // guarda o formato ANTES de começar a arrastar vértices — cada sessão de
+    // edição (do ✎ até o 💾) conta como UMA ação pro botão Reverter, não
+    // um passo por pixel arrastado (senão o histórico ficaria inútil).
+    _satZonasEmpilharHistorico();
     it.layer.editing.enable();
     it.layer.on('edit', _satZonasAoEditarVertice);
     S.satZonas.editandoId=id;
@@ -6347,9 +6552,11 @@ function _satZonasAoEditarVertice(){ renderSatzLista(); } // vértice arrastado 
 
 function satZonasExcluirUma(id){
   const it=S.satZonas.itens.find(i=>i.id===id); if(!it) return;
+  _satZonasEmpilharHistorico();
   if(S.satZonas.editandoId===id){ try{ it.layer.editing.disable(); }catch(e){} S.satZonas.editandoId=null; }
   S.satZonas.grupo.removeLayer(it.layer);
   if(it.labelMarker && S.satZonas.labelGrupo) S.satZonas.labelGrupo.removeLayer(it.labelMarker);
+  S.satZonas.selecionados.delete(id);
   S.satZonas.itens = S.satZonas.itens.filter(i=>i.id!==id);
   renderSatzLista();
 }
@@ -6381,9 +6588,12 @@ function _satZonasAplicarCorte(linhaLayer){
     });
     if(!alvos.length){ toast('A linha não passou por cima de nenhuma zona — nada foi cortado.','wrn'); return; }
 
+    _satZonasEmpilharHistorico(); // uma única foto pra cobrir o corte inteiro (pode afetar >1 zona)
+
     // buffer da linha em metros: fino o bastante pra não comer área
     // relevante, mas suficiente pra separar de fato os dois lados.
     const linhaBuf = turf.buffer(linhaGeo, 0.4, { units:'meters' });
+    let cortouAlgo=false;
 
     alvos.forEach(it=>{
       const poligonoGeo = _satzGeometryDeLayer(it.layer);
@@ -6398,25 +6608,29 @@ function _satZonasAplicarCorte(linhaLayer){
         ? resultado.geometry.coordinates.map(c=>({ type:'Polygon', coordinates:c }))
         : [resultado.geometry];
       if(pecas.length<2) return; // não cortou em duas partes de verdade
+      cortouAlgo=true;
 
-      // remove a zona original e cria uma zona nova pra cada peça, com o
-      // MESMO nome-base sufixado (ex: "3" vira "3a"/"3b") pra facilitar
-      // reconhecer de onde vieram no relatório.
+      // remove a zona original e cria uma zona nova pra cada peça. Numeração
+      // SEMPRE sequencial (não mais sufixo de letra): a 1ª peça herda o nome
+      // da zona original, as próximas pegam o próximo número disponível no
+      // conjunto todo — ex: só existia a zona "1" -> vira "1" e "2".
       S.satZonas.grupo.removeLayer(it.layer);
       if(it.labelMarker && S.satZonas.labelGrupo) S.satZonas.labelGrupo.removeLayer(it.labelMarker);
       S.satZonas.itens = S.satZonas.itens.filter(i=>i.id!==it.id);
-      const sufixos='abcdefgh';
       pecas.forEach((peca,i)=>{
         const novaLayer = L.geoJSON(peca).getLayers()[0];
         S.satZonas.grupo.addLayer(novaLayer);
         S.satZonas.seq++;
         const cor=SATZ_CORES[(S.satZonas.seq-1)%SATZ_CORES.length];
         novaLayer.setStyle && novaLayer.setStyle({ color:cor, weight:2, fillColor:cor, fillOpacity:0.28 });
-        const novoItem={ id:'z'+S.satZonas.seq, nome:it.nome+sufixos[i%8], cor, layer:novaLayer };
+        const nome = (i===0) ? it.nome : _satZonasProximoNumero();
+        const novoItem={ id:'z'+S.satZonas.seq, nome, cor, layer:novaLayer };
         novaLayer._satzId=novoItem.id;
         S.satZonas.itens.push(novoItem);
+        _satZonasAnexarEventos(novoItem);
       });
     });
+    if(!cortouAlgo){ S.satZonas.historico.pop(); toast('A linha tocou a zona, mas não separou em duas partes — nada foi cortado.','wrn'); return; }
     renderSatzLista();
     toast('Corte aplicado.','ok');
   }catch(err){
@@ -8607,7 +8821,7 @@ function renderCompare(){
   let _cb=null; try{ _cb=S.layer.getBounds(); }catch(e){}
   if(S.extras) S.extras.forEach(ex=>{ if(ex.bounds){ try{ _cb=_cb?_cb.extend(ex.bounds):L.latLngBounds(ex.bounds); }catch(e){} } });
   if(_cb){ try{S.map.fitBounds(_cb,{padding:[24,24]});}catch(e){} try{ if(S.compare.map2) S.compare.map2.fitBounds(_cb,{padding:[24,24]}); }catch(e){} }
-  else { if(S.layer) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]}); if(S.layer2) S.compare.map2.fitBounds(S.layer2.getBounds(),{padding:[24,24]}); }
+  else { try{ if(S.layer) S.map.fitBounds(S.layer.getBounds(),{padding:[24,24]}); }catch(e){} try{ if(S.layer2) S.compare.map2.fitBounds(S.layer2.getBounds(),{padding:[24,24]}); }catch(e){} }
   document.getElementById('empty-msg').style.display='none';
   document.body.classList.add('has-data');
   document.getElementById('sec-leg').style.display='';
