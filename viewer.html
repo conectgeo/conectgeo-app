@@ -5643,14 +5643,46 @@ async function _satCarregarRaster(url){
 }
 
 // junta os valores válidos da banda do índice, para calcular os percentis
-function _satValoresValidos(gr, bandaIdx){
+// Máscara "pixel está dentro do talhão?". Sem ela, a escala relativa e as
+// médias usavam TODO o recorte — mata, estrada e solo vizinho entravam na
+// conta e distorciam a graduação de cor da lavoura. Com a máscara, só os
+// pixels dentro das zonas contam para a escala/médias, e só eles são
+// pintados (o entorno fica transparente). Cacheada por dimensão do raster.
+function _satMascaraTalhao(gr){
+  if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return null;
+  const chave=gr.width+'x'+gr.height+'@'+gr.xmin.toFixed(6)+','+gr.ymin.toFixed(6);
+  if(S.sat._maskKey===chave && S.sat._mask) return S.sat._mask;
+  const w=gr.width, h=gr.height;
+  const px=gr.pixelWidth  || (gr.xmax-gr.xmin)/w;
+  const py=gr.pixelHeight || (gr.ymax-gr.ymin)/h;
+  const polys=[];
+  S.geoData.features.forEach(f=>{
+    const g=f.geometry; if(!g) return;
+    if(g.type==='Polygon') polys.push(g.coordinates);
+    else if(g.type==='MultiPolygon') g.coordinates.forEach(p=>polys.push(p));
+  });
+  if(!polys.length) return null;
+  const mask=new Uint8Array(w*h);
+  for(let row=0; row<h; row++){
+    const lat=gr.ymax - (row+0.5)*py;
+    for(let col=0; col<w; col++){
+      const lng=gr.xmin + (col+0.5)*px;
+      for(let k=0;k<polys.length;k++){ if(pointInPolygon([lng,lat], polys[k])){ mask[row*w+col]=1; break; } }
+    }
+  }
+  S.sat._mask=mask; S.sat._maskKey=chave;
+  return mask;
+}
+
+function _satValoresValidos(gr, bandaIdx, mask){
   const out=[];
   try{
-    const b=gr.values[bandaIdx], v=gr.values[5];
+    const b=gr.values[bandaIdx], v=gr.values[5], w=gr.width;
     for(let y=0;y<b.length;y++){
       const linha=b[y], lv=v?v[y]:null;
       for(let x=0;x<linha.length;x++){
-        if(lv && lv[x]!==1) continue;
+        if(mask && mask[y*w+x]!==1) continue;   // fora do talhão
+        if(lv && lv[x]!==1) continue;            // nuvem/borda
         const n=linha[x];
         if(n!=null && isFinite(n)) out.push(n);
       }
@@ -5701,15 +5733,16 @@ function _satZonasLimpar(){
 // É composição direta das bandas 2,3,4 (R,G,B, em reflectância), com o mesmo
 // conceito de saturação das outras: recorta percentis por CANAL (não um só
 // recorte pros três juntos, que deixaria a imagem com dominante de cor).
-function _satRGBLimites(gr, modo, saturacao){
+function _satRGBLimites(gr, modo, saturacao, mask){
   const FIXO=[0, 0.30];  // faixa típica de reflectância pra exibição em tela
   if(modo==='absoluto') return [FIXO,FIXO,FIXO];
   const p=_satPercentil(saturacao);
+  const w=gr.width;
   return [2,3,4].map(banda=>{
     const vals=[];
     try{
       const b=gr.values[banda], v=gr.values[5];
-      for(let y=0;y<b.length;y++){ const lv=v?v[y]:null; for(let x=0;x<b[y].length;x++){ if(lv&&lv[x]!==1) continue; const n=b[y][x]; if(n!=null&&isFinite(n)) vals.push(n); } }
+      for(let y=0;y<b.length;y++){ const lv=v?v[y]:null; for(let x=0;x<b[y].length;x++){ if(mask&&mask[y*w+x]!==1) continue; if(lv&&lv[x]!==1) continue; const n=b[y][x]; if(n!=null&&isFinite(n)) vals.push(n); } }
     }catch(e){}
     vals.sort((a,b)=>a-b);
     if(vals.length<2) return FIXO;
@@ -5728,15 +5761,18 @@ function _satPintarCanvas(gr, idx, modo, saturacao){
   const ctx=cv.getContext('2d');
   const img=ctx.createImageData(w,h);
   const px=img.data;
+  // máscara do talhão: se existir, tudo fora dela fica transparente E fora do
+  // cálculo da escala. Sem geometria (mask null), comporta-se como antes.
+  const mask=_satMascaraTalhao(gr);
+  const dentro=(y,x)=> !mask || mask[y*w+x]===1;
 
   if(idx==='rgb'){
-    const lims=_satRGBLimites(gr, modo, saturacao);
+    const lims=_satRGBLimites(gr, modo, saturacao, mask);
     const [bR,bG,bB]=[gr.values[2],gr.values[3],gr.values[4]], bV=gr.values[5];
     const clip=(v,lo,hi)=>Math.max(0,Math.min(255,Math.round(((v-lo)/(hi-lo))*255)));
     for(let y=0;y<h;y++) for(let x=0;x<w;x++){
       const i=(y*w+x)*4;
-      const valido=bV[y][x]===1;
-      if(!valido){ px[i+3]=0; continue; }
+      if(!dentro(y,x) || bV[y][x]!==1){ px[i+3]=0; continue; }
       px[i]  =clip(bR[y][x], lims[0][0], lims[0][1]);
       px[i+1]=clip(bG[y][x], lims[1][0], lims[1][1]);
       px[i+2]=clip(bB[y][x], lims[2][0], lims[2][1]);
@@ -5747,14 +5783,14 @@ function _satPintarCanvas(gr, idx, modo, saturacao){
   }
 
   const banda=(idx==='ndmi')?1:0;
-  const vals=_satValoresValidos(gr, banda);
+  const vals=_satValoresValidos(gr, banda, mask);
   const [lo,hi]=_satLimites(vals, idx, modo, saturacao);
   const bV=gr.values[banda], bMask=gr.values[5];
   const stops=(SAT_PAL[idx]||SAT_PAL.evi).map(hexToRgb);
   const nStops=stops.length-1;
   for(let y=0;y<h;y++) for(let x=0;x<w;x++){
     const i=(y*w+x)*4;
-    if(bMask[y][x]!==1){ px[i+3]=0; continue; }
+    if(!dentro(y,x) || bMask[y][x]!==1){ px[i+3]=0; continue; }
     const v=bV[y][x];
     if(v==null||!isFinite(v)){ px[i+3]=0; continue; }
     const t=(hi>lo)?Math.max(0,Math.min(1,(v-lo)/(hi-lo))):0.5;
@@ -5783,13 +5819,14 @@ async function renderSatelite(){
     const { canvas, lo, hi, vals } = _satPintarCanvas(gr, S.sat.idx, S.sat.modo, S.sat.saturacao);
     S.sat.lo=lo; S.sat.hi=hi;
 
-    // médias dos índices dentro da área válida (nuvem/borda já excluídas pela
-    // banda "válido"). É de graça: os pixels já estão em memória. Guardadas na
-    // captura para não recalcular ao alternar de índice.
+    // médias dos índices DENTRO do talhão (máscara exclui mata/estrada do
+    // entorno; nuvem/borda já saem pela banda "válido"). De graça: pixels já
+    // em memória, máscara já cacheada pelo _satPintarCanvas acima.
     const media=arr=>arr.length ? arr.reduce((s,x)=>s+x,0)/arr.length : null;
     if(c._eviMedio===undefined){
-      c._eviMedio = media(_satValoresValidos(gr,0));
-      c._ndmiMedio = media(_satValoresValidos(gr,1));
+      const mask=_satMascaraTalhao(gr);
+      c._eviMedio = media(_satValoresValidos(gr,0,mask));
+      c._ndmiMedio = media(_satValoresValidos(gr,1,mask));
     }
 
     if(S.sat.overlay){ try{ S.map.removeLayer(S.sat.overlay); }catch(e){} S.sat.overlay=null; }
@@ -5798,19 +5835,13 @@ async function renderSatelite(){
     _satAtribuicao(true);
     try{ if(S.sat.zonasLayer) S.sat.zonasLayer.bringToFront(); }catch(e){}
 
-    const dataFmt=String(c.data).split('-').reverse().join('/');
     // marca acesso: reinicia o relógio de 24h da lista para esta captura
     try{ sb.rpc('marcar_sentinel_acesso',{ p_token:S.tokenAtual, p_data:c.data, p_versao:(c.versao||SAT_VERSAO) }); }catch(e){}
     const medias=[];
     if(c._eviMedio!=null) medias.push('EVI médio '+c._eviMedio.toFixed(2));
     if(c._ndmiMedio!=null) medias.push('NDMI médio '+c._ndmiMedio.toFixed(2));
-    const linhaMedia = medias.length ? (medias.join(' · ')) : '';
     if(info){
-      const base = (S.sat.idx==='rgb')
-        ? ('Cor natural · '+dataFmt)
-        : ((vals&&vals.length) ? (vals.length.toLocaleString('pt-BR')+' pixels válidos · '+dataFmt)
-                               : 'Imagem sem pixels válidos (possivelmente nuvem).');
-      info.innerHTML = base + (linhaMedia ? ('<br><b>'+linhaMedia+'</b>') : '');
+      info.innerHTML = medias.length ? ('<b>'+medias.join(' · ')+'</b>') : '';
     }
   }catch(e){
     console.warn('[sat] falha ao renderizar:', e);
