@@ -291,6 +291,11 @@ body.mode-sat #painel-coleta,body.mode-sat #painel-rec,body.mode-sat #view-banne
 .sat-cal-dia.processada{outline:2px solid #24271f;outline-offset:1px;}
 .sat-cal-dia.fora-limite{opacity:.45;}
 .sat-cal-dia.carregando{opacity:.5;cursor:wait;}
+/* dia com estatística: empilha número em cima, EVI embaixo */
+.sat-cal-dia.tem-evi{flex-direction:column;gap:0;line-height:1;padding:2px 0;}
+.sat-cal-dia.tem-evi .cal-dnum{font-size:11px;font-weight:700;}
+.sat-cal-dia .cal-evi{font-size:9px;font-weight:700;background:rgba(255,255,255,.28);padding:0 4px;border-radius:4px;margin-top:2px;letter-spacing:.02em;}
+.sat-cal-dia:not(.tem-evi) .cal-dnum{font-size:11.5px;}
 .sat-zona-label-wrap{background:none!important;border:none!important;}
 .sat-zona-label{background:rgba(0,0,0,.55);color:#fff;font-size:10.5px;line-height:1.25;padding:2px 5px;border-radius:4px;white-space:nowrap;text-align:center;transform:translate(-50%,-50%);pointer-events:none;}
 /* ── modo Recomendação ── */
@@ -5476,7 +5481,7 @@ function _satAtribuicao(ligar){
 // ══ CALENDÁRIO — busca no catálogo por mês (quase de graça) e processa só o
 // dia escolhido (isso sim consome PU). Espelha o seletor de nuvem + grade de
 // dias do Copernicus Browser, mas os dados vêm da própria Edge Function.
-S.satCal = { ano:0, mes:0, cenas:[], nuvemMax:30, carregando:false, diaEmCurso:null };
+S.satCal = { ano:0, mes:0, cenas:[], stats:{}, nuvemMax:30, carregando:false, diaEmCurso:null };
 const SAT_FN='sentinel-processar';  // nome da Edge Function no Supabase (um lugar só)
 const SAT_VERSAO='v2';  // versão corrente do produto — deve casar com PRODUTO_VERSAO na Edge Function
 
@@ -5511,11 +5516,13 @@ async function satCalCarregarMes(){
   if(selAno) selAno.value=String(S.satCal.ano);
 
   const status=document.getElementById('sat-cal-status');
-  S.satCal.carregando=true; S.satCal.cenas=[];
+  S.satCal.carregando=true; S.satCal.cenas=[]; S.satCal.stats={};
   satCalRenderGrid(); // mostra a grade vazia (com dias do mês) enquanto carrega
   if(status) status.textContent='Consultando o catálogo…';
+
+  const anoReq=S.satCal.ano, mesReq=S.satCal.mes; // trava contra troca de mês durante o await
   try{
-    const resp = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'listar', ano:S.satCal.ano, mes:S.satCal.mes } });
+    const resp = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'listar', ano:anoReq, mes:mesReq } });
     if(resp.error){
       // FunctionsFetchError = não conseguiu nem chamar (função não existe, nome
       // errado, CORS). FunctionsHttpError = chamou, mas a função devolveu !=2xx.
@@ -5525,15 +5532,45 @@ async function satCalCarregarMes(){
     }
     const data=resp.data;
     if(!data || !data.ok) throw new Error((data&&data.erro)||'A função respondeu, mas sem dados. Provavelmente é a versão antiga, sem a ação "listar".');
+    // ignora se o usuário já trocou de mês enquanto isso carregava
+    if(anoReq!==S.satCal.ano || mesReq!==S.satCal.mes) return;
     S.satCal.cenas=data.cenas||[];
     if(status) status.textContent = S.satCal.cenas.length ? (S.satCal.cenas.length+' data(s) com imagem neste mês.') : 'Nenhuma imagem Sentinel-2 catalogada neste mês.';
   }catch(e){
     console.warn('[sat] falha ao listar catálogo:', e);
     if(status) status.textContent=String((e&&e.message)||e).slice(0,180);
   }finally{
-    S.satCal.carregando=false;
-    satCalRenderGrid();
+    if(anoReq===S.satCal.ano && mesReq===S.satCal.mes){
+      S.satCal.carregando=false;
+      satCalRenderGrid();
+    }
   }
+
+  // Estatísticas (EVI/NDMI médios) — chamada separada, em segundo plano.
+  // Não bloqueia a exibição do calendário: os dias aparecem com a cor de
+  // nuvem imediatamente, e o EVI vai "preenchendo" quando a stats chega.
+  satCalCarregarStats(anoReq, mesReq);
+}
+
+// Busca as médias de EVI/NDMI do mês (Statistical API, baratíssima) e
+// re-renderiza o grid pra mostrar o número em cada dia. Cacheada por
+// token+ano+mês em memória, então trocar de mês e voltar não refaz.
+async function satCalCarregarStats(ano, mes){
+  const chave=S.tokenAtual+'|'+ano+'|'+mes;
+  S.satCal._statsCache=S.satCal._statsCache||{};
+  if(S.satCal._statsCache[chave]){
+    // só aplica se ainda estamos no mesmo mês exibido
+    if(ano===S.satCal.ano && mes===S.satCal.mes){ S.satCal.stats=S.satCal._statsCache[chave]; satCalRenderGrid(); }
+    return;
+  }
+  try{
+    const resp = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'stats', ano, mes } });
+    if(resp.error || !resp.data || !resp.data.ok) return; // stats é "bônus": falhou, segue sem
+    const mapa={};
+    for(const s of (resp.data.stats||[])) mapa[s.data]=s;
+    S.satCal._statsCache[chave]=mapa;
+    if(ano===S.satCal.ano && mes===S.satCal.mes){ S.satCal.stats=mapa; satCalRenderGrid(); }
+  }catch(e){ console.warn('[sat] falha ao carregar estatísticas (não crítico):', e); }
 }
 function satCalMesSelecionado(v){ S.satCal.mes=+v; satCalCarregarMes(); }
 function satCalAnoSelecionado(v){ S.satCal.ano=+v; satCalCarregarMes(); }
@@ -5557,7 +5594,17 @@ function satCalRenderGrid(){
       const cor=_satCalCorPorNuvem(c.nuvem);
       const foraLimite=(c.nuvem>S.satCal.nuvemMax) ? ' fora-limite' : '';
       const proc=c.processada ? ' processada' : '';
-      html+='<div class="sat-cal-dia com-imagem'+foraLimite+proc+'" style="background:'+cor+'" title="'+iso+' · '+c.nuvem.toFixed(0)+'% nuvem'+(c.processada?' · já carregada':'')+'" onclick="satCalEscolherDia(\''+iso+'\')">'+d+'</div>';
+      const st=S.satCal.stats?.[iso];
+      const temEvi=st && st.evi_medio!=null;
+      // rótulo do EVI dentro do quadradinho (só 2 casas, compacto)
+      const eviTxt=temEvi ? '<span class="cal-evi">'+st.evi_medio.toFixed(2)+'</span>' : '';
+      // tooltip mais rico quando há estatística
+      let tip=iso+' · '+c.nuvem.toFixed(0)+'% nuvem'+(c.processada?' · já carregada':'');
+      if(temEvi){
+        tip+=' · EVI '+st.evi_medio.toFixed(2)+' ('+st.evi_min.toFixed(2)+'–'+st.evi_max.toFixed(2)+')';
+        if(st.ndmi_medio!=null) tip+=' · NDMI '+st.ndmi_medio.toFixed(2);
+      }
+      html+='<div class="sat-cal-dia com-imagem'+foraLimite+proc+(temEvi?' tem-evi':'')+'" style="background:'+cor+'" title="'+tip+'" onclick="satCalEscolherDia(\''+iso+'\')"><span class="cal-dnum">'+d+'</span>'+eviTxt+'</div>';
     }
   }
   grid.innerHTML=html;
@@ -7804,7 +7851,7 @@ document.getElementById('sel-depth-right').addEventListener('change',function(){
       <strong style="font-size:14.5px;">Buscar imagem por data</strong>
       <span onclick="satCalFechar()" style="cursor:pointer;font-size:18px;color:var(--muted);line-height:1;padding:2px 4px;">✕</span>
     </div>
-    <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Datas em azul já têm imagem catalogada. Clique num dia para carregar — se ainda não foi processado, isso consome cota do Copernicus.</div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Datas em azul já têm imagem catalogada. Clique num dia para carregar.</div>
 
     <div class="ctrl"><div class="ctrl-label"><span>Nuvem máxima (destaque)</span> <span class="ctrl-val" id="cv-sat-cal-nuvem">30%</span></div>
       <input type="range" id="sl-sat-cal-nuvem" min="0" max="100" step="5" value="30" oninput="satCalAtualizarNuvem(this.value)"></div>
