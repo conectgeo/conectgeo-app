@@ -242,6 +242,29 @@ body.pdf-no-id .zone-label-val{
 }
 /* BASEMAP TOGGLE (flutuante sobre o mapa) */
 .basemap-float{position:absolute;top:auto;bottom:26px;right:12px;z-index:600;display:none;gap:6px;background:rgba(255,255,255,.92);padding:5px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.18);}
+
+/* BUSCA POR COORDENADAS (item 9) — só aparece na aba Satélite */
+.coord-search{position:absolute;top:60px;right:12px;z-index:640;display:none;flex-direction:column;align-items:flex-end;gap:4px;}
+body.mode-sat .coord-search{display:flex;}
+.coord-search-toggle{width:38px;height:38px;background:rgba(255,255,255,.95);border:none;border-radius:10px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center;color:var(--accent);transition:.15s;}
+.coord-search-toggle:hover{background:#fff;color:var(--leaf);}
+.coord-search.open .coord-search-toggle{background:var(--leaf);color:#fff;}
+.coord-search-panel{display:none;background:rgba(255,255,255,.98);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.18);padding:5px;gap:4px;align-items:center;}
+.coord-search.open .coord-search-panel{display:flex;}
+.coord-search-panel input{border:1.5px solid var(--border);border-radius:7px;padding:7px 10px;font-size:12px;width:220px;outline:none;background:#fff;color:var(--ink);}
+.coord-search-panel input:focus{border-color:var(--leaf);}
+.coord-search-panel input.erro{border-color:var(--danger);background:#fff5f4;}
+.coord-search-go, .coord-search-x{border:none;background:transparent;cursor:pointer;font-size:14px;padding:5px 8px;border-radius:6px;font-weight:700;color:var(--accent2);transition:.15s;}
+.coord-search-go:hover{background:var(--accent3);}
+.coord-search-x{color:var(--danger);}
+.coord-search-x:hover{background:#fff0ee;}
+.coord-search-err{font-size:10.5px;color:var(--danger);background:rgba(255,255,255,.95);border-radius:6px;padding:4px 8px;box-shadow:0 1px 5px rgba(0,0,0,.15);max-width:280px;display:none;}
+.coord-search-err.show{display:block;}
+/* Pin de pesquisa — usa DivIcon com um pin custom, cores de destaque */
+.coord-pin{background:transparent;border:none;}
+.coord-pin-inner{width:26px;height:36px;position:relative;filter:drop-shadow(0 2px 4px rgba(0,0,0,.4));}
+.coord-pin-inner::before{content:'';position:absolute;top:0;left:0;width:26px;height:26px;background:#e0392b;border:2.5px solid #fff;border-radius:50%;box-sizing:border-box;}
+.coord-pin-inner::after{content:'';position:absolute;bottom:0;left:9px;width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:11px solid #e0392b;filter:drop-shadow(0 0 0.5px rgba(0,0,0,.5));}
 .mode-switch{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:650;display:flex;gap:4px;background:rgba(255,255,255,.95);padding:5px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.2);}
 .mode-btn{padding:8px 16px;border:none;background:transparent;border-radius:9px;font-size:12.5px;font-weight:700;color:#7a7268;cursor:pointer;transition:.15s;white-space:nowrap;display:inline-flex;align-items:center;gap:6px;}
 .mode-btn svg{flex-shrink:0;}
@@ -771,25 +794,28 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
   <div class="sec" id="sec-sat-src">
     <div class="sec-label"><span class="txt"><span class="sec-num"></span>Imagem</span></div>
-    <div class="ctrl"><select id="sel-sat-data"></select></div>
-    <div id="sat-empty" style="font-size:12px;color:var(--muted);margin-top:6px;display:none">Nenhuma imagem de satélite disponível para este talhão ainda.</div>
+    <!-- Botão principal em DESTAQUE no topo -->
+    <button type="button" onclick="satCalAbrir()" style="width:100%;padding:11px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:13px;cursor:pointer;box-shadow:0 2px 6px rgba(108,179,45,.25);">🔍 Busca de Imagens</button>
+    <!-- Campo de imagens carregadas fica embaixo -->
+    <div class="ctrl" style="margin-top:10px;"><select id="sel-sat-data"></select></div>
+    <div id="sat-empty" style="font-size:12px;color:var(--muted);margin-top:6px;display:none"></div>
     <div id="sat-info" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
-    <button type="button" onclick="satCalAbrir()" style="margin-top:9px;width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:12.5px;color:var(--ink);cursor:pointer">📅 Buscar outra data</button>
     <button type="button" id="btn-sat-download" onclick="satDownloadAbrir()" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer;display:none">⬇️ Baixar esta imagem</button>
   </div>
 
   <div class="sec" id="sec-sat-zonas">
   <!-- Zonas de manejo — desenho manual sobre a imagem de satélite (Fase 1) -->
   <div class="sec-label"><span class="txt"><span class="sec-num"></span>Zonas de manejo</span></div>
-  <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Desenhe as zonas (ou o perímetro do talhão) usando o Mapa ou o Satélite como referência. Ao salvar, elas passam a valer como as zonas oficiais — e liberam a busca de imagens Sentinel nessa área, se o talhão ainda não tinha nenhuma.</div>
-  <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:#fff;font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer">✏️ Desenhar zonas</button>
+  <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:#fff;font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer">✏️ Criar/Editar</button>
   <div id="satz-ref-aviso" class="satz-ref-aviso" style="display:none;">
     <span>Contorno tracejado = perímetro cadastrado, só referência.</span>
     <button type="button" onclick="satZonasReferenciaDispensar()">Ocultar</button>
   </div>
   <div id="satz-toolbar" style="display:none;margin-top:8px;gap:6px;flex-wrap:wrap;">
     <button type="button" onclick="satZonasComecarPoligono()" class="satz-btn">▢ Novo polígono</button>
+    <button type="button" onclick="satZonasComecarCirculo()" class="satz-btn" title="Desenhe um círculo perfeito — ideal para pivôs centrais de irrigação">⭕ Círculo (pivô)</button>
     <button type="button" id="btn-satz-cortar" onclick="satZonasCortarComLinha()" class="satz-btn" title="Desenhe uma linha atravessando uma zona pra dividi-la em duas">✂ Cortar com linha</button>
+    <button type="button" onclick="satZonasComecarAnel()" class="satz-btn" title="Desenhe um polígono DENTRO de uma zona para criar um buraco (ex: benfeitoria, mata nativa, açude)">🕳️ Anel (exclusão)</button>
     <button type="button" id="btn-satz-mesclar" onclick="satZonasMesclarSelecionadas()" class="satz-btn" style="display:none;">🔗 Mesclar (0)</button>
     <button type="button" onclick="satZonasReverter()" class="satz-btn satz-btn-perigo" title="Desfaz a última ação (clique de novo pra desfazer a anterior)">↺ Reverter</button>
   </div>
@@ -874,7 +900,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <button class="mode-btn active" id="mode-nutrientes" onclick="setMapMode('nutrientes')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><circle cx="9" cy="9" r="1"/><circle cx="19" cy="7" r="1"/><circle cx="14" cy="15" r="1"/><path d="M10.16 10.62l2.34 3.38"/><path d="M15.088 13.328l3.012 -4.928"/></svg><span data-i18n="modoNutrientes">Nutrientes</span></button>
     <button class="mode-btn" id="mode-coleta" onclick="setMapMode('coleta')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6 -3l6 3l6 -3v13l-6 3l-6 -3l-6 3v-13"/><path d="M9 4v13"/><path d="M15 7v13"/></svg><span data-i18n="modoColeta">Coleta de Solo</span></button>
     <button class="mode-btn" id="mode-recomendacao" onclick="setMapMode('recomendacao')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="10" r="2"/><path d="M6 4v4"/><path d="M6 12v8"/><circle cx="12" cy="16" r="2"/><path d="M12 4v10"/><path d="M12 18v2"/><circle cx="18" cy="7" r="2"/><path d="M18 4v1"/><path d="M18 9v11"/></svg><span data-i18n="modoRecomendacao">Recomendação</span></button>
-    <button class="mode-btn" id="mode-satelite" style="display:none" onclick="setMapMode('satelite')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3"/><path d="M5 8a7 7 0 0 1 14 0"/><circle cx="12" cy="14" r="3"/><path d="M4 14h2"/><path d="M18 14h2"/><path d="M12 19v2"/></svg><span data-i18n="modoSatelite">Satélite</span></button>
+    <button class="mode-btn" id="mode-satelite" style="display:none" onclick="setMapMode('satelite')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 3.5l4 4-3 3-4-4z"/><path d="M18.5 9.5l3 3-4 4-3-3z"/><path d="M5.5 10.5l4 4-3 3-4-4z"/><path d="M11.5 8.5l4 4"/><path d="M2 22a4 4 0 0 1 4-4"/><path d="M2 22a8 8 0 0 1 8-8"/></svg><span data-i18n="modoSatelite">Satélite</span></button>
   </div>
   <div class="rec-edit-float" id="rec-edit-float">
     <button class="rec-edit-btn" id="btn-rec-editar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg><span>Editar</span></button>
@@ -895,6 +921,22 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <button class="base-btn active" data-base="mapa">🗺 Mapa</button>
     <button class="base-btn" data-base="satelite">🛰 Satélite</button>
   </div>
+
+  <!-- Busca por coordenadas (Item 9) - só aparece no modo Satélite (via CSS) -->
+  <div class="coord-search" id="coord-search">
+    <button class="coord-search-toggle" id="coord-search-toggle" onclick="coordSearchToggle()" title="Pesquisar por coordenadas">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+    </button>
+    <div class="coord-search-panel" id="coord-search-panel">
+      <input type="text" id="coord-search-input" placeholder="-25.628004, -55.052694" autocomplete="off" onkeydown="if(event.key==='Enter'){coordSearchIr();}">
+      <button class="coord-search-go" onclick="coordSearchIr()" title="Ir">➤</button>
+      <button class="coord-search-x" id="coord-search-x" onclick="coordSearchLimpar()" title="Remover pin" style="display:none;">✕</button>
+    </div>
+    <div class="coord-search-err" id="coord-search-err"></div>
+  </div>
+
   <div class="empty-msg" id="empty-msg">
     <div class="empty-icon">🌾</div>
     <div class="empty-hint">
@@ -2281,9 +2323,19 @@ function renderZonasVazias(){
   // enquadrar limites que não existem.
   if(!S.geoData.features || !S.geoData.features.length){
     const em=document.getElementById('empty-msg');
-    if(em){ em.style.display='block'; em.innerHTML = S.consultorMode
-      ? 'Este talhão está sem zonas.<br>Use <strong>"Adicionar arquivos"</strong> ou a aba <strong>Satélite → Zonas de manejo</strong> para criar.'
-      : 'Este talhão ainda não tem zonas publicadas.'; }
+    // Aba Satélite: mostra imagem do satélite sem sobrepor overlay. Nas outras
+    // abas (Nutrientes/Coleta/Recomendação), mantém a mensagem informativa,
+    // mas mais enxuta — sem verbosidade que poluía o mapa.
+    if(em){
+      if(S.mapMode==='satelite'){
+        em.style.display='none';
+      } else {
+        em.style.display='block';
+        em.innerHTML = S.consultorMode
+          ? '<div class="empty-icon">🌾</div><div class="empty-hint">Nenhuma zona ainda.</div>'
+          : '<div class="empty-icon">🌾</div><div class="empty-hint">Este talhão ainda não tem zonas publicadas.</div>';
+      }
+    }
     try{ if(S.map){ S.map.setView([-15,-55],4); S.map.invalidateSize(); } }catch(e){}
     return;
   }
@@ -5814,8 +5866,8 @@ async function carregarSatCapturas(){
   if(vazio){
     if(S.sat.capturas.length){ vazio.style.display='none'; }
     else { vazio.style.display='block'; vazio.textContent = temOutraVersao
-      ? 'As imagens deste talhão são de uma versão anterior. Abra "Buscar outra data" e clique numa data para gerar na versão atual.'
-      : 'Nenhuma imagem de satélite disponível para este talhão ainda. Use "Buscar outra data" para buscar no calendário.'; }
+      ? 'Escolha uma data para gerar a imagem.'
+      : 'Nenhuma imagem disponível ainda.'; }
   }
 }
 
@@ -6209,7 +6261,7 @@ function satZonasIniciar(){
   else if(!S.map.hasLayer(S.satZonas.labelGrupo)) S.satZonas.labelGrupo.addTo(S.map);
   S.satZonas.ativo = true;
   const btn=document.getElementById('btn-satz-alternar');
-  if(btn){ btn.textContent='✕ Sair do modo de desenho'; btn.style.background='var(--accent3)'; }
+  if(btn){ btn.textContent='✕ Sair do modo de edição'; btn.style.background='var(--accent3)'; }
   document.getElementById('satz-toolbar').classList.add('ativo');
   const dica=document.getElementById('satz-dica-editar'); if(dica) dica.style.display=S.satZonas.itens.length?'block':'none';
 
@@ -6311,7 +6363,7 @@ function satZonasParar(){
   S.map.off('draw:created', _satZonasAoCriar);
   S.satZonas.ativo = false;
   const btn=document.getElementById('btn-satz-alternar');
-  if(btn){ btn.textContent='✏️ Desenhar zonas'; btn.style.background='#fff'; }
+  if(btn){ btn.textContent='✏️ Criar/Editar'; btn.style.background='#fff'; }
   document.getElementById('satz-toolbar').classList.remove('ativo');
   const dica=document.getElementById('satz-dica-editar'); if(dica) dica.style.display='none';
   // volta a mostrar a sobreposição somente-leitura das zonas oficiais tal
@@ -6331,12 +6383,111 @@ function satZonasComecarPoligono(){
   S.satZonas.drawer.enable();
 }
 
+// ── Círculo (pivô central) ──
+// Desenha um círculo perfeito, ideal para pivôs de irrigação. Ao concluir,
+// converte para polígono com 64 vértices (turf.circle) — assim segue o mesmo
+// fluxo das demais zonas (editável, cortável, mesclável). Sem essa conversão,
+// L.Circle geraria um objeto especial que não integraria com o resto.
+function satZonasComecarCirculo(){
+  if(!S.satZonas.ativo){ satZonasIniciar(); }
+  if(S.satZonas.editandoId) satZonasEditarToggle(S.satZonas.editandoId);
+  if(S.satZonas.cortador){ S.satZonas.cortador.disable(); S.satZonas.cortador=null; }
+  if(S.satZonas.drawer){ try{ S.satZonas.drawer.disable(); }catch(e){} S.satZonas.drawer=null; }
+  if(typeof turf==='undefined'){ toast('Biblioteca de geometria (turf) não carregou — verifique a internet.','err'); return; }
+  toast('Clique no centro do pivô e arraste até a borda.','ok', 4000);
+  S.satZonas.drawer = new L.Draw.Circle(S.map, {
+    shapeOptions:{ color:'#222', weight:2, fillOpacity:0.15 },
+    showRadius:true, metric:true, feet:false
+  });
+  S.satZonas.drawer.enable();
+}
+
+// ── Anel (exclusão / buraco) ──
+// Desenha um polígono DENTRO de uma zona existente para criar um "buraco"
+// (área de exclusão). Útil pra: benfeitorias, mata nativa, açudes, APP.
+// A área do anel é subtraída da zona pai — a área real (em ha) diminui.
+function satZonasComecarAnel(){
+  if(!S.satZonas.ativo){ satZonasIniciar(); }
+  if(!S.satZonas.itens.length){ toast('Desenhe pelo menos uma zona antes de criar um anel.','wrn'); return; }
+  if(typeof turf==='undefined'){ toast('Biblioteca de geometria (turf) não carregou — verifique a internet.','err'); return; }
+  if(S.satZonas.editandoId) satZonasEditarToggle(S.satZonas.editandoId);
+  if(S.satZonas.cortador){ S.satZonas.cortador.disable(); S.satZonas.cortador=null; }
+  if(S.satZonas.drawer){ try{ S.satZonas.drawer.disable(); }catch(e){} S.satZonas.drawer=null; }
+  S.satZonas._modoAnel = true; // marca que o próximo polígono desenhado é um anel
+  toast('Desenhe o polígono da exclusão DENTRO de uma zona (ex: benfeitoria, mata, açude).','ok', 5000);
+  S.satZonas.drawer = new L.Draw.Polygon(S.map, {
+    shapeOptions:{ color:'#c47d00', weight:2, dashArray:'5,4', fillOpacity:0.2, fillColor:'#c47d00' },
+    showArea:true, metric:['ha','m']
+  });
+  S.satZonas.drawer.enable();
+}
+
+function _satZonasAplicarAnel(anelLayer){
+  S.satZonas._modoAnel = false;
+  try{
+    const anelGeo = anelLayer.toGeoJSON();
+    // acha a zona que CONTÉM o anel (usa o centroide do anel pra decidir)
+    const centro = turf.centroid(anelGeo);
+    const alvo = S.satZonas.itens.find(it=>{
+      try{
+        const poli = turf.polygon(_satzGeometryDeLayer(it.layer).coordinates);
+        return turf.booleanPointInPolygon(centro, poli);
+      }catch(e){ return false; }
+    });
+    if(!alvo){ toast('O anel precisa estar DENTRO de uma zona existente.','wrn'); return; }
+
+    _satZonasEmpilharHistorico();
+
+    // subtrai o anel do polígono alvo (turf.difference — a zona fica com um buraco)
+    const poligonoGeo = _satzGeometryDeLayer(alvo.layer);
+    const poligonoFeature = turf.feature(poligonoGeo);
+    const resultado = turf.difference(poligonoFeature, anelGeo);
+    if(!resultado){
+      S.satZonas.historico.pop();
+      toast('Não consegui aplicar o anel — verifique se ele está totalmente dentro da zona.','err');
+      return;
+    }
+
+    // substitui a geometria da zona pela versão com buraco
+    const novaLayer = L.geoJSON(resultado.geometry).getLayers()[0];
+    novaLayer.setStyle && novaLayer.setStyle({ color:alvo.cor, weight:2, fillColor:alvo.cor, fillOpacity:0.28 });
+    S.satZonas.grupo.removeLayer(alvo.layer);
+    S.satZonas.grupo.addLayer(novaLayer);
+    novaLayer._satzId = alvo.id;
+    alvo.layer = novaLayer;
+    _satZonasAnexarEventos(alvo);
+    renderSatzLista();
+    toast('Anel de exclusão criado na zona '+alvo.nome+'.','ok');
+  }catch(err){
+    console.warn('[satZonas] falha ao aplicar anel:', err);
+    toast('Erro ao criar o anel: '+String((err&&err.message)||err).slice(0,120),'err');
+  }
+}
+
 function _satZonasAoCriar(e){
-  // o evento draw:created serve tanto pro polígono de zona quanto pra linha
-  // de corte (ambos disparam o mesmo evento no mapa) — desvia pelo tipo.
+  // o evento draw:created serve pro polígono de zona, linha de corte, círculo
+  // (pivô) e anel de exclusão. Desvia pelo tipo/flag.
   if(e.layerType==='polyline'){ _satZonasAplicarCorte(e.layer); return; }
+  // ── Anel: polígono desenhado em modo anel, subtrai da zona que o contém ──
+  if(S.satZonas._modoAnel && e.layerType==='polygon'){ _satZonasAplicarAnel(e.layer); return; }
+  // ── Círculo (pivô): L.Draw.Circle gera um L.Circle. Convertemos pra
+  // polígono de 64 vértices (turf.circle) pra seguir o mesmo fluxo dos
+  // demais (editável, cortável, mesclável).
+  let layer = e.layer;
+  if(e.layerType==='circle'){
+    try{
+      const centro = layer.getLatLng();
+      const raioMetros = layer.getRadius();
+      // 64 vértices = suave o suficiente pra parecer redondo em qualquer zoom
+      const circGeo = turf.circle([centro.lng, centro.lat], raioMetros, { steps:64, units:'meters' });
+      layer = L.geoJSON(circGeo).getLayers()[0];
+    }catch(err){
+      console.warn('[satZonas] falha ao converter círculo em polígono:', err);
+      toast('Erro ao criar o círculo. Tente novamente.','err');
+      return;
+    }
+  }
   _satZonasEmpilharHistorico(); // guarda o estado de ANTES desta zona nova existir
-  const layer=e.layer;
   S.satZonas.grupo.addLayer(layer);
   S.satZonas.seq++;
   const cor=SATZ_CORES[(S.satZonas.seq-1)%SATZ_CORES.length];
@@ -6590,9 +6741,12 @@ function _satZonasAplicarCorte(linhaLayer){
 
     _satZonasEmpilharHistorico(); // uma única foto pra cobrir o corte inteiro (pode afetar >1 zona)
 
-    // buffer da linha em metros: fino o bastante pra não comer área
-    // relevante, mas suficiente pra separar de fato os dois lados.
-    const linhaBuf = turf.buffer(linhaGeo, 0.4, { units:'meters' });
+    // buffer da linha em metros: 1mm — o menor possível pra o turf.difference
+    // ainda separar as duas peças, mas tão fino que o gap entre elas é
+    // imperceptível (0.002m = ~0.0002 pixels em zoom máximo). Antes usava 0.4m,
+    // que deixava uma faixa vazia visível de ~0.8m entre as zonas cortadas.
+    // Teste com quadrado de 100m x 100m: perda de área caiu de 80m² pra 0.2m².
+    const linhaBuf = turf.buffer(linhaGeo, 0.001, { units:'meters' });
     let cortouAlgo=false;
 
     alvos.forEach(it=>{
@@ -7007,6 +7161,13 @@ function setMapMode(mode){
     _satZonasReferenciaEsconder();
   }
   else {
+    // BUG FIX (item 4): a aba Satélite NÃO deve mostrar o overlay opaco
+    // do empty-msg — o mapa de satélite tem que ficar visível pro consultor
+    // desenhar as zonas em cima. Fora daqui, o empty-msg segue mostrando
+    // normalmente nas outras abas (Nutrientes/Coleta/Recomendação).
+    const em=document.getElementById('empty-msg');
+    if(em) em.style.display='none';
+
     _satZonasDesenhar();
     if(S.satZonas.grupo && !S.map.hasLayer(S.satZonas.grupo)) S.satZonas.grupo.addTo(S.map);
     if(S.satZonas.labelGrupo && !S.map.hasLayer(S.satZonas.labelGrupo)) S.satZonas.labelGrupo.addTo(S.map);
@@ -7017,17 +7178,15 @@ function setMapMode(mode){
       // "Buscar outra data" (evita popup indesejado, inclusive em talhão
       // sem geometria salva, onde a busca falharia de qualquer forma).
       const info=document.getElementById('sat-info');
-      if(info) info.textContent = S.sat.temOutraVersao ? 'Escolha uma data para gerar a imagem na versão atual.' : '';
+      if(info) info.textContent = S.sat.temOutraVersao ? 'Escolha uma data para gerar a imagem.' : '';
     }
-    // talhão sem NENHUMA geometria salva ainda (nem zonas oficiais, nem
-    // captura) -> não há como o mapa saber pra onde apontar sozinho. Usa o
-    // perímetro cadastrado no talhão (S.modeloB.perimetro, já carregado no
-    // início da sessão) só como REFERÊNCIA: centraliza o mapa nele e desenha
-    // um contorno tracejado por cima do Satélite/Esri, pro consultor traçar
-    // as zonas em cima com precisão.
-    if(!S.sat.capturas.length && !(S.geoData && S.geoData.features && S.geoData.features.length) && !S.satZonas.itens.length){
-      _satZonasReferenciaMostrar();
-    }
+    // BUG FIX (item 4): não mostra mais o "perímetro fantasma" automaticamente
+    // — o cadastro antigo do talhão (S.modeloB.perimetro) pode não corresponder
+    // mais à realidade atual após edições/exclusões. Se o consultor quiser
+    // vê-lo como referência, ele pode ativar manualmente.
+    // if(!S.sat.capturas.length && !(S.geoData && S.geoData.features && S.geoData.features.length) && !S.satZonas.itens.length){
+    //   _satZonasReferenciaMostrar();
+    // }
   }
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
   document.getElementById('mode-coleta').classList.toggle('active', mode==='coleta');
@@ -7118,6 +7277,110 @@ function setMapMode(mode){
   }
   // multi-talhão: aplica o mesmo modo aos demais talhões e reenquadra
   if(S.extras && S.extras.length && mode!=='satelite'){ multiApplyMode(mode); setTimeout(()=>{ try{ multiFitAll(); }catch(e){} }, 120); }
+  // Sair da aba Satélite = limpa o pin de pesquisa de coordenadas, se houver.
+  // O HTML da lupa some sozinho (via CSS body.mode-sat), mas o marker fica no
+  // mapa sem isso — reaparece se voltar pra qualquer aba com o mesmo map.
+  if(mode!=='satelite' && S.coordSearch && S.coordSearch.pin){
+    try{ S.map.removeLayer(S.coordSearch.pin); }catch(e){}
+    S.coordSearch.pin=null;
+    const x=document.getElementById('coord-search-x'); if(x) x.style.display='none';
+    const cs=document.getElementById('coord-search'); if(cs) cs.classList.remove('open');
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// BUSCA POR COORDENADAS (item 9) — só na aba Satélite
+// ═════════════════════════════════════════════════════════════════════════
+// Referência de UX: plugin Lat Lon Tools do QGIS. Cliente digita "-25.62,
+// -55.05" na lupa e o mapa centraliza + coloca um pin vermelho no ponto.
+// O pin some ao clicar o ✕. Sem geocoding — é match de coordenada direta.
+S.coordSearch = { pin:null };
+
+function coordSearchToggle(){
+  const cs=document.getElementById('coord-search');
+  if(!cs) return;
+  const abrindo = !cs.classList.contains('open');
+  cs.classList.toggle('open');
+  if(abrindo){
+    setTimeout(()=>{ const inp=document.getElementById('coord-search-input'); if(inp) inp.focus(); }, 40);
+  }
+}
+
+// Parse tolerante: aceita "lat, lng", "lat,lng", "lat lng", com ou sem
+// espaços, com ou sem sinal negativo. Rejeita se não achar 2 números
+// válidos, ou se estiver fora do range de lat/lng.
+function _coordSearchParse(txt){
+  if(!txt) return null;
+  // separa por vírgula, ponto-e-vírgula ou espaço; ignora vazios
+  const partes = String(txt).trim().split(/[\s,;]+/).filter(Boolean);
+  if(partes.length!==2) return null;
+  const lat = parseFloat(partes[0].replace(',','.'));
+  const lng = parseFloat(partes[1].replace(',','.'));
+  if(!isFinite(lat) || !isFinite(lng)) return null;
+  if(lat<-90 || lat>90) return null;
+  if(lng<-180 || lng>180) return null;
+  return { lat, lng };
+}
+
+function _coordSearchErro(msg){
+  const err=document.getElementById('coord-search-err');
+  const inp=document.getElementById('coord-search-input');
+  if(err){
+    if(msg){ err.textContent=msg; err.classList.add('show'); }
+    else { err.classList.remove('show'); err.textContent=''; }
+  }
+  if(inp) inp.classList.toggle('erro', !!msg);
+}
+
+function coordSearchIr(){
+  const inp=document.getElementById('coord-search-input');
+  const txt = inp ? inp.value : '';
+  const coord = _coordSearchParse(txt);
+  if(!coord){
+    _coordSearchErro('Formato inválido. Ex: -25.628004, -55.052694');
+    return;
+  }
+  _coordSearchErro(null);
+
+  // remove pin anterior, se existir
+  if(S.coordSearch.pin){
+    try{ S.map.removeLayer(S.coordSearch.pin); }catch(e){}
+    S.coordSearch.pin=null;
+  }
+
+  // cria pin novo — DivIcon custom (estilo pin do Google Maps, vermelho)
+  const icon = L.divIcon({
+    className:'coord-pin',
+    html:'<div class="coord-pin-inner"></div>',
+    iconSize:[26,36],
+    iconAnchor:[13,36]  // ponta do pin fica no ponto exato
+  });
+  const marker = L.marker([coord.lat, coord.lng], { icon, zIndexOffset:1000 })
+    .addTo(S.map)
+    .bindPopup('<div style="font-size:11.5px;line-height:1.4;"><b>Coordenada</b><br>Lat: '+coord.lat.toFixed(6)+'<br>Lng: '+coord.lng.toFixed(6)+'</div>')
+    .openPopup();
+  S.coordSearch.pin = marker;
+
+  // centraliza mapa (mantém zoom atual se já estava alto o suficiente)
+  const zoomAtual = S.map.getZoom() || 4;
+  const zoomAlvo = Math.max(zoomAtual, 15);
+  S.map.setView([coord.lat, coord.lng], zoomAlvo);
+
+  // aparece o botão de remover
+  const x=document.getElementById('coord-search-x');
+  if(x) x.style.display='';
+}
+
+function coordSearchLimpar(){
+  if(S.coordSearch.pin){
+    try{ S.map.removeLayer(S.coordSearch.pin); }catch(e){}
+    S.coordSearch.pin=null;
+  }
+  const inp=document.getElementById('coord-search-input');
+  if(inp){ inp.value=''; inp.classList.remove('erro'); }
+  _coordSearchErro(null);
+  const x=document.getElementById('coord-search-x');
+  if(x) x.style.display='none';
 }
 
 // carrega o raster da coleta por último (pode ser pesado): não trava a exibição das zonas/pontos
