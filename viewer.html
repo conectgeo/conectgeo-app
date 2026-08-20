@@ -296,6 +296,18 @@ body.mode-sat #painel-coleta,body.mode-sat #painel-rec,body.mode-sat #view-banne
 .sat-cal-dia.tem-evi .cal-dnum{font-size:11px;font-weight:700;}
 .sat-cal-dia .cal-evi{font-size:9px;font-weight:700;background:rgba(255,255,255,.28);padding:0 4px;border-radius:4px;margin-top:2px;letter-spacing:.02em;}
 .sat-cal-dia:not(.tem-evi) .cal-dnum{font-size:11.5px;}
+/* dia com stats vazia (nuvem cobrindo o talhão): avisa pra não desperdiçar cota */
+.sat-cal-dia.evi-vazio{flex-direction:column;gap:0;line-height:1;padding:2px 0;position:relative;}
+.sat-cal-dia.evi-vazio .cal-dnum{font-size:11px;font-weight:700;opacity:.85;}
+.sat-cal-dia .cal-alerta{font-size:11px;margin-top:1px;color:#ffd84d;text-shadow:0 0 2px rgba(0,0,0,.5);line-height:1;}
+.sat-cal-dia.evi-vazio:hover{transform:scale(1.08);outline:2px solid #ffd84d;outline-offset:1px;}
+.dl-grupo{margin-bottom:14px;border-bottom:1px solid var(--sand2);padding-bottom:12px;}
+.dl-grupo:last-of-type{border-bottom:none;}
+.dl-titulo{font-size:10px;font-weight:700;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px;}
+.dl-opt{display:flex;align-items:flex-start;gap:8px;font-size:11.5px;color:var(--ink);padding:5px 0;cursor:pointer;line-height:1.4;}
+.dl-opt input{margin-top:1px;flex-shrink:0;cursor:pointer;}
+.dl-opt span{flex:1;}
+.dl-grupo.desabilitado{opacity:.4;pointer-events:none;}
 .sat-zona-label-wrap{background:none!important;border:none!important;}
 .sat-zona-label{background:rgba(0,0,0,.55);color:#fff;font-size:10.5px;line-height:1.25;padding:2px 5px;border-radius:4px;white-space:nowrap;text-align:center;transform:translate(-50%,-50%);pointer-events:none;}
 /* ── modo Recomendação ── */
@@ -732,6 +744,42 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div id="sat-empty" style="font-size:12px;color:var(--muted);margin-top:6px;display:none">Nenhuma imagem de satélite disponível para este talhão ainda.</div>
     <div id="sat-info" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
     <button type="button" onclick="satCalAbrir()" style="margin-top:9px;width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:12.5px;color:var(--ink);cursor:pointer">📅 Buscar outra data</button>
+    <button type="button" id="btn-sat-download" onclick="satDownloadAbrir()" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer;display:none">⬇️ Baixar esta imagem</button>
+  </div>
+
+  <!-- Modal de download da imagem em cache -->
+  <div id="sat-dl-modal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(20,22,17,.45);align-items:center;justify-content:center;">
+    <div style="background:#fff;border-radius:14px;max-width:400px;width:92%;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:90vh;overflow-y:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <strong style="font-size:14.5px;">Baixar imagem</strong>
+        <span onclick="satDownloadFechar()" style="cursor:pointer;font-size:18px;color:var(--muted);line-height:1;padding:2px 4px;">✕</span>
+      </div>
+      <div id="sat-dl-data" style="font-size:11px;color:var(--muted);margin-bottom:14px;">—</div>
+
+      <div class="dl-grupo">
+        <div class="dl-titulo">Formato</div>
+        <label class="dl-opt"><input type="radio" name="dl-formato" value="jpeg" checked onchange="satDownloadAtualizarUI()"> <span><b>JPEG colorido</b> — imagem pronta, como você vê na tela (com sua saturação)</span></label>
+        <label class="dl-opt"><input type="radio" name="dl-formato" value="geotiff" onchange="satDownloadAtualizarUI()"> <span><b>GeoTIFF bruto</b> — valores originais (EVI/NDMI/reflectância) para QGIS/análise</span></label>
+      </div>
+
+      <div class="dl-grupo">
+        <div class="dl-titulo">Índice</div>
+        <label class="dl-opt"><input type="radio" name="dl-indice" value="evi" checked> <span>EVI — Biomassa</span></label>
+        <label class="dl-opt"><input type="radio" name="dl-indice" value="ndmi"> <span>NDMI — Umidade na planta</span></label>
+        <label class="dl-opt"><input type="radio" name="dl-indice" value="rgb"> <span>RGB — Cor natural</span></label>
+        <label class="dl-opt"><input type="radio" name="dl-indice" value="todos"> <span><b>Os três</b> (EVI + NDMI + RGB)</span></label>
+        <div id="dl-indice-nota" style="font-size:10px;color:var(--muted);margin-top:4px;line-height:1.45;"></div>
+      </div>
+
+      <div class="dl-grupo" id="dl-grupo-zonas">
+        <div class="dl-titulo">Camada de zonas</div>
+        <label class="dl-opt"><input type="radio" name="dl-zonas" value="nao" checked> <span>Imagem limpa (sem zonas)</span></label>
+        <label class="dl-opt"><input type="radio" name="dl-zonas" value="sim"> <span>Desenhar as zonas do talhão por cima</span></label>
+      </div>
+
+      <button type="button" id="btn-sat-dl-gerar" onclick="satDownloadGerar()" style="width:100%;padding:11px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:13px;cursor:pointer;margin-top:6px;">Gerar e baixar</button>
+      <div id="sat-dl-status" style="font-size:11.5px;color:var(--muted);margin-top:10px;min-height:16px;"></div>
+    </div>
   </div>
 
   <div class="sec" id="sec-sat-idx">
@@ -5595,23 +5643,38 @@ function satCalRenderGrid(){
       const foraLimite=(c.nuvem>S.satCal.nuvemMax) ? ' fora-limite' : '';
       const proc=c.processada ? ' processada' : '';
       const st=S.satCal.stats?.[iso];
-      const temEvi=st && st.evi_medio!=null;
-      // rótulo do EVI dentro do quadradinho (só 2 casas, compacto)
-      const eviTxt=temEvi ? '<span class="cal-evi">'+st.evi_medio.toFixed(2)+'</span>' : '';
-      // tooltip mais rico quando há estatística
+      // três estados possíveis:
+      //  - temEvi: stats veio E tem pixels válidos -> mostra o número
+      //  - eviVazio: stats veio MAS 0 amostras (100% nuvem/borda no talhão) -> ⚠️ avisa
+      //  - (nenhum): stats ainda não chegou -> só o número do dia, neutro
+      const temEvi = st && st.evi_medio!=null;
+      const eviVazio = st && st.evi_medio==null; // stats respondeu, mas sem dado útil
+      const eviTxt = temEvi
+        ? '<span class="cal-evi">'+st.evi_medio.toFixed(2)+'</span>'
+        : (eviVazio ? '<span class="cal-alerta" aria-label="sem lavoura visível">⚠</span>' : '');
+      // tooltip conforme o estado
       let tip=iso+' · '+c.nuvem.toFixed(0)+'% nuvem'+(c.processada?' · já carregada':'');
       if(temEvi){
         tip+=' · EVI '+st.evi_medio.toFixed(2)+' ('+st.evi_min.toFixed(2)+'–'+st.evi_max.toFixed(2)+')';
         if(st.ndmi_medio!=null) tip+=' · NDMI '+st.ndmi_medio.toFixed(2);
+      }else if(eviVazio){
+        tip+=' · sem pixels de lavoura visíveis (nuvem/sombra cobrindo o talhão) — não vale a pena baixar';
       }
-      html+='<div class="sat-cal-dia com-imagem'+foraLimite+proc+(temEvi?' tem-evi':'')+'" style="background:'+cor+'" title="'+tip+'" onclick="satCalEscolherDia(\''+iso+'\')"><span class="cal-dnum">'+d+'</span>'+eviTxt+'</div>';
+      const classeExtra=(temEvi?' tem-evi':'')+(eviVazio?' evi-vazio':'');
+      html+='<div class="sat-cal-dia com-imagem'+foraLimite+proc+classeExtra+'" style="background:'+cor+'" title="'+tip+'" onclick="satCalEscolherDia(\''+iso+'\','+(eviVazio?'true':'false')+')"><span class="cal-dnum">'+d+'</span>'+eviTxt+'</div>';
     }
   }
   grid.innerHTML=html;
 }
 
-async function satCalEscolherDia(iso){
+async function satCalEscolherDia(iso, eviVazio){
   if(S.satCal.diaEmCurso) return; // evita clique duplo enquanto processa
+  // dia sem pixels de lavoura visíveis (100% nuvem/sombra no talhão): baixar
+  // gastaria cota pra uma imagem inútil. Confirma antes.
+  if(eviVazio){
+    const ok = confirm('Esta data não tem lavoura visível — nuvem ou sombra cobrem o talhão inteiro, então não há EVI/NDMI pra medir.\n\nBaixar mesmo assim vai consumir cota do Copernicus e provavelmente trazer uma imagem sem utilidade.\n\nQuer baixar assim mesmo?');
+    if(!ok) return;
+  }
   const status=document.getElementById('sat-cal-status');
   S.satCal.diaEmCurso=iso;
   if(status) status.textContent='Carregando '+iso.split('-').reverse().join('/')+'… (pode levar até 30s se ainda não tiver sido processada)';
@@ -5890,12 +5953,162 @@ async function renderSatelite(){
     if(info){
       info.innerHTML = medias.length ? ('<b>'+medias.join(' · ')+'</b>') : '';
     }
+    // imagem carregada com sucesso -> libera o botão de download
+    const btnDl=document.getElementById('btn-sat-download'); if(btnDl) btnDl.style.display='';
   }catch(e){
     console.warn('[sat] falha ao renderizar:', e);
     if(info) info.textContent='Não consegui abrir esta imagem: '+String((e&&e.message)||e).slice(0,140);
   }finally{
     S.sat.carregando=false;
     renderSatLegenda();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DOWNLOAD da imagem em cache
+//
+// Duas formas:
+//  - GeoTIFF bruto: é o .tif que já está no Storage (valores originais,
+//    6 bandas, 10m). Download direto da URL, sem reprocessar nada.
+//  - JPEG colorido: pinta o índice escolhido num canvas (reaproveitando
+//    _satPintarCanvas, que já aplica saturação e máscara do talhão do
+//    jeito que o consultor configurou) e exporta como JPEG. Opcional:
+//    desenha as zonas por cima.
+//
+// "Os três" (EVI+NDMI+RGB): gera os JPEGs e empacota num .zip (JSZip).
+// Para GeoTIFF, "os três" não faz sentido separar (o .tif único já
+// contém todas as bandas) — então baixa o .tif uma vez só.
+// ─────────────────────────────────────────────────────────────────
+
+function satDownloadAbrir(){
+  const c=S.sat.capturas[S.sat.atual];
+  if(!c){ toast('Abra uma imagem primeiro.','wrn'); return; }
+  const lbl=document.getElementById('sat-dl-data');
+  if(lbl){ const [a,m,d]=String(c.data).split('-'); lbl.textContent='Imagem de '+d+'/'+m+'/'+a+(c.nuvem!=null?(' · '+Math.round(c.nuvem)+'% nuvem'):''); }
+  // índice inicial = o que está em tela
+  const radioIdx=document.querySelector('input[name="dl-indice"][value="'+(S.sat.idx||'evi')+'"]');
+  if(radioIdx) radioIdx.checked=true;
+  document.getElementById('sat-dl-status').textContent='';
+  satDownloadAtualizarUI();
+  document.getElementById('sat-dl-modal').style.display='flex';
+}
+function satDownloadFechar(){ document.getElementById('sat-dl-modal').style.display='none'; }
+
+// GeoTIFF é sempre a imagem inteira (todas as bandas juntas), então os
+// controles de índice e de zonas não se aplicam a ele — desabilita.
+function satDownloadAtualizarUI(){
+  const fmt=(document.querySelector('input[name="dl-formato"]:checked')||{}).value;
+  const ehTiff=(fmt==='geotiff');
+  const grpZonas=document.getElementById('dl-grupo-zonas');
+  if(grpZonas) grpZonas.classList.toggle('desabilitado', ehTiff);
+  const nota=document.getElementById('dl-indice-nota');
+  if(nota) nota.textContent = ehTiff
+    ? 'O GeoTIFF traz todas as bandas (EVI, NDMI, R, G, B, válido) num arquivo só — a escolha de índice acima não se aplica.'
+    : '';
+  // no GeoTIFF, desabilita visualmente a escolha de índice (o arquivo é um só)
+  const grpIdx=document.querySelectorAll('input[name="dl-indice"]');
+  grpIdx.forEach(r=>{ r.disabled=ehTiff; });
+}
+
+// desenha as zonas do talhão (contorno preto) sobre um canvas já pintado,
+// convertendo lng/lat -> pixel pela caixa geográfica do próprio raster.
+function _satDesenharZonasNoCanvas(ctx, gr){
+  if(!S.geoData || !S.geoData.features) return;
+  const w=gr.width, h=gr.height;
+  const projX=lng=> ((lng-gr.xmin)/(gr.xmax-gr.xmin))*w;
+  const projY=lat=> ((gr.ymax-lat)/(gr.ymax-gr.ymin))*h;
+  ctx.save();
+  ctx.strokeStyle='rgba(0,0,0,.85)';
+  ctx.lineWidth=Math.max(1, Math.round(w/500));
+  ctx.lineJoin='round';
+  const anel=(coords)=>{
+    ctx.beginPath();
+    coords.forEach((pt,i)=>{ const x=projX(pt[0]), y=projY(pt[1]); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+    ctx.closePath(); ctx.stroke();
+  };
+  S.geoData.features.forEach(f=>{
+    const g=f.geometry; if(!g) return;
+    if(g.type==='Polygon') g.coordinates.forEach(anel);
+    else if(g.type==='MultiPolygon') g.coordinates.forEach(p=>p.forEach(anel));
+  });
+  ctx.restore();
+}
+
+// gera um canvas do índice pedido, com fundo branco (JPEG não tem alpha)
+// e — opcionalmente — as zonas por cima. Reaproveita _satPintarCanvas,
+// que já aplica saturação/máscara conforme a config do consultor.
+function _satCanvasParaDownload(gr, idx, comZonas){
+  const { canvas } = _satPintarCanvas(gr, idx, S.sat.modo, S.sat.saturacao);
+  // achata sobre fundo branco (o canvas do índice tem transparência fora do talhão)
+  const out=document.createElement('canvas'); out.width=canvas.width; out.height=canvas.height;
+  const ctx=out.getContext('2d');
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,out.width,out.height);
+  ctx.drawImage(canvas,0,0);
+  if(comZonas) _satDesenharZonasNoCanvas(ctx, gr);
+  return out;
+}
+
+function _baixarBlob(blob, nome){
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=nome; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+const _canvasParaBlob=(cv)=> new Promise(res=> cv.toBlob(res, 'image/jpeg', 0.92));
+
+async function satDownloadGerar(){
+  const c=S.sat.capturas[S.sat.atual];
+  if(!c) return;
+  const status=document.getElementById('sat-dl-status');
+  const btn=document.getElementById('btn-sat-dl-gerar');
+  const fmt=(document.querySelector('input[name="dl-formato"]:checked')||{}).value;
+  const idx=(document.querySelector('input[name="dl-indice"]:checked')||{}).value;
+  const comZonas=(document.querySelector('input[name="dl-zonas"]:checked')||{}).value==='sim';
+  const [a,m,d]=String(c.data).split('-');
+  const dataTag=a+m+d;
+  try{
+    btn.disabled=true; status.textContent='Preparando…';
+
+    // ── GeoTIFF bruto: baixa o .tif do Storage direto (todas as bandas) ──
+    if(fmt==='geotiff'){
+      status.textContent='Baixando GeoTIFF…';
+      const resp=await fetch(c.url);
+      if(!resp.ok) throw new Error('HTTP '+resp.status);
+      const blob=await resp.blob();
+      _baixarBlob(blob, 'sentinel_'+dataTag+'_bruto.tif');
+      status.textContent='Pronto! GeoTIFF baixado.';
+      btn.disabled=false; return;
+    }
+
+    // ── JPEG colorido: precisa do raster parseado em memória ──
+    status.textContent='Renderizando…';
+    const gr=await _satCarregarRaster(c.url);
+    const zonasSuffix=comZonas?'_zonas':'';
+
+    if(idx==='todos'){
+      // gera os três e empacota num zip
+      if(typeof JSZip==='undefined') throw new Error('JSZip indisponível para empacotar os três.');
+      const zip=new JSZip();
+      for(const ix of ['evi','ndmi','rgb']){
+        status.textContent='Renderizando '+ix.toUpperCase()+'…';
+        const cv=_satCanvasParaDownload(gr, ix, comZonas);
+        const blob=await _canvasParaBlob(cv);
+        zip.file('sentinel_'+dataTag+'_'+ix+zonasSuffix+'.jpg', blob);
+      }
+      status.textContent='Compactando…';
+      const zipBlob=await zip.generateAsync({ type:'blob' });
+      _baixarBlob(zipBlob, 'sentinel_'+dataTag+'_indices'+zonasSuffix+'.zip');
+      status.textContent='Pronto! Os três índices baixados (.zip).';
+    }else{
+      const cv=_satCanvasParaDownload(gr, idx, comZonas);
+      const blob=await _canvasParaBlob(cv);
+      _baixarBlob(blob, 'sentinel_'+dataTag+'_'+idx+zonasSuffix+'.jpg');
+      status.textContent='Pronto! '+idx.toUpperCase()+' baixado.';
+    }
+    btn.disabled=false;
+  }catch(e){
+    console.warn('[sat] falha no download:', e);
+    status.textContent='Falha ao gerar: '+String((e&&e.message)||e).slice(0,120);
+    btn.disabled=false;
   }
 }
 
