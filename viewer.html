@@ -343,6 +343,10 @@ body.consultor-mode .consultor-only{display:block!important;}
 body.pdf-no-id .zone-label-id{display:none !important;}
 body.pdf-no-id .leaflet-container{background:#ffffff !important;}
 body.has-data .basemap-float{display:flex;}
+/* na aba Satélite, o toggle Mapa/Satélite (Esri) fica disponível mesmo sem
+   nenhuma imagem Sentinel ainda carregada — é a referência visual que o
+   consultor usa pra desenhar a primeira zona/perímetro do talhão. */
+body.mode-sat .basemap-float{display:flex;}
 .base-btn{padding:7px 12px;background:transparent;border:1.5px solid transparent;border-radius:7px;font-size:11px;color:var(--muted);cursor:pointer;transition:.15s;font-family:var(--f);white-space:nowrap;}
 .base-btn:hover{color:var(--accent2);}
 .base-btn.active{background:var(--accent3);border-color:var(--leaf);color:var(--accent2);font-weight:700;}
@@ -761,7 +765,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
   <!-- Zonas de manejo — desenho manual sobre a imagem de satélite (Fase 1) -->
   <div class="sec-label"><span class="txt"><span class="sec-num"></span>Zonas de manejo</span></div>
-  <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Desenhe as zonas por cima da imagem atual. Ao salvar, elas passam a valer como as zonas oficiais do talhão.</div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Desenhe as zonas (ou o perímetro do talhão) usando o Mapa ou o Satélite como referência. Ao salvar, elas passam a valer como as zonas oficiais — e liberam a busca de imagens Sentinel nessa área, se o talhão ainda não tinha nenhuma.</div>
   <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:#fff;font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer">✏️ Desenhar zonas</button>
   <div id="satz-toolbar" style="display:none;margin-top:8px;gap:6px;flex-wrap:wrap;">
     <button type="button" onclick="satZonasComecarPoligono()" class="satz-btn">▢ Novo polígono</button>
@@ -6055,9 +6059,32 @@ function satDownloadFechar(){ document.getElementById('sat-dl-modal').style.disp
 // caminho — o que já foi resolvido aqui.
 // ═════════════════════════════════════════════════════════════════
 
-S.satZonas = { ativo:false, grupo:null, drawer:null, editor:null, deleter:null, itens:[], seq:0 };
+S.satZonas = { ativo:false, grupo:null, drawer:null, editor:null, deleter:null, itens:[], seq:0, refLayer:null };
 
 const SATZ_CORES=['#6cb32d','#2e7dd6','#f6990d','#e0392b','#8e44ad','#16a085','#d35400','#2c3e50','#c0392b','#27ae60'];
+
+// Talhão sem NENHUMA geometria salva ainda: usa o perímetro cadastrado no
+// momento da criação do talhão (S.modeloB.perimetro, sempre carregado pelo
+// get_link_data) só como referência visual — não é a zona oficial, é o
+// contorno aproximado registrado no cadastro. Centraliza o mapa nele e
+// desenha um contorno tracejado, pro consultor traçar as zonas em cima.
+function _satZonasReferenciaMostrar(){
+  const perim = S.modeloB && S.modeloB.perimetro;
+  if(!perim) return; // talhão não tem nem isso cadastrado -> mapa fica no zoom padrão mesmo
+  try{
+    if(S.satZonas.refLayer){ S.map.removeLayer(S.satZonas.refLayer); S.satZonas.refLayer=null; }
+    const camada = L.geoJSON(perim, { style:{ color:'#e0392b', weight:2, dashArray:'6,5', fillOpacity:0.03, fillColor:'#e0392b' } });
+    const b=camada.getBounds();
+    if(!b || !b.isValid()) return;
+    camada.addTo(S.map);
+    S.satZonas.refLayer=camada;
+    S.map.fitBounds(b, { padding:[40,40] });
+    toast('Contorno tracejado = perímetro cadastrado do talhão, só como referência. Desenhe as zonas de manejo por cima.','ok',6000);
+  }catch(e){ console.warn('[satZonas] falha ao mostrar perímetro de referência:', e); }
+}
+function _satZonasReferenciaEsconder(){
+  if(S.satZonas.refLayer){ try{ S.map.removeLayer(S.satZonas.refLayer); }catch(e){} S.satZonas.refLayer=null; }
+}
 
 function satZonasAlternar(){
   if(S.satZonas.ativo) satZonasParar(); else satZonasIniciar();
@@ -6065,9 +6092,18 @@ function satZonasAlternar(){
 
 function satZonasIniciar(){
   if(!S.map){ toast('Mapa ainda não carregado.','wrn'); return; }
-  if(!S.sat || !S.sat.overlay){ toast('Abra uma imagem de satélite antes de desenhar as zonas.','wrn'); return; }
   if(typeof L.FeatureGroup==='undefined' || typeof L.Draw==='undefined'){
     toast('Ferramenta de desenho não carregou (verifique a internet) — recarregue a página.','err'); return;
+  }
+  // não exige imagem de satélite carregada: em talhão novo (sem geometria
+  // salva ainda) NÃO HÁ como buscar imagem Sentinel — a Edge Function
+  // precisa de um perímetro pra calcular a área de busca. Então o desenho
+  // funciona sobre o basemap ativo (Mapa OU Satélite/Esri, ambos servem de
+  // referência visual) e, depois de salvo como zona oficial, alimenta a
+  // busca de imagem Sentinel dali em diante.
+  if(!S.sat || !S.sat.overlay){
+    const bmBtn=document.querySelector('.basemap-float .base-btn[data-base="satelite"]');
+    if(bmBtn && !bmBtn.classList.contains('active')){ toast('Dica: toque em "🛰 Satélite" no canto do mapa pra usar imagem real como referência.','ok',5000); }
   }
   S.satZonas.grupo = new L.FeatureGroup().addTo(S.map);
   S.satZonas.ativo = true;
@@ -6531,6 +6567,7 @@ function setMapMode(mode){
     _satLimparCamada(); _satZonasLimpar();
     if(S.satZonas.ativo) satZonasParar();
     if(S.satZonas.grupo){ try{ S.map.removeLayer(S.satZonas.grupo); }catch(e){} } // some da tela, mas mantém os dados
+    _satZonasReferenciaEsconder();
   }
   else {
     _satZonasDesenhar();
@@ -6542,6 +6579,15 @@ function setMapMode(mode){
       const info=document.getElementById('sat-info');
       if(info) info.textContent = S.sat.temOutraVersao ? 'Escolha uma data para gerar a imagem na versão atual.' : '';
       if(S.sat.temOutraVersao) satCalAbrir();
+    }
+    // talhão sem NENHUMA geometria salva ainda (nem zonas oficiais, nem
+    // captura) -> não há como o mapa saber pra onde apontar sozinho. Usa o
+    // perímetro cadastrado no talhão (S.modeloB.perimetro, já carregado no
+    // início da sessão) só como REFERÊNCIA: centraliza o mapa nele e desenha
+    // um contorno tracejado por cima do Satélite/Esri, pro consultor traçar
+    // as zonas em cima com precisão.
+    if(!S.sat.capturas.length && !(S.geoData && S.geoData.features && S.geoData.features.length) && !S.satZonas.itens.length){
+      _satZonasReferenciaMostrar();
     }
   }
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
