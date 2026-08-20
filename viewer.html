@@ -277,8 +277,8 @@ body.mode-coleta #view-banner{display:none!important;}
 #view-banner{display:none!important;}
 body.mode-coleta #painel-coleta{display:block!important;}
 /* ── modo Satélite (índices Sentinel-2) ── */
-#sec-sat-src,#sec-sat-idx,#sec-sat-app,#sec-sat-leg{display:none;}
-body.mode-sat #sec-sat-src,body.mode-sat #sec-sat-idx,body.mode-sat #sec-sat-app,body.mode-sat #sec-sat-leg{display:block;}
+#sec-sat-src,#sec-sat-idx,#sec-sat-app,#sec-sat-leg,#sec-sat-zonas{display:none;}
+body.mode-sat #sec-sat-src,body.mode-sat #sec-sat-idx,body.mode-sat #sec-sat-app,body.mode-sat #sec-sat-leg,body.mode-sat #sec-sat-zonas{display:block;}
 body.mode-sat #sec-depth,body.mode-sat #sec-nut-add,body.mode-sat #sec-join,body.mode-sat #sec-viz,
 body.mode-sat #sec-pal,body.mode-sat #sec-app,body.mode-sat #sec-leg,body.mode-sat #sec-stat,
 body.mode-sat #sec-pdf,body.mode-sat #sec-upload-geo,body.mode-sat #sec-upload-csv,
@@ -769,6 +769,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <button type="button" id="btn-sat-download" onclick="satDownloadAbrir()" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer;display:none">⬇️ Baixar esta imagem</button>
   </div>
 
+  <div class="sec" id="sec-sat-zonas">
   <!-- Zonas de manejo — desenho manual sobre a imagem de satélite (Fase 1) -->
   <div class="sec-label"><span class="txt"><span class="sec-num"></span>Zonas de manejo</span></div>
   <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Desenhe as zonas (ou o perímetro do talhão) usando o Mapa ou o Satélite como referência. Ao salvar, elas passam a valer como as zonas oficiais — e liberam a busca de imagens Sentinel nessa área, se o talhão ainda não tinha nenhuma.</div>
@@ -786,6 +787,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div id="satz-vazio" style="font-size:11.5px;color:var(--muted);margin-top:6px;">Nenhuma zona desenhada ainda.</div>
   <button type="button" id="btn-satz-salvar" onclick="satZonasSalvarOficial()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;display:none">💾 Salvar como zonas oficiais</button>
   <div id="satz-status" style="font-size:11px;color:var(--muted);margin-top:8px;min-height:14px;"></div>
+  </div>
 
   <!-- Modal de download da imagem em cache -->
   <div id="sat-dl-modal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(20,22,17,.45);align-items:center;justify-content:center;">
@@ -6065,7 +6067,7 @@ function satDownloadFechar(){ document.getElementById('sat-dl-modal').style.disp
 // um campo de zona nas properties (identificado por _zoneField, ex:
 // "ZG") — e é salvo pelo MESMO caminho que o upload manual de zonas já
 // usa hoje (Storage bucket "arquivos" + RPC atualizar_nutrientes). Ou
-S.satZonas = { ativo:false, grupo:null, drawer:null, cortador:null, itens:[], seq:0, refLayer:null, refDispensada:false, editandoId:null };
+S.satZonas = { ativo:false, grupo:null, labelGrupo:null, drawer:null, cortador:null, itens:[], seq:0, refLayer:null, refDispensada:false, editandoId:null, _importTentado:false };
 
 const SATZ_CORES=['#6cb32d','#2e7dd6','#f6990d','#e0392b','#8e44ad','#16a085','#d35400','#2c3e50','#c0392b','#27ae60'];
 
@@ -6106,6 +6108,35 @@ function satZonasAlternar(){
   if(S.satZonas.ativo) satZonasParar(); else satZonasIniciar();
 }
 
+// carrega as zonas OFICIAIS já salvas (S.geoData — vem do upload manual ou
+// de um save anterior deste mesmo módulo) como itens EDITÁVEIS no desenho.
+// MultiPolygon vira uma zona por parte (mesmo tratamento do corte por
+// linha), com sufixo a/b/c pra diferenciar. Sem área/nome reconhecido nas
+// properties, cai no numeral sequencial de sempre.
+function _satZonasCarregarDeGeoData(){
+  if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return;
+  const fields=S.geoFields||Object.keys(S.geoData.features[0].properties||{});
+  const campoZona=_pickZoneField(fields);
+  const sufixos='abcdefgh';
+  S.geoData.features.forEach(f=>{
+    const g=f.geometry; if(!g) return;
+    const nomeBase = campoZona ? String((f.properties||{})[campoZona]??'').trim() : '';
+    const pecas = g.type==='Polygon' ? [g] : (g.type==='MultiPolygon' ? g.coordinates.map(c=>({ type:'Polygon', coordinates:c })) : []);
+    pecas.forEach((geom,i)=>{
+      let layer; try{ layer=L.geoJSON(geom).getLayers()[0]; }catch(e){ return; }
+      if(!layer) return;
+      S.satZonas.grupo.addLayer(layer);
+      S.satZonas.seq++;
+      const cor=SATZ_CORES[(S.satZonas.seq-1)%SATZ_CORES.length];
+      layer.setStyle && layer.setStyle({ color:cor, weight:2, fillColor:cor, fillOpacity:0.28 });
+      const nome = nomeBase ? (pecas.length>1 ? nomeBase+sufixos[i%8] : nomeBase) : String(S.satZonas.seq);
+      const item={ id:'z'+S.satZonas.seq, nome, cor, layer };
+      layer._satzId=item.id;
+      S.satZonas.itens.push(item);
+    });
+  });
+}
+
 function satZonasIniciar(){
   if(!S.map){ toast('Mapa ainda não carregado.','wrn'); return; }
   if(typeof L.FeatureGroup==='undefined' || typeof L.Draw==='undefined'){
@@ -6119,6 +6150,8 @@ function satZonasIniciar(){
   // busca de imagem Sentinel dali em diante.
   if(!S.satZonas.grupo) S.satZonas.grupo = new L.FeatureGroup().addTo(S.map);
   else if(!S.map.hasLayer(S.satZonas.grupo)) S.satZonas.grupo.addTo(S.map);
+  if(!S.satZonas.labelGrupo) S.satZonas.labelGrupo = new L.LayerGroup().addTo(S.map);
+  else if(!S.map.hasLayer(S.satZonas.labelGrupo)) S.satZonas.labelGrupo.addTo(S.map);
   S.satZonas.ativo = true;
   const btn=document.getElementById('btn-satz-alternar');
   if(btn){ btn.textContent='✕ Sair do modo de desenho'; btn.style.background='var(--accent3)'; }
@@ -6126,6 +6159,21 @@ function satZonasIniciar(){
   const dica=document.getElementById('satz-dica-editar'); if(dica) dica.style.display=S.satZonas.itens.length?'block':'none';
 
   S.map.on('draw:created', _satZonasAoCriar);
+
+  // se o talhão já tem zonas OFICIAIS salvas (S.geoData, vindo do upload
+  // manual ou de uma sessão anterior deste mesmo desenho) e ainda não
+  // importamos nada nesta sessão, carrega elas como itens EDITÁVEIS. Sem
+  // isso, salvar uma zona e depois voltar aqui pra ajustar/aumentar a área
+  // não tinha como — cada visita começava do zero. Só roda uma vez por
+  // sessão (não reimporta a cada toggle, senão perderia edições em curso).
+  if(!S.satZonas.itens.length && !S.satZonas._importTentado){
+    S.satZonas._importTentado=true;
+    _satZonasCarregarDeGeoData();
+    if(S.satZonas.itens.length){
+      renderSatzLista();
+      toast(S.satZonas.itens.length+' zona(s) oficiais carregadas — edite, corte ou desenhe mais.','ok',5000);
+    }
+  }
 
   if(!S.sat || !S.sat.overlay){
     const bmBtn=document.querySelector('.basemap-float .base-btn[data-base="satelite"]');
@@ -6180,13 +6228,24 @@ function _satzGeometryDeLayer(layer){
   return gj.geometry;
 }
 
-// tooltip no mapa mostra nome + área — atualizado sempre que a lista
-// re-renderiza (criação, edição de vértices, renomeação).
+// rótulo no mapa SEMPRE visível (não só no hover) — reaproveita o mesmo
+// estilo visual (.sat-zona-label) que o resto do app já usa pra rotular
+// zonas oficiais na aba Satélite, pra ficar consistente. Atualizado sempre
+// que a lista re-renderiza (criação, edição de vértice, renomeação).
 function _satZonasAtualizarTooltip(item){
   const ha=_polyHa(_satzGeometryDeLayer(item.layer));
-  const txt='Zona '+item.nome+' · '+ha.toFixed(2)+' ha';
-  if(item.layer.getTooltip()) item.layer.setTooltipContent(txt);
-  else item.layer.bindTooltip(txt, { permanent:false, sticky:true });
+  const html='<div class="sat-zona-label"><b>'+item.nome+'</b><br>'+ha.toFixed(2)+' ha</div>';
+  try{
+    const centro=item.layer.getBounds().getCenter();
+    if(item.labelMarker){
+      item.labelMarker.setLatLng(centro);
+      item.labelMarker.setIcon(L.divIcon({ className:'sat-zona-label-wrap', html, iconSize:null }));
+    }else{
+      item.labelMarker=L.marker(centro,{ icon:L.divIcon({ className:'sat-zona-label-wrap', html, iconSize:null }), interactive:false, zIndexOffset:500 });
+      if(S.satZonas.labelGrupo) S.satZonas.labelGrupo.addLayer(item.labelMarker);
+      else item.labelMarker.addTo(S.map);
+    }
+  }catch(e){ /* zona ainda sem geometria válida (raro, no meio do desenho) */ }
   return ha;
 }
 
@@ -6250,6 +6309,7 @@ function satZonasExcluirUma(id){
   const it=S.satZonas.itens.find(i=>i.id===id); if(!it) return;
   if(S.satZonas.editandoId===id){ try{ it.layer.editing.disable(); }catch(e){} S.satZonas.editandoId=null; }
   S.satZonas.grupo.removeLayer(it.layer);
+  if(it.labelMarker && S.satZonas.labelGrupo) S.satZonas.labelGrupo.removeLayer(it.labelMarker);
   S.satZonas.itens = S.satZonas.itens.filter(i=>i.id!==id);
   renderSatzLista();
 }
@@ -6287,7 +6347,12 @@ function _satZonasAplicarCorte(linhaLayer){
 
     alvos.forEach(it=>{
       const poligonoGeo = _satzGeometryDeLayer(it.layer);
-      const resultado = turf.difference(turf.featureCollection([turf.feature(poligonoGeo), linhaBuf]));
+      // v6.5.0 do turf (a versão carregada no <head>) usa difference(a, b)
+      // com dois argumentos diretos — NÃO aceita FeatureCollection como no
+      // v7. Testado e confirmado contra @turf/turf@6.5.0 (mesma versão do
+      // CDN): a forma com featureCollection quebra com "Cannot read
+      // properties of undefined (reading 'type')", exatamente o erro visto.
+      const resultado = turf.difference(turf.feature(poligonoGeo), linhaBuf);
       if(!resultado){ return; } // corte não separou nada (linha não atravessou de lado a lado)
       const pecas = resultado.geometry.type==='MultiPolygon'
         ? resultado.geometry.coordinates.map(c=>({ type:'Polygon', coordinates:c }))
@@ -6298,6 +6363,7 @@ function _satZonasAplicarCorte(linhaLayer){
       // MESMO nome-base sufixado (ex: "3" vira "3a"/"3b") pra facilitar
       // reconhecer de onde vieram no relatório.
       S.satZonas.grupo.removeLayer(it.layer);
+      if(it.labelMarker && S.satZonas.labelGrupo) S.satZonas.labelGrupo.removeLayer(it.labelMarker);
       S.satZonas.itens = S.satZonas.itens.filter(i=>i.id!==it.id);
       const sufixos='abcdefgh';
       pecas.forEach((peca,i)=>{
@@ -6320,15 +6386,21 @@ function _satZonasAplicarCorte(linhaLayer){
 }
 
 // monta o GeoJSON no mesmo formato que Nutrientes/Coleta/Recomendações já
-// esperam (FeatureCollection, properties com campo de zona "ZG").
+// esperam (FeatureCollection, properties com campo de zona "ZG" + área em
+// ha — "area_ha" é reconhecido por _isAreaCol, então o rótulo no mapa da
+// aba Satélite, que já existia antes deste módulo, passa a mostrar o
+// tamanho da zona também, sem precisar duplicar lógica de rótulo).
 function _satZonasParaGeoJSON(){
   return {
     type:'FeatureCollection',
-    features: S.satZonas.itens.map((it,i)=>({
-      type:'Feature',
-      properties:{ ZG: it.nome || String(i+1) },
-      geometry: _satzGeometryDeLayer(it.layer),
-    })),
+    features: S.satZonas.itens.map((it,i)=>{
+      const geometry=_satzGeometryDeLayer(it.layer);
+      return {
+        type:'Feature',
+        properties:{ ZG: it.nome || String(i+1), area_ha: +_polyHa(geometry).toFixed(2) },
+        geometry,
+      };
+    }),
   };
 }
 
@@ -6671,18 +6743,21 @@ function setMapMode(mode){
     _satLimparCamada(); _satZonasLimpar();
     if(S.satZonas.ativo) satZonasParar();
     if(S.satZonas.grupo){ try{ S.map.removeLayer(S.satZonas.grupo); }catch(e){} } // some da tela, mas mantém os dados
+    if(S.satZonas.labelGrupo){ try{ S.map.removeLayer(S.satZonas.labelGrupo); }catch(e){} }
     _satZonasReferenciaEsconder();
   }
   else {
     _satZonasDesenhar();
     if(S.satZonas.grupo && !S.map.hasLayer(S.satZonas.grupo)) S.satZonas.grupo.addTo(S.map);
+    if(S.satZonas.labelGrupo && !S.map.hasLayer(S.satZonas.labelGrupo)) S.satZonas.labelGrupo.addTo(S.map);
     if(S.sat.capturas.length){ if(S.sat.atual==null) S.sat.atual=0; renderSatelite(); }
     else {
-      // sem imagem na versão corrente: nada a pintar. Se há de outra versão,
-      // abre o calendário direto para o usuário reprocessar.
+      // sem imagem na versão corrente: só avisa por texto — NÃO abre o
+      // calendário sozinho. O consultor abre quando quiser, clicando em
+      // "Buscar outra data" (evita popup indesejado, inclusive em talhão
+      // sem geometria salva, onde a busca falharia de qualquer forma).
       const info=document.getElementById('sat-info');
       if(info) info.textContent = S.sat.temOutraVersao ? 'Escolha uma data para gerar a imagem na versão atual.' : '';
-      if(S.sat.temOutraVersao) satCalAbrir();
     }
     // talhão sem NENHUMA geometria salva ainda (nem zonas oficiais, nem
     // captura) -> não há como o mapa saber pra onde apontar sozinho. Usa o
