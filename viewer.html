@@ -762,7 +762,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
         <label class="dl-opt"><input type="radio" name="dl-formato" value="geotiff" onchange="satDownloadAtualizarUI()"> <span><b>GeoTIFF bruto</b> — valores originais (EVI/NDMI/reflectância) para QGIS/análise</span></label>
       </div>
 
-      <div class="dl-grupo">
+      <div class="dl-grupo" id="dl-grupo-indice">
         <div class="dl-titulo">Índice</div>
         <label class="dl-opt"><input type="radio" name="dl-indice" value="evi" checked> <span>EVI — Biomassa</span></label>
         <label class="dl-opt"><input type="radio" name="dl-indice" value="ndmi"> <span>NDMI — Umidade na planta</span></label>
@@ -6001,25 +6001,27 @@ function satDownloadAtualizarUI(){
   const ehTiff=(fmt==='geotiff');
   const grpZonas=document.getElementById('dl-grupo-zonas');
   if(grpZonas) grpZonas.classList.toggle('desabilitado', ehTiff);
+  const grpIdx=document.getElementById('dl-grupo-indice');
+  if(grpIdx) grpIdx.classList.toggle('desabilitado', ehTiff);
   const nota=document.getElementById('dl-indice-nota');
   if(nota) nota.textContent = ehTiff
-    ? 'O GeoTIFF traz todas as bandas (EVI, NDMI, R, G, B, válido) num arquivo só — a escolha de índice acima não se aplica.'
+    ? 'O GeoTIFF traz todas as bandas (EVI, NDMI, R, G, B, válido) num arquivo só — índice e zonas não se aplicam.'
     : '';
-  // no GeoTIFF, desabilita visualmente a escolha de índice (o arquivo é um só)
-  const grpIdx=document.querySelectorAll('input[name="dl-indice"]');
-  grpIdx.forEach(r=>{ r.disabled=ehTiff; });
 }
 
 // desenha as zonas do talhão (contorno preto) sobre um canvas já pintado,
 // convertendo lng/lat -> pixel pela caixa geográfica do próprio raster.
-function _satDesenharZonasNoCanvas(ctx, gr){
+// escala = fator de upscale aplicado ao canvas de saída (1 se sem upscale).
+function _satDesenharZonasNoCanvas(ctx, gr, escala){
   if(!S.geoData || !S.geoData.features) return;
-  const w=gr.width, h=gr.height;
+  escala=escala||1;
+  const w=gr.width*escala, h=gr.height*escala;
   const projX=lng=> ((lng-gr.xmin)/(gr.xmax-gr.xmin))*w;
   const projY=lat=> ((gr.ymax-lat)/(gr.ymax-gr.ymin))*h;
   ctx.save();
+  ctx.imageSmoothingEnabled=true; // linha da zona pode ser suave (não é dado científico)
   ctx.strokeStyle='rgba(0,0,0,.85)';
-  ctx.lineWidth=Math.max(1, Math.round(w/500));
+  ctx.lineWidth=Math.max(1.5, Math.round(w/500));
   ctx.lineJoin='round';
   const anel=(coords)=>{
     ctx.beginPath();
@@ -6037,14 +6039,27 @@ function _satDesenharZonasNoCanvas(ctx, gr){
 // gera um canvas do índice pedido, com fundo branco (JPEG não tem alpha)
 // e — opcionalmente — as zonas por cima. Reaproveita _satPintarCanvas,
 // que já aplica saturação/máscara conforme a config do consultor.
+//
+// Talhões pequenos geram rasters pequenos (ex: 153×153) — um JPEG nesse
+// tamanho fica inútil pra impressão/apresentação. Então dá upscale pro
+// lado maior chegar em pelo menos DL_LADO_MIN, com nearest-neighbor
+// (imageSmoothingEnabled=false): mantém a "cara" científica de pixels
+// discretos, sem borrar nem inventar cor entre pixels. As zonas são
+// desenhadas DEPOIS do upscale, então saem com linha lisa e nítida.
+const DL_LADO_MIN=1024;
 function _satCanvasParaDownload(gr, idx, comZonas){
   const { canvas } = _satPintarCanvas(gr, idx, S.sat.modo, S.sat.saturacao);
-  // achata sobre fundo branco (o canvas do índice tem transparência fora do talhão)
-  const out=document.createElement('canvas'); out.width=canvas.width; out.height=canvas.height;
+  const maior=Math.max(canvas.width, canvas.height);
+  const escala=(maior<DL_LADO_MIN) ? Math.ceil(DL_LADO_MIN/maior) : 1;
+  const W=canvas.width*escala, H=canvas.height*escala;
+
+  const out=document.createElement('canvas'); out.width=W; out.height=H;
   const ctx=out.getContext('2d');
-  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,out.width,out.height);
-  ctx.drawImage(canvas,0,0);
-  if(comZonas) _satDesenharZonasNoCanvas(ctx, gr);
+  ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,H);
+  // nearest-neighbor: pixels nítidos, sem interpolação (a imagem é dado, não foto)
+  ctx.imageSmoothingEnabled=false;
+  ctx.drawImage(canvas, 0, 0, W, H);
+  if(comZonas) _satDesenharZonasNoCanvas(ctx, gr, escala);
   return out;
 }
 
