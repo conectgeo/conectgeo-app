@@ -781,6 +781,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div id="satz-toolbar" style="display:none;margin-top:8px;gap:6px;flex-wrap:wrap;">
     <button type="button" onclick="satZonasComecarPoligono()" class="satz-btn">▢ Novo polígono</button>
     <button type="button" id="btn-satz-cortar" onclick="satZonasCortarComLinha()" class="satz-btn" title="Desenhe uma linha atravessando uma zona pra dividi-la em duas">✂ Cortar com linha</button>
+    <button type="button" onclick="satZonasReverter()" class="satz-btn satz-btn-perigo" title="Descarta tudo que você mudou nesta sessão e volta pro que está salvo oficialmente">↺ Reverter</button>
   </div>
   <div style="font-size:10.5px;color:var(--muted);margin-top:4px;display:none;" id="satz-dica-editar">Toque no ✎ de uma zona na lista pra arrastar os vértices dela direto no mapa.</div>
   <div id="satz-lista" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;"></div>
@@ -6158,6 +6159,13 @@ function satZonasIniciar(){
   document.getElementById('satz-toolbar').classList.add('ativo');
   const dica=document.getElementById('satz-dica-editar'); if(dica) dica.style.display=S.satZonas.itens.length?'block':'none';
 
+  // esconde a sobreposição somente-leitura das zonas oficiais (contorno
+  // fino + badge, desenhada por _satZonasDesenhar) enquanto edita — senão
+  // fica duas versões da mesma zona na tela ao mesmo tempo (a "fantasma"
+  // de fora, sem cor, e a colorida editável por cima), o que confunde.
+  // A colorida por cima JÁ é a cópia de trabalho, carregada da mesma fonte.
+  _satZonasLimpar();
+
   S.map.on('draw:created', _satZonasAoCriar);
 
   // se o talhão já tem zonas OFICIAIS salvas (S.geoData, vindo do upload
@@ -6181,6 +6189,27 @@ function satZonasIniciar(){
   }
 }
 
+// Descarta TUDO que foi criado/editado/apagado nesta sessão de desenho e
+// recarrega exatamente o que está oficialmente salvo (S.geoData) — o
+// "desfazer geral" que faltava. Sem isso, apagar sem querer não tinha
+// volta a não ser recarregando a página inteira.
+function satZonasReverter(){
+  const ok=confirm('Isso vai descartar tudo que você mudou nesta sessão (zonas criadas, editadas ou apagadas) e voltar pro que está salvo oficialmente.\n\nContinuar?');
+  if(!ok) return;
+  if(S.satZonas.editandoId) satZonasEditarToggle(S.satZonas.editandoId);
+  if(S.satZonas.drawer){ try{ S.satZonas.drawer.disable(); }catch(e){} S.satZonas.drawer=null; }
+  if(S.satZonas.cortador){ try{ S.satZonas.cortador.disable(); }catch(e){} S.satZonas.cortador=null; }
+  S.satZonas.itens.forEach(it=>{
+    try{ S.satZonas.grupo.removeLayer(it.layer); }catch(e){}
+    if(it.labelMarker && S.satZonas.labelGrupo){ try{ S.satZonas.labelGrupo.removeLayer(it.labelMarker); }catch(e){} }
+  });
+  S.satZonas.itens=[];
+  S.satZonas.seq=0;
+  _satZonasCarregarDeGeoData();
+  renderSatzLista();
+  toast(S.satZonas.itens.length ? ('Revertido: '+S.satZonas.itens.length+' zona(s) oficiais restauradas.') : 'Revertido: este talhão não tinha zonas oficiais salvas.', 'ok');
+}
+
 function satZonasParar(){
   if(S.satZonas.drawer){ try{ S.satZonas.drawer.disable(); }catch(e){} S.satZonas.drawer=null; }
   if(S.satZonas.cortador){ try{ S.satZonas.cortador.disable(); }catch(e){} S.satZonas.cortador=null; }
@@ -6191,6 +6220,10 @@ function satZonasParar(){
   if(btn){ btn.textContent='✏️ Desenhar zonas'; btn.style.background='#fff'; }
   document.getElementById('satz-toolbar').classList.remove('ativo');
   const dica=document.getElementById('satz-dica-editar'); if(dica) dica.style.display='none';
+  // volta a mostrar a sobreposição somente-leitura das zonas oficiais tal
+  // como estão em S.geoData agora (se salvou, já reflete o novo estado após
+  // o reload; se só saiu sem salvar, mostra o que já era oficial antes).
+  _satZonasDesenhar();
 }
 
 function satZonasComecarPoligono(){
@@ -6257,11 +6290,18 @@ function renderSatzLista(){
   if(!S.satZonas.itens.length){
     box.innerHTML='';
     if(vazio) vazio.style.display='';
-    if(btnSalvar) btnSalvar.style.display='none';
+    // com a lista vazia, o botão de salvar só aparece se já existia algo
+    // pra apagar (importamos de S.geoData nesta sessão) — senão, salvar
+    // "vazio contra vazio" não faz sentido e só confundiria o consultor.
+    const temAlgoOficialPraLimpar = !!(S.geoData && S.geoData.features && S.geoData.features.length);
+    if(btnSalvar){
+      btnSalvar.style.display = (S.satZonas.ativo && temAlgoOficialPraLimpar) ? '' : 'none';
+      btnSalvar.textContent = '🗑 Salvar (remove todas as zonas oficiais)';
+    }
     return;
   }
   if(vazio) vazio.style.display='none';
-  if(btnSalvar) btnSalvar.style.display='';
+  if(btnSalvar){ btnSalvar.style.display=''; btnSalvar.textContent='💾 Salvar como zonas oficiais'; }
   box.innerHTML = S.satZonas.itens.map(it=>{
     const ha=_satZonasAtualizarTooltip(it);
     const editando = (S.satZonas.editandoId===it.id);
@@ -6410,13 +6450,19 @@ function _satZonasParaGeoJSON(){
 // precisar de nenhum mecanismo novo no banco.
 async function satZonasSalvarOficial(){
   const status=document.getElementById('satz-status');
-  if(!S.satZonas.itens.length){ toast('Desenhe pelo menos uma zona antes de salvar.','wrn'); return; }
   if(!sb || !S.tokenAtual){ if(status) status.textContent='Sem conexão para salvar.'; return; }
   if(S.satZonas.editandoId) satZonasEditarToggle(S.satZonas.editandoId); // fecha edição pendente antes de ler a geometria
-  const ok=confirm('Isso vai SUBSTITUIR as zonas oficiais atuais deste talhão (usadas em Nutrientes, Coleta de Solo e Recomendações) pelas '+S.satZonas.itens.length+' zona(s) desenhada(s) aqui.\n\nContinuar?');
+  // lista vazia é um caso válido: o consultor apagou tudo de propósito e
+  // quer que isso REFLITA nas zonas oficiais (senão as antigas "sobrevivem"
+  // no banco pra sempre, mesmo apagadas na tela — o bug de "zona fantasma").
+  const vazio = !S.satZonas.itens.length;
+  const msg = vazio
+    ? 'Isso vai REMOVER todas as zonas oficiais deste talhão (usadas em Nutrientes, Coleta de Solo e Recomendações). Não vai sobrar nenhuma zona.\n\nContinuar?'
+    : 'Isso vai SUBSTITUIR as zonas oficiais atuais deste talhão (usadas em Nutrientes, Coleta de Solo e Recomendações) pelas '+S.satZonas.itens.length+' zona(s) desenhada(s) aqui.\n\nContinuar?';
+  const ok=confirm(msg);
   if(!ok) return;
   try{
-    if(status) status.textContent='Salvando zonas…';
+    if(status) status.textContent=vazio?'Removendo zonas…':'Salvando zonas…';
     const geojson=_satZonasParaGeoJSON();
     const blob=new Blob([JSON.stringify(geojson)], { type:'application/json' });
     const path='nutrientes/'+S.tokenAtual+'/zonas_'+Date.now()+'.geojson';
@@ -6425,7 +6471,7 @@ async function satZonasSalvarOficial(){
     const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
     const r=await sb.rpc('atualizar_nutrientes', { p_token:S.tokenAtual, p_zonas_geojson_url:url });
     if(r && r.error) throw new Error(r.error.message);
-    if(status) status.textContent='✅ Zonas salvas como oficiais! Atualizando…';
+    if(status) status.textContent=vazio?'✅ Zonas removidas! Atualizando…':'✅ Zonas salvas como oficiais! Atualizando…';
     setTimeout(()=>location.reload(), 900);
   }catch(err){
     console.warn('[satZonas] falha ao salvar:', err);
