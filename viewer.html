@@ -6,6 +6,8 @@
 <title>ConectGeo</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 <script src="https://unpkg.com/leaflet-simple-map-screenshoter@0.5.0/dist/leaflet-simple-map-screenshoter.js"></script>
 <script src="https://unpkg.com/shpjs@4.0.4/dist/shp.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -308,6 +310,16 @@ body.mode-sat #painel-coleta,body.mode-sat #painel-rec,body.mode-sat #view-banne
 .dl-opt input{margin-top:1px;flex-shrink:0;cursor:pointer;}
 .dl-opt span{flex:1;}
 .dl-grupo.desabilitado{opacity:.4;pointer-events:none;}
+#satz-toolbar.ativo{display:flex !important;}
+.satz-btn{padding:7px 10px;border:1.5px solid var(--sand2);border-radius:8px;background:#fff;font-size:11.5px;font-weight:700;color:var(--ink);cursor:pointer;}
+.satz-btn:hover{border-color:var(--leaf);color:var(--accent2);}
+.satz-btn-perigo:hover{border-color:#c0392b;color:#c0392b;}
+.satz-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--sand2);border-radius:8px;background:#fff;font-size:11.5px;}
+.satz-item input[type=text]{flex:1;border:none;outline:none;font-size:11.5px;font-weight:700;color:var(--ink);background:transparent;min-width:0;}
+.satz-item .satz-area{color:var(--muted);font-size:10.5px;white-space:nowrap;}
+.satz-item .satz-cor{width:12px;height:12px;border-radius:3px;flex-shrink:0;}
+.satz-item .satz-del{cursor:pointer;color:var(--muted);font-size:13px;flex-shrink:0;padding:2px 4px;}
+.satz-item .satz-del:hover{color:#c0392b;}
 .sat-zona-label-wrap{background:none!important;border:none!important;}
 .sat-zona-label{background:rgba(0,0,0,.55);color:#fff;font-size:10.5px;line-height:1.25;padding:2px 5px;border-radius:4px;white-space:nowrap;text-align:center;transform:translate(-50%,-50%);pointer-events:none;}
 /* ── modo Recomendação ── */
@@ -746,6 +758,20 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <button type="button" onclick="satCalAbrir()" style="margin-top:9px;width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:12.5px;color:var(--ink);cursor:pointer">📅 Buscar outra data</button>
     <button type="button" id="btn-sat-download" onclick="satDownloadAbrir()" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer;display:none">⬇️ Baixar esta imagem</button>
   </div>
+
+  <!-- Zonas de manejo — desenho manual sobre a imagem de satélite (Fase 1) -->
+  <div class="sec-label"><span class="txt"><span class="sec-num"></span>Zonas de manejo</span></div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">Desenhe as zonas por cima da imagem atual. Ao salvar, elas passam a valer como as zonas oficiais do talhão.</div>
+  <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:#fff;font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer">✏️ Desenhar zonas</button>
+  <div id="satz-toolbar" style="display:none;margin-top:8px;gap:6px;flex-wrap:wrap;">
+    <button type="button" onclick="satZonasComecarPoligono()" class="satz-btn">▢ Novo polígono</button>
+    <button type="button" onclick="satZonasEditar()" class="satz-btn">✎ Editar formas</button>
+    <button type="button" onclick="satZonasExcluirModo()" class="satz-btn satz-btn-perigo">🗑 Excluir</button>
+  </div>
+  <div id="satz-lista" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;"></div>
+  <div id="satz-vazio" style="font-size:11.5px;color:var(--muted);margin-top:6px;">Nenhuma zona desenhada ainda.</div>
+  <button type="button" id="btn-satz-salvar" onclick="satZonasSalvarOficial()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;display:none">💾 Salvar como zonas oficiais</button>
+  <div id="satz-status" style="font-size:11px;color:var(--muted);margin-top:8px;min-height:14px;"></div>
 
   <!-- Modal de download da imagem em cache -->
   <div id="sat-dl-modal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(20,22,17,.45);align-items:center;justify-content:center;">
@@ -5994,18 +6020,206 @@ function satDownloadAbrir(){
 }
 function satDownloadFechar(){ document.getElementById('sat-dl-modal').style.display='none'; }
 
+// ═════════════════════════════════════════════════════════════════
+// ZONAS DE MANEJO — Fase 1: desenho manual de polígonos
+//
+// Objetivo do módulo (visão completa, implementando aos poucos):
+//   Fase 1 (aqui): desenhar zonas à mão sobre a imagem de satélite.
+//   Fase 2: gerar zonas automaticamente por faixa de EVI/NDMI.
+//   Fase 3: editar (mesclar/dividir/redesenhar) as zonas geradas.
+//   Fase 4: pontos de coleta (por zona ou grade regular).
+//   Fase 5: essas zonas "oficializadas" substituem o upload manual em
+//           Nutrientes/Coleta de Solo/Recomendações.
+//
+// Decisão de arquitetura da Fase 1: o GeoJSON gerado aqui usa o MESMO
+// formato que essas telas já esperam — FeatureCollection de Polygon com
+// um campo de zona nas properties (identificado por _zoneField, ex:
+// "ZG") — e é salvo pelo MESMO caminho que o upload manual de zonas já
+// usa hoje (Storage bucket "arquivos" + RPC atualizar_nutrientes). Ou
+// seja: a Fase 5 não é um recurso novo, é só apontar pra esse mesmo
+// caminho — o que já foi resolvido aqui.
+// ═════════════════════════════════════════════════════════════════
+
+S.satZonas = { ativo:false, grupo:null, drawer:null, editor:null, deleter:null, itens:[], seq:0 };
+
+const SATZ_CORES=['#6cb32d','#2e7dd6','#f6990d','#e0392b','#8e44ad','#16a085','#d35400','#2c3e50','#c0392b','#27ae60'];
+
+function satZonasAlternar(){
+  if(S.satZonas.ativo) satZonasParar(); else satZonasIniciar();
+}
+
+function satZonasIniciar(){
+  if(!S.map){ toast('Mapa ainda não carregado.','wrn'); return; }
+  if(!S.sat || !S.sat.overlay){ toast('Abra uma imagem de satélite antes de desenhar as zonas.','wrn'); return; }
+  if(typeof L.FeatureGroup==='undefined' || typeof L.Draw==='undefined'){
+    toast('Ferramenta de desenho não carregou (verifique a internet) — recarregue a página.','err'); return;
+  }
+  S.satZonas.grupo = new L.FeatureGroup().addTo(S.map);
+  S.satZonas.ativo = true;
+  const btn=document.getElementById('btn-satz-alternar');
+  if(btn){ btn.textContent='✕ Sair do modo de desenho'; btn.style.background='var(--accent3)'; }
+  document.getElementById('satz-toolbar').classList.add('ativo');
+
+  S.map.on('draw:created', _satZonasAoCriar);
+  S.map.on('draw:edited', _satZonasAoEditar);
+  S.map.on('draw:deleted', _satZonasAoExcluir);
+}
+
+function satZonasParar(){
+  if(S.satZonas.drawer){ try{ S.satZonas.drawer.disable(); }catch(e){} S.satZonas.drawer=null; }
+  if(S.satZonas.editor){ try{ S.satZonas.editor.disable(); }catch(e){} S.satZonas.editor=null; }
+  if(S.satZonas.deleter){ try{ S.satZonas.deleter.disable(); }catch(e){} S.satZonas.deleter=null; }
+  S.map.off('draw:created', _satZonasAoCriar);
+  S.map.off('draw:edited', _satZonasAoEditar);
+  S.map.off('draw:deleted', _satZonasAoExcluir);
+  S.satZonas.ativo = false;
+  const btn=document.getElementById('btn-satz-alternar');
+  if(btn){ btn.textContent='✏️ Desenhar zonas'; btn.style.background='#fff'; }
+  document.getElementById('satz-toolbar').classList.remove('ativo');
+}
+
+function satZonasComecarPoligono(){
+  if(!S.satZonas.ativo){ satZonasIniciar(); }
+  if(S.satZonas.editor){ S.satZonas.editor.disable(); S.satZonas.editor=null; }
+  S.satZonas.drawer = new L.Draw.Polygon(S.map, {
+    shapeOptions:{ color:'#222', weight:2, fillOpacity:0.15 },
+    showArea:true, metric:['ha','m']
+  });
+  S.satZonas.drawer.enable();
+}
+
+function satZonasEditar(){
+  if(!S.satZonas.ativo || !S.satZonas.grupo) return;
+  if(!S.satZonas.itens.length){ toast('Desenhe pelo menos uma zona primeiro.','wrn'); return; }
+  S.satZonas.editor = new L.EditToolbar.Edit(S.map, { featureGroup: S.satZonas.grupo });
+  S.satZonas.editor.enable();
+}
+
+function satZonasExcluirModo(){
+  if(!S.satZonas.ativo || !S.satZonas.grupo) return;
+  if(!S.satZonas.itens.length){ toast('Não há zonas pra excluir.','wrn'); return; }
+  S.satZonas.deleter = new L.EditToolbar.Delete(S.map, { featureGroup: S.satZonas.grupo });
+  S.satZonas.deleter.enable();
+}
+
+function _satZonasAoCriar(e){
+  const layer=e.layer;
+  S.satZonas.grupo.addLayer(layer);
+  S.satZonas.seq++;
+  const cor=SATZ_CORES[(S.satZonas.seq-1)%SATZ_CORES.length];
+  layer.setStyle && layer.setStyle({ color:cor, weight:2, fillColor:cor, fillOpacity:0.28 });
+  const item={ id:'z'+S.satZonas.seq, nome:String(S.satZonas.seq), cor, layer };
+  layer._satzId=item.id;
+  S.satZonas.itens.push(item);
+  layer.bindTooltip('Zona '+item.nome, { permanent:false });
+  renderSatzLista();
+}
+
+function _satZonasAoEditar(){ renderSatzLista(); } // formas mudaram -> só recalcula área
+function _satZonasAoExcluir(e){
+  e.layers.eachLayer(l=>{ S.satZonas.itens = S.satZonas.itens.filter(it=>it.layer!==l); });
+  renderSatzLista();
+}
+
+// converte a camada Leaflet de uma zona pro formato geometry (GeoJSON) usado
+// por _polyHa (a mesma função de área já validada em uso no resto do app).
+function _satzGeometryDeLayer(layer){
+  const gj=layer.toGeoJSON();
+  return gj.geometry;
+}
+
+function renderSatzLista(){
+  const box=document.getElementById('satz-lista');
+  const vazio=document.getElementById('satz-vazio');
+  const btnSalvar=document.getElementById('btn-satz-salvar');
+  if(!box) return;
+  if(!S.satZonas.itens.length){
+    box.innerHTML='';
+    if(vazio) vazio.style.display='';
+    if(btnSalvar) btnSalvar.style.display='none';
+    return;
+  }
+  if(vazio) vazio.style.display='none';
+  if(btnSalvar) btnSalvar.style.display='';
+  box.innerHTML = S.satZonas.itens.map(it=>{
+    const ha=_polyHa(_satzGeometryDeLayer(it.layer));
+    return '<div class="satz-item">'+
+      '<span class="satz-cor" style="background:'+it.cor+'"></span>'+
+      '<input type="text" value="'+it.nome.replace(/"/g,'&quot;')+'" onchange="satZonasRenomear(\''+it.id+'\',this.value)">'+
+      '<span class="satz-area">'+ha.toFixed(2)+' ha</span>'+
+      '<span class="satz-del" onclick="satZonasExcluirUma(\''+it.id+'\')" title="Excluir esta zona">✕</span>'+
+    '</div>';
+  }).join('');
+}
+
+function satZonasRenomear(id, novoNome){
+  const it=S.satZonas.itens.find(i=>i.id===id); if(!it) return;
+  it.nome=(novoNome||'').trim()||it.nome;
+  if(it.layer.getTooltip()) it.layer.setTooltipContent('Zona '+it.nome);
+}
+
+function satZonasExcluirUma(id){
+  const it=S.satZonas.itens.find(i=>i.id===id); if(!it) return;
+  S.satZonas.grupo.removeLayer(it.layer);
+  S.satZonas.itens = S.satZonas.itens.filter(i=>i.id!==id);
+  renderSatzLista();
+}
+
+// monta o GeoJSON no mesmo formato que Nutrientes/Coleta/Recomendações já
+// esperam (FeatureCollection, properties com campo de zona "ZG").
+function _satZonasParaGeoJSON(){
+  return {
+    type:'FeatureCollection',
+    features: S.satZonas.itens.map((it,i)=>({
+      type:'Feature',
+      properties:{ ZG: it.nome || String(i+1) },
+      geometry: _satzGeometryDeLayer(it.layer),
+    })),
+  };
+}
+
+// salva pelo MESMO caminho que o upload manual de zonas (nutrientes) já
+// usa: Storage (bucket "arquivos") + RPC atualizar_nutrientes. É assim que
+// as zonas desenhadas aqui "viram oficiais" pras outras abas — sem
+// precisar de nenhum mecanismo novo no banco.
+async function satZonasSalvarOficial(){
+  const status=document.getElementById('satz-status');
+  if(!S.satZonas.itens.length){ toast('Desenhe pelo menos uma zona antes de salvar.','wrn'); return; }
+  if(!sb || !S.tokenAtual){ if(status) status.textContent='Sem conexão para salvar.'; return; }
+  const ok=confirm('Isso vai SUBSTITUIR as zonas oficiais atuais deste talhão (usadas em Nutrientes, Coleta de Solo e Recomendações) pelas '+S.satZonas.itens.length+' zona(s) desenhada(s) aqui.\n\nContinuar?');
+  if(!ok) return;
+  try{
+    if(status) status.textContent='Salvando zonas…';
+    const geojson=_satZonasParaGeoJSON();
+    const blob=new Blob([JSON.stringify(geojson)], { type:'application/json' });
+    const path='nutrientes/'+S.tokenAtual+'/zonas_'+Date.now()+'.geojson';
+    const up=await sb.storage.from('arquivos').upload(path, blob, { upsert:true, contentType:'application/json' });
+    if(up && up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message);
+    const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
+    const r=await sb.rpc('atualizar_nutrientes', { p_token:S.tokenAtual, p_zonas_geojson_url:url });
+    if(r && r.error) throw new Error(r.error.message);
+    if(status) status.textContent='✅ Zonas salvas como oficiais! Atualizando…';
+    setTimeout(()=>location.reload(), 900);
+  }catch(err){
+    console.warn('[satZonas] falha ao salvar:', err);
+    if(status) status.textContent='Erro: '+String((err&&err.message)||err).slice(0,160);
+  }
+}
+
 // GeoTIFF é sempre a imagem inteira (todas as bandas juntas), então os
 // controles de índice e de zonas não se aplicam a ele — desabilita.
 function satDownloadAtualizarUI(){
   const fmt=(document.querySelector('input[name="dl-formato"]:checked')||{}).value;
   const ehTiff=(fmt==='geotiff');
+  // zonas são um desenho vetorial por cima da imagem -> só fazem sentido no
+  // JPEG. No GeoTIFF (dado bruto pra QGIS) não desenhamos nada por cima.
   const grpZonas=document.getElementById('dl-grupo-zonas');
   if(grpZonas) grpZonas.classList.toggle('desabilitado', ehTiff);
-  const grpIdx=document.getElementById('dl-grupo-indice');
-  if(grpIdx) grpIdx.classList.toggle('desabilitado', ehTiff);
+  // o índice AGORA importa nos dois formatos (cada índice = seu próprio arquivo),
+  // então NÃO desabilita mais o grupo de índice.
   const nota=document.getElementById('dl-indice-nota');
   if(nota) nota.textContent = ehTiff
-    ? 'O GeoTIFF traz todas as bandas (EVI, NDMI, R, G, B, válido) num arquivo só — índice e zonas não se aplicam.'
+    ? 'Cada índice gera seu próprio GeoTIFF de valores brutos: EVI e NDMI com 1 banda, RGB com 3 bandas de reflectância.'
     : '';
 }
 
@@ -6070,6 +6284,94 @@ function _baixarBlob(blob, nome){
 }
 const _canvasParaBlob=(cv)=> new Promise(res=> cv.toBlob(res, 'image/jpeg', 0.92));
 
+// ── Escritor de GeoTIFF float32 ───────────────────────────────────
+// A lib geotiff.js@2.x só ESCREVE 8 bits por amostra (trunca float pra
+// 0-255), o que destruiria os valores de EVI/NDMI. Então escrevemos o
+// TIFF à mão: little-endian, sem compressão, contíguo, SampleFormat=3
+// (IEEE float), 32 bits/amostra, com as tags GeoTIFF de EPSG:4326 e
+// GDAL_NODATA. Validado relendo com geotiff.js (float e georref intactos).
+function _escreverGeoTiffFloat32(flat, width, height, spp, geo){
+  const { xmin, ymax, scaleX, scaleY, nodata=-9999 } = geo;
+  const LE=true; const enc=new TextEncoder();
+  const bps=new Uint8Array(spp*2); {const d=new DataView(bps.buffer);for(let i=0;i<spp;i++)d.setUint16(i*2,32,LE);}
+  const sf =new Uint8Array(spp*2); {const d=new DataView(sf.buffer); for(let i=0;i<spp;i++)d.setUint16(i*2,3,LE);}
+  const mps=new Uint8Array(3*8);   {const d=new DataView(mps.buffer);d.setFloat64(0,scaleX,LE);d.setFloat64(8,scaleY,LE);d.setFloat64(16,0,LE);}
+  const mtp=new Uint8Array(6*8);   {const d=new DataView(mtp.buffer);[0,0,0,xmin,ymax,0].forEach((v,i)=>d.setFloat64(i*8,v,LE));}
+  const geoKeys=[1,1,0,3, 1024,0,1,2, 1025,0,1,1, 2048,0,1,4326];
+  const gkd=new Uint8Array(geoKeys.length*2); {const d=new DataView(gkd.buffer);geoKeys.forEach((v,i)=>d.setUint16(i*2,v,LE));}
+  const nod=enc.encode(String(nodata)+'\u0000');
+  const px=new Uint8Array(flat.length*4); {const d=new DataView(px.buffer);for(let i=0;i<flat.length;i++)d.setFloat32(i*4,flat[i],LE);}
+
+  const SHORT=3,LONG=4,DOUBLE=12,ASCII=2;
+  const entries=[];
+  const tag=(code,type,count,inlineVal,externBytes)=> entries.push({code,type,count,inlineVal,externBytes});
+  tag(256,SHORT,1,width);
+  tag(257,SHORT,1,height);
+  tag(258,SHORT,spp, spp===1?32:null, spp===1?null:bps);
+  tag(259,SHORT,1,1);          // sem compressão
+  tag(262,SHORT,1, spp>=3?2:1);// RGB ou grayscale
+  tag(273,LONG,1,0);           // StripOffsets (ajustado depois)
+  tag(277,SHORT,1,spp);
+  tag(278,SHORT,1,height);
+  tag(279,LONG,1,px.length);
+  tag(284,SHORT,1,1);          // chunky
+  tag(339,SHORT,spp, spp===1?3:null, spp===1?null:sf);
+  tag(33550,DOUBLE,3,null,mps);
+  tag(33922,DOUBLE,6,null,mtp);
+  tag(34735,SHORT,geoKeys.length,null,gkd);
+  tag(42113,ASCII,nod.length,null,nod);
+  entries.sort((a,b)=>a.code-b.code);
+
+  const headerSize=8, ifdSize=2+entries.length*12+4;
+  let offset=headerSize+ifdSize;
+  for(const e of entries){ if(e.externBytes){ e._off=offset; offset+=e.externBytes.length; if(offset%2)offset++; } }
+  const stripOffset=offset;
+  for(const e of entries){ if(e.code===273) e.inlineVal=stripOffset; }
+  const total=stripOffset+px.length;
+  const buf=new Uint8Array(total); const dv=new DataView(buf.buffer);
+  dv.setUint16(0,0x4949,LE); dv.setUint16(2,42,LE); dv.setUint32(4,headerSize,LE);
+  let p=headerSize; dv.setUint16(p,entries.length,LE); p+=2;
+  for(const e of entries){
+    dv.setUint16(p,e.code,LE); dv.setUint16(p+2,e.type,LE); dv.setUint32(p+4,e.count,LE);
+    if(e.externBytes) dv.setUint32(p+8,e._off,LE);
+    else if(e.type===SHORT) dv.setUint16(p+8,e.inlineVal,LE);
+    else dv.setUint32(p+8,(e.inlineVal||0)>>>0,LE);
+    p+=12;
+  }
+  dv.setUint32(p,0,LE);
+  for(const e of entries){ if(e.externBytes) buf.set(e.externBytes,e._off); }
+  buf.set(px,stripOffset);
+  return buf;
+}
+
+// ── GeoTIFF por índice ────────────────────────────────────────────
+// O .tif em cache tem 6 bandas: [0]=EVI, [1]=NDMI, [2]=R, [3]=G, [4]=B,
+// [5]=válido. Recortamos a(s) banda(s) do índice e reescrevemos um
+// GeoTIFF float32 georreferenciado (via _escreverGeoTiffFloat32). Pixels
+// fora do talhão (válido=0) viram NoData, pra não sujar a análise no QGIS.
+const _SAT_BANDA_IDX = { evi:[0], ndmi:[1], rgb:[2,3,4] };
+function _satGerarGeoTiffIndice(gr, idx){
+  const bandas=_SAT_BANDA_IDX[idx];
+  if(!bandas) throw new Error('Índice sem banda mapeada: '+idx);
+  const w=gr.width, h=gr.height, nb=bandas.length, nd=gr.noDataValue;
+  const valido=gr.values[5];
+  const flat=new Float32Array(w*h*nb); const NODATA=-9999; let p=0;
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      const ok = valido ? (valido[y] && valido[y][x]>0.5) : true;
+      for(let bi=0; bi<nb; bi++){
+        const banda=gr.values[bandas[bi]];
+        let v=(banda && banda[y]) ? banda[y][x] : NODATA;
+        if(!ok || v==null || (nd!=null && v===nd) || !Number.isFinite(v)) v=NODATA;
+        flat[p++]=v;
+      }
+    }
+  }
+  const scaleX=(gr.xmax-gr.xmin)/w, scaleY=(gr.ymax-gr.ymin)/h;
+  const buf=_escreverGeoTiffFloat32(flat, w, h, nb, { xmin:gr.xmin, ymax:gr.ymax, scaleX, scaleY, nodata:NODATA });
+  return new Blob([buf], { type:'image/tiff' });
+}
+
 async function satDownloadGerar(){
   const c=S.sat.capturas[S.sat.atual];
   if(!c) return;
@@ -6082,22 +6384,38 @@ async function satDownloadGerar(){
   const dataTag=a+m+d;
   try{
     btn.disabled=true; status.textContent='Preparando…';
+    const zonasSuffix=comZonas?'_zonas':'';
 
-    // ── GeoTIFF bruto: baixa o .tif do Storage direto (todas as bandas) ──
+    // ══ GeoTIFF: um arquivo por índice, valores brutos (do .tif em cache) ══
     if(fmt==='geotiff'){
-      status.textContent='Baixando GeoTIFF…';
-      const resp=await fetch(c.url);
-      if(!resp.ok) throw new Error('HTTP '+resp.status);
-      const blob=await resp.blob();
-      _baixarBlob(blob, 'sentinel_'+dataTag+'_bruto.tif');
-      status.textContent='Pronto! GeoTIFF baixado.';
+      status.textContent='Carregando dados brutos…';
+      const gr=await _satCarregarRaster(c.url);
+      const listaIdx = (idx==='todos') ? ['evi','ndmi','rgb'] : [idx];
+
+      if(listaIdx.length===1){
+        status.textContent='Gerando GeoTIFF '+listaIdx[0].toUpperCase()+'…';
+        const blob=_satGerarGeoTiffIndice(gr, listaIdx[0]);
+        _baixarBlob(blob, 'sentinel_'+dataTag+'_'+listaIdx[0]+'.tif');
+        status.textContent='Pronto! GeoTIFF '+listaIdx[0].toUpperCase()+' baixado.';
+      }else{
+        if(typeof JSZip==='undefined') throw new Error('JSZip indisponível para empacotar os três.');
+        const zip=new JSZip();
+        for(const ix of listaIdx){
+          status.textContent='Gerando GeoTIFF '+ix.toUpperCase()+'…';
+          const blob=_satGerarGeoTiffIndice(gr, ix);
+          zip.file('sentinel_'+dataTag+'_'+ix+'.tif', blob);
+        }
+        status.textContent='Compactando…';
+        const zipBlob=await zip.generateAsync({ type:'blob' });
+        _baixarBlob(zipBlob, 'sentinel_'+dataTag+'_geotiff_indices.zip');
+        status.textContent='Pronto! Os três GeoTIFFs baixados (.zip).';
+      }
       btn.disabled=false; return;
     }
 
-    // ── JPEG colorido: precisa do raster parseado em memória ──
+    // ══ JPEG colorido: pinta o índice num canvas (com upscale) ══
     status.textContent='Renderizando…';
     const gr=await _satCarregarRaster(c.url);
-    const zonasSuffix=comZonas?'_zonas':'';
 
     if(idx==='todos'){
       // gera os três e empacota num zip
@@ -6194,9 +6512,14 @@ function setMapMode(mode){
   _prefSalvar();
   document.body.classList.toggle('mode-sat', mode==='satelite');
   const _msb=document.getElementById('mode-satelite'); if(_msb) _msb.classList.toggle('active', mode==='satelite');
-  if(mode!=='satelite'){ _satLimparCamada(); _satZonasLimpar(); }
+  if(mode!=='satelite'){
+    _satLimparCamada(); _satZonasLimpar();
+    if(S.satZonas.ativo) satZonasParar();
+    if(S.satZonas.grupo){ try{ S.map.removeLayer(S.satZonas.grupo); }catch(e){} } // some da tela, mas mantém os dados
+  }
   else {
     _satZonasDesenhar();
+    if(S.satZonas.grupo && !S.map.hasLayer(S.satZonas.grupo)) S.satZonas.grupo.addTo(S.map);
     if(S.sat.capturas.length){ if(S.sat.atual==null) S.sat.atual=0; renderSatelite(); }
     else {
       // sem imagem na versão corrente: nada a pintar. Se há de outra versão,
