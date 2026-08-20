@@ -7168,9 +7168,41 @@ function setMapMode(mode){
     const em=document.getElementById('empty-msg');
     if(em) em.style.display='none';
 
+    // BUG FIX: Ao entrar na aba Satélite, troca o basemap para "satelite"
+    // (Esri World Imagery) automaticamente. Antes, o basemap continuava sendo
+    // o CartoDB claro por padrão — se o overlay processado da Sentinel não
+    // aparecia (falha, cache, CORS), o fundo ficava BRANCO em vez de mostrar
+    // a imagem satélite do mundo por baixo. Agora garante um fallback visual.
+    // O usuário pode trocar de volta manualmente pelo botão flutuante.
+    try{
+      if(S.activeBase!=='satelite' && S.baseLayers && S.baseLayers.satelite){
+        setBasemap('satelite');
+      }
+    }catch(e){ console.warn('[sat] não consegui trocar basemap:', e); }
+
     _satZonasDesenhar();
     if(S.satZonas.grupo && !S.map.hasLayer(S.satZonas.grupo)) S.satZonas.grupo.addTo(S.map);
     if(S.satZonas.labelGrupo && !S.map.hasLayer(S.satZonas.labelGrupo)) S.satZonas.labelGrupo.addTo(S.map);
+
+    // BUG FIX: O CSS body.mode-sat esconde várias seções (#sec-depth, #sec-viz,
+    // #sec-app, etc), o que muda o layout do container do mapa. Sem
+    // invalidateSize(), o Leaflet mantém as dimensões antigas e os tiles do
+    // basemap (Esri/CartoDB) + o overlay do Sentinel podem ficar posicionados
+    // fora da área visível — resultando em mapa "branco" mesmo com overlay
+    // criado com sucesso. Chama em 2 momentos: agora (para o pan/zoom atual
+    // corresponder ao container) e após o próximo frame do browser (para
+    // pegar o layout DEPOIS que o CSS mode-sat foi aplicado).
+    try{ S.map.invalidateSize(true); }catch(e){}
+    setTimeout(()=>{
+      if(S.mapMode!=='satelite') return; // usuário pode ter saído nesse meio-tempo
+      try{ S.map.invalidateSize(true); }catch(e){}
+      // Se tinha capturas, redispara o render pra garantir que o overlay
+      // vá pros bounds corretos com o container já no tamanho definitivo.
+      if(S.sat.capturas.length && S.sat.atual!=null && !S.sat.carregando){
+        try{ renderSatelite(); }catch(e){ console.warn('[sat] re-render após invalidateSize falhou:', e); }
+      }
+    }, 80);
+
     if(S.sat.capturas.length){ if(S.sat.atual==null) S.sat.atual=0; renderSatelite(); }
     else {
       // sem imagem na versão corrente: só avisa por texto — NÃO abre o
