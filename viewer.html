@@ -118,6 +118,9 @@ input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;bac
 .toggle{width:36px;height:20px;border-radius:12px;background:var(--border2);position:relative;transition:.2s;flex-shrink:0;}
 .toggle::after{content:'';position:absolute;width:16px;height:16px;border-radius:50%;background:#fff;top:2px;left:2px;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.25);}
 .toggle.on{background:var(--leaf);}.toggle.on::after{left:18px;}
+/* FIX 3: botões de modo dos Pontos — remove outline/focus residual quando o outro é clicado */
+.pontos-modo-btn{-webkit-tap-highlight-color:transparent;outline:none!important;}
+.pontos-modo-btn:focus,.pontos-modo-btn:focus-visible,.pontos-modo-btn:active{outline:none!important;box-shadow:none!important;}
 
 .leg-bar{height:15px;border-radius:6px;margin-bottom:6px;}
 .leg-ticks{display:flex;justify-content:space-between;font-size:9.5px;color:var(--muted);margin-bottom:11px;}
@@ -256,6 +259,15 @@ body.pdf-no-id .zone-label-val{
 }
 /* BASEMAP TOGGLE (flutuante sobre o mapa) */
 .basemap-float{position:absolute;top:auto;bottom:26px;right:12px;z-index:600;display:none;gap:6px;background:rgba(255,255,255,.92);padding:5px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.18);}
+/* FIX 7: legenda esmaecida sobre o mapa (estilo OneSoil) */
+.sat-legenda-map{position:absolute;bottom:16px;left:14px;z-index:600;background:rgba(255,255,255,.72);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border-radius:8px;padding:6px 9px;font-size:11px;color:rgba(36,39,31,.9);box-shadow:0 2px 8px rgba(0,0,0,.12);min-width:52px;line-height:1.4;pointer-events:none;transition:opacity .2s;}
+.sat-legenda-map .slm-title{font-weight:600;font-size:10px;color:rgba(36,39,31,.65);margin-bottom:3px;text-transform:uppercase;letter-spacing:.03em;}
+.sat-legenda-map .slm-row{display:flex;align-items:center;gap:5px;margin:1px 0;}
+.sat-legenda-map .slm-sw{width:14px;height:10px;border-radius:2px;border:1px solid rgba(0,0,0,.1);flex-shrink:0;}
+.sat-legenda-map .slm-val{font-size:10.5px;color:rgba(36,39,31,.85);font-variant-numeric:tabular-nums;}
+.sat-legenda-map:hover{opacity:.35;} /* esmaece ainda mais no hover pra não atrapalhar */
+/* Fora do modo satélite, esconde a legenda flutuante mesmo se JS não tirar */
+body:not(.mode-sat) .sat-legenda-map{display:none!important;}
 
 /* BUSCA POR COORDENADAS (item 9) — só aparece na aba Satélite */
 /* Botão da lupa alinhado com o botão "Editar" da aba Recomendação:
@@ -826,6 +838,31 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     </div>
   </div>
 
+  <!-- FIX 8: Índice e Escala ficam logo após Imagem (fazem parte do mesmo grupo visual) -->
+  <div class="sec" id="sec-sat-idx">
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span>Índice</span></div>
+    <div class="ctrl"><select id="sel-sat-idx">
+      <option value="evi">EVI — Biomassa</option>
+      <option value="ndmi">NDMI — Umidade na planta</option>
+      <option value="rgb">RGB — Cor natural</option>
+    </select></div>
+  </div>
+
+  <div class="sec" id="sec-sat-app">
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span>Escala</span></div>
+    <div class="ctrl"><select id="sel-sat-modo">
+      <option value="relativo">Relativa — realça o contraste no talhão</option>
+      <option value="absoluto">Absoluta — comparável entre datas</option>
+    </select></div>
+    <div class="ctrl" id="sat-sat-row"><div class="ctrl-label"><span>Saturação</span> <span class="ctrl-val" id="cv-sat-sat">20%</span></div><input type="range" id="sl-sat-sat" min="0" max="100" step="5" value="20"></div>
+    <div class="ctrl"><div class="ctrl-label"><span data-i18n="opacity">Opacidade</span> <span class="ctrl-val" id="cv-sat-opa">80%</span></div><input type="range" id="sl-sat-opa" min="20" max="100" value="80"></div>
+    <div class="invert-row" id="sat-labels-row">
+      <span class="label">Mostrar rótulos das zonas</span>
+      <div class="toggle on" id="sat-labels-toggle"></div>
+    </div>
+    <div id="sat-aviso" style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:4px"></div>
+  </div>
+
   <div class="sec" id="sec-sat-zonas">
   <!-- Zonas de manejo — desenho manual sobre a imagem de satélite (Fase 1) -->
   <div class="sec-label"><span class="txt"><span class="sec-num"></span>Zonas de manejo</span></div>
@@ -834,19 +871,23 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <span>Contorno tracejado = perímetro cadastrado, só referência.</span>
     <button type="button" onclick="satZonasReferenciaDispensar()">Ocultar</button>
   </div>
-  <div id="satz-toolbar" style="display:none;margin-top:8px;gap:6px;flex-wrap:wrap;">
-    <button type="button" onclick="satZonasComecarPoligono()" class="satz-btn">▢ Novo polígono</button>
-    <button type="button" onclick="satZonasComecarCirculo()" class="satz-btn" title="Desenhe um círculo perfeito — ideal para pivôs centrais de irrigação">⭕ Círculo (pivô)</button>
-    <button type="button" id="btn-satz-cortar" onclick="satZonasCortarComLinha()" class="satz-btn" title="Desenhe uma linha atravessando uma zona pra dividi-la em duas">✂ Cortar com linha</button>
-    <button type="button" onclick="satZonasComecarAnel()" class="satz-btn" title="Desenhe um polígono DENTRO de uma zona para criar um buraco (ex: benfeitoria, mata nativa, açude)">🕳️ Anel (exclusão)</button>
-    <button type="button" id="btn-satz-mesclar" onclick="satZonasMesclarSelecionadas()" class="satz-btn" style="display:none;">🔗 Mesclar (0)</button>
-    <button type="button" onclick="satZonasReverter()" class="satz-btn satz-btn-perigo" title="Desfaz a última ação (clique de novo pra desfazer a anterior)">↺ Reverter</button>
+  <!-- FIX 6: wrapper que só aparece no modo edição (satz-ativo). Fora do modo edição,
+       o consultor só vê o botão "Criar/Editar" — sem a lista longa poluindo a sidebar. -->
+  <div id="satz-modo-edicao" style="display:none;">
+    <div id="satz-toolbar" style="display:none;margin-top:8px;gap:6px;flex-wrap:wrap;">
+      <button type="button" onclick="satZonasComecarPoligono()" class="satz-btn">▢ Novo polígono</button>
+      <button type="button" onclick="satZonasComecarCirculo()" class="satz-btn" title="Desenhe um círculo perfeito — ideal para pivôs centrais de irrigação">⭕ Círculo (pivô)</button>
+      <button type="button" id="btn-satz-cortar" onclick="satZonasCortarComLinha()" class="satz-btn" title="Desenhe uma linha atravessando uma zona pra dividi-la em duas">✂ Cortar com linha</button>
+      <button type="button" onclick="satZonasComecarAnel()" class="satz-btn" title="Desenhe um polígono DENTRO de uma zona para criar um buraco (ex: benfeitoria, mata nativa, açude)">🕳️ Anel (exclusão)</button>
+      <button type="button" id="btn-satz-mesclar" onclick="satZonasMesclarSelecionadas()" class="satz-btn" style="display:none;">🔗 Mesclar (0)</button>
+      <button type="button" onclick="satZonasReverter()" class="satz-btn satz-btn-perigo" title="Desfaz a última ação (clique de novo pra desfazer a anterior)">↺ Reverter</button>
+    </div>
+    <div style="font-size:10.5px;color:var(--muted);margin-top:4px;display:none;" id="satz-dica-editar">Toque no ✎ de uma zona na lista pra arrastar os vértices dela direto no mapa. Segure Ctrl e clique em zonas no mapa pra selecionar várias e mesclar.</div>
+    <div id="satz-lista" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;max-height:320px;overflow-y:auto;padding-right:2px;"></div>
+    <div id="satz-vazio" style="font-size:11.5px;color:var(--muted);margin-top:6px;">Nenhuma zona desenhada ainda.</div>
+    <button type="button" id="btn-satz-salvar" onclick="satZonasSalvarOficial()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;display:none">💾 Salvar como zonas oficiais</button>
+    <div id="satz-status" style="font-size:11px;color:var(--muted);margin-top:8px;min-height:14px;"></div>
   </div>
-  <div style="font-size:10.5px;color:var(--muted);margin-top:4px;display:none;" id="satz-dica-editar">Toque no ✎ de uma zona na lista pra arrastar os vértices dela direto no mapa. Segure Ctrl e clique em zonas no mapa pra selecionar várias e mesclar.</div>
-  <div id="satz-lista" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;max-height:320px;overflow-y:auto;padding-right:2px;"></div>
-  <div id="satz-vazio" style="font-size:11.5px;color:var(--muted);margin-top:6px;">Nenhuma zona desenhada ainda.</div>
-  <button type="button" id="btn-satz-salvar" onclick="satZonasSalvarOficial()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;display:none">💾 Salvar como zonas oficiais</button>
-  <div id="satz-status" style="font-size:11px;color:var(--muted);margin-top:8px;min-height:14px;"></div>
   </div>
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
@@ -860,8 +901,8 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
     <!-- FASE 6: dois botões-toggle (radio visual) para MODO — sem ícones -->
     <div style="display:flex;gap:6px;margin-bottom:10px;">
-      <button type="button" id="btn-pontos-modo-auto" onclick="pontosModoSelecionar('auto')" style="flex:1;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12px;color:var(--accent2);cursor:pointer;transition:.15s;">Automático</button>
-      <button type="button" id="btn-pontos-modo-manual" onclick="pontosModoSelecionar('manual')" style="flex:1;padding:9px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:12px;color:var(--ink);cursor:pointer;transition:.15s;">Manual</button>
+      <button type="button" class="pontos-modo-btn" id="btn-pontos-modo-auto" onclick="pontosModoSelecionar('auto')" style="flex:1;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12px;color:var(--accent2);cursor:pointer;transition:.15s;">Automático</button>
+      <button type="button" class="pontos-modo-btn" id="btn-pontos-modo-manual" onclick="pontosModoSelecionar('manual')" style="flex:1;padding:9px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:12px;color:var(--ink);cursor:pointer;transition:.15s;">Manual</button>
     </div>
 
     <!-- Configurações do gerador automático (SÓ aparece no modo Automático) -->
@@ -948,33 +989,15 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     </div>
   </div>
 
-  <div class="sec" id="sec-sat-idx">
-    <div class="sec-label"><span class="txt"><span class="sec-num"></span>Índice</span></div>
-    <div class="ctrl"><select id="sel-sat-idx">
-      <option value="evi">EVI — Biomassa</option>
-      <option value="ndmi">NDMI — Umidade na planta</option>
-      <option value="rgb">RGB — Cor natural</option>
-    </select></div>
-  </div>
-
-  <div class="sec" id="sec-sat-app">
-    <div class="sec-label"><span class="txt"><span class="sec-num"></span>Escala</span></div>
-    <div class="ctrl"><select id="sel-sat-modo">
-      <option value="relativo">Relativa — realça o contraste no talhão</option>
-      <option value="absoluto">Absoluta — comparável entre datas</option>
-    </select></div>
-    <div class="ctrl" id="sat-sat-row"><div class="ctrl-label"><span>Saturação</span> <span class="ctrl-val" id="cv-sat-sat">20%</span></div><input type="range" id="sl-sat-sat" min="0" max="100" step="5" value="20"></div>
-    <div class="ctrl"><div class="ctrl-label"><span data-i18n="opacity">Opacidade</span> <span class="ctrl-val" id="cv-sat-opa">80%</span></div><input type="range" id="sl-sat-opa" min="20" max="100" value="80"></div>
-    <div class="invert-row" id="sat-labels-row">
-      <span class="label">Mostrar rótulos das zonas</span>
-      <div class="toggle on" id="sat-labels-toggle"></div>
-    </div>
-    <div id="sat-aviso" style="font-size:11px;color:var(--muted);line-height:1.5;margin-top:4px"></div>
-  </div>
-
   <div class="sec" id="sec-sat-leg">
     <div class="sec-label"><span class="txt"><span class="sec-num"></span>Legenda</span></div>
-    <div id="sat-legenda"></div>
+    <!-- FIX 7: a legenda visual (cores + valores) foi movida para uma camada
+         flutuante ESMAECIDA sobre o mapa (canto inferior esquerdo — estilo
+         OneSoil). Aqui na sidebar sobra só a atribuição da fonte de dados. -->
+    <div id="sat-legenda" style="display:none;"></div>
+    <div style="font-size:11px;color:var(--muted);line-height:1.5;">
+      A escala de cores aparece sobre o mapa (canto inferior esquerdo).
+    </div>
     <div style="font-size:10px;color:var(--muted);line-height:1.45;margin-top:10px;padding-top:8px;border-top:1px solid var(--sand2)">
       Contém dados Copernicus Sentinel modificados.<br>Fonte: ESA / Copernicus Data Space Ecosystem.
     </div>
@@ -1013,6 +1036,9 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="map-host">
     <div id="map"></div>
     <div id="map2"></div>
+    <!-- FIX 7: legenda esmaecida sobre o mapa (estilo OneSoil). Só aparece
+         quando estiver na aba Satélite (via body.mode-sat) — controlado por CSS. -->
+    <div id="sat-legenda-map" class="sat-legenda-map" style="display:none;"></div>
   </div>
   <div class="compare-tag left" id="ctag-left">—</div>
   <div class="compare-tag right" id="ctag-right">—</div>
@@ -6586,6 +6612,9 @@ function pontosModoSelecionar(modo){
   if(modo!=='auto' && modo!=='manual') modo='auto';
   S.pontos.modo = modo;
 
+  // FIX 3: tira foco visual dos botões (evita "contorno" residual no botão anterior)
+  try{ document.activeElement && document.activeElement.blur && document.activeElement.blur(); }catch(e){}
+
   // Se estava no modo manual (mapa esperando cliques), desativa
   if(S.pontos.modoManual){
     if(S.pontos.clickHandler){ try{ S.map.off('click', S.pontos.clickHandler); }catch(e){} S.pontos.clickHandler=null; }
@@ -6749,19 +6778,53 @@ function _pontosRedesenhar(){
   if(!S.pontos.itens.length) return;
   if(!S.map) return;
 
+  // FIX 2: garante que S.pontos.selecionadoId existe (id do ponto atualmente selecionado, ou null)
+  if(!('selecionadoId' in S.pontos)) S.pontos.selecionadoId = null;
+  // Cache dos markers por id (pra permitir highlight visual + arrastar programaticamente)
+  S.pontos._markers = {};
+
   const grupo = L.layerGroup();
   const grupoLab = L.layerGroup();
   S.pontos.itens.forEach(p=>{
-    // Marker: círculo pequeno vermelho (destacado em qualquer basemap)
-    const m = L.circleMarker([p.lat, p.lng], {
-      radius:6, color:'#fff', weight:2, fillColor:_pontosCorLegivel(), fillOpacity:0.95
+    const selecionado = (S.pontos.selecionadoId === p.id);
+    // FIX 2: marker DIVIcon (não circleMarker) para permitir draggable e visual customizado
+    const cor = _pontosCorLegivel();
+    const size = selecionado ? 16 : 12;
+    const borderColor = selecionado ? '#ffd400' : '#fff';
+    const borderW = selecionado ? 3 : 2;
+    const shadow = selecionado ? '0 0 0 3px rgba(255,212,0,.45),0 2px 6px rgba(0,0,0,.35)' : '0 2px 4px rgba(0,0,0,.35)';
+    const iconHtml = '<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;background:'+cor+';border:'+borderW+'px solid '+borderColor+';box-shadow:'+shadow+';cursor:pointer;transition:width .12s,height .12s,box-shadow .12s;"></div>';
+    const m = L.marker([p.lat, p.lng], {
+      icon: L.divIcon({ className:'ponto-marker-wrap', html: iconHtml, iconSize:[size,size], iconAnchor:[size/2,size/2] }),
+      draggable: selecionado,        // FIX 2: só o ponto selecionado é arrastável
+      autoPan: selecionado,
+      zIndexOffset: selecionado ? 800 : 400
     });
-    m.bindTooltip('<b>'+p.nome+'</b>'+(p.zona?'<br>Zona '+p.zona:''), { direction:'top', offset:[0,-6] });
-    // Clique = pergunta se quer realocar
-    m.on('click', function(){
-      _pontosRealocarPrompt(p.id);
+    m.bindTooltip('<b>'+p.nome+'</b>'+(p.zona?'<br>Zona '+p.zona:''), { direction:'top', offset:[0,-10] });
+
+    // FIX 2: clique num ponto = seleciona (single-click, sem modal)
+    m.on('click', function(ev){
+      // impede que o clique se propague pro mapa (senão a seleção some no mesmo instante)
+      if(ev && ev.originalEvent){ L.DomEvent.stopPropagation(ev.originalEvent); }
+      _pontosSelecionar(p.id);
     });
+
+    // FIX 2: ao soltar depois de arrastar, atualiza a posição do ponto no state e reavalia zona
+    if(selecionado){
+      m.on('dragend', function(){
+        const ll = m.getLatLng();
+        p.lat = ll.lat;
+        p.lng = ll.lng;
+        p.zona = _pontosZonaEm(p.lng, p.lat);
+        _pontosRenderLista();     // atualiza a lista lateral com as novas coords/zona
+        _pontosSincronizarColeta();
+        toast('Ponto '+p.nome+' movido.','ok',1500);
+      });
+    }
+
     grupo.addLayer(m);
+    S.pontos._markers[p.id] = m;
+
     if(S.pontos.mostrarLabels){
       const lbl = L.marker([p.lat, p.lng], {
         icon: L.divIcon({
@@ -6777,9 +6840,66 @@ function _pontosRedesenhar(){
   });
   S.pontos.layer = grupo.addTo(S.map);
   S.pontos.labelLayer = grupoLab.addTo(S.map);
+
+  // FIX 2: garante que os listeners globais (mapa e tecla Delete) estão instalados
+  _pontosInstalarListenersSelecao();
 }
 
-// Prompt de realocação: pergunta se quer mover pra outra posição (clique no mapa)
+// FIX 2: seleciona um ponto (highlight visual + torna arrastável). Passa null pra limpar.
+function _pontosSelecionar(id){
+  if(S.pontos.selecionadoId === id) return; // já é o selecionado
+  S.pontos.selecionadoId = id;
+  _pontosRedesenhar();
+}
+
+// FIX 2: instala listeners de seleção (roda uma vez por sessão do mapa).
+//   - clique no mapa (fora de ponto) desmarca
+//   - tecla Delete/Backspace remove o ponto selecionado
+//   - clique fora do container do mapa também desmarca
+function _pontosInstalarListenersSelecao(){
+  if(S.pontos._selListenersOK) return;
+  S.pontos._selListenersOK = true;
+
+  // Clique no mapa (não em cima de um marker) → desmarca
+  if(S.map){
+    S.map.on('click', function(ev){
+      // Só desmarca se o clique foi realmente no mapa (não num marker — que já para propagação)
+      if(S.pontos.selecionadoId){
+        _pontosSelecionar(null);
+      }
+    });
+  }
+
+  // Tecla Delete/Backspace → remove ponto selecionado (mas só se o foco NÃO está num input/textarea)
+  document.addEventListener('keydown', function(ev){
+    if(!S.pontos.selecionadoId) return;
+    const key = ev.key || ev.code;
+    if(key !== 'Delete' && key !== 'Backspace') return;
+    // ignora se o usuário está digitando num campo
+    const tag = (document.activeElement && document.activeElement.tagName || '').toUpperCase();
+    if(tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (document.activeElement && document.activeElement.isContentEditable)) return;
+    ev.preventDefault();
+    const id = S.pontos.selecionadoId;
+    const p = S.pontos.itens.find(x=>x.id===id);
+    if(!p) return;
+    S.pontos.selecionadoId = null;
+    pontosRemover(id);
+    toast('Ponto '+p.nome+' removido.','ok',1500);
+  });
+
+  // Clique fora do container do mapa (em qualquer área da tela) → desmarca
+  document.addEventListener('mousedown', function(ev){
+    if(!S.pontos.selecionadoId) return;
+    const mapEl = document.getElementById('map');
+    if(!mapEl) return;
+    // Se o clique foi dentro do mapa, quem cuida é o handler do L.map.on('click')
+    if(mapEl.contains(ev.target)) return;
+    _pontosSelecionar(null);
+  });
+}
+
+// Prompt de realocação (LEGADO — não é mais usado pelo clique no ponto, mas mantido
+// para compatibilidade com a lista lateral onde ainda existe o botão →).
 async function _pontosRealocarPrompt(id){
   const p = S.pontos.itens.find(x=>x.id===id);
   if(!p) return;
@@ -6794,7 +6914,6 @@ async function _pontosRealocarPrompt(id){
     S.map.off('click', oneShot);
     p.lng = e.latlng.lng;
     p.lat = e.latlng.lat;
-    // Reavaliar em qual zona caiu
     p.zona = _pontosZonaEm(p.lng, p.lat);
     _pontosRedesenhar();
     _pontosRenderLista();
@@ -7018,13 +7137,14 @@ async function exportarArquivosColeta(){
     // com JSZip. A helper `_normalizarSaidaShpwrite` cobre os dois formatos.
     const zipFinal = new JSZip();
 
-    // Helper: converte a saída do shp-write num formato que JSZip.loadAsync aceite.
-    // Base64 → Uint8Array; ArrayBuffer → passa direto.
+    // shp-write@0.4.3 usa JSZip.generateAsync internamente → retorna Promise.
+    // Versões antigas retornavam base64 síncrono. A helper normaliza os dois casos.
     function _normalizarSaidaShpwrite(saida){
       if(saida instanceof ArrayBuffer) return saida;
-      if(saida && saida.buffer instanceof ArrayBuffer) return saida.buffer; // TypedArray
-      if(typeof saida === 'string'){
-        // base64 → binary
+      if(saida instanceof Uint8Array) return saida.buffer;
+      if(saida && saida.buffer instanceof ArrayBuffer) return saida.buffer; // outros TypedArrays
+      if(saida instanceof Blob) return saida;               // JSZip 'blob'
+      if(typeof saida === 'string'){                        // JSZip 'base64'
         const bin = atob(saida);
         const u8 = new Uint8Array(bin.length);
         for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
@@ -7033,10 +7153,11 @@ async function exportarArquivosColeta(){
       throw new Error('Saída shp-write em formato inesperado: '+(typeof saida));
     }
 
+    // FIX 4: aguarda a Promise antes de passar pra JSZip.loadAsync
     if(zonasGeoJSON.features.length){
       let saidaZonas;
-      try{ saidaZonas = shpwrite.zip(zonasGeoJSON, { outputType:'arraybuffer' }); }
-      catch(e){ saidaZonas = shpwrite.zip(zonasGeoJSON); } // fallback: retorna base64
+      try{ saidaZonas = await shpwrite.zip(zonasGeoJSON, { outputType:'arraybuffer' }); }
+      catch(e){ saidaZonas = await shpwrite.zip(zonasGeoJSON); } // fallback: retorna base64
       const zonasZip = await JSZip.loadAsync(_normalizarSaidaShpwrite(saidaZonas));
       // Renomeia os arquivos dentro pra ficarem organizados
       await Promise.all(Object.keys(zonasZip.files).map(async fname=>{
@@ -7048,8 +7169,8 @@ async function exportarArquivosColeta(){
 
     if(pontosGeoJSON.features.length){
       let saidaPontos;
-      try{ saidaPontos = shpwrite.zip(pontosGeoJSON, { outputType:'arraybuffer' }); }
-      catch(e){ saidaPontos = shpwrite.zip(pontosGeoJSON); }
+      try{ saidaPontos = await shpwrite.zip(pontosGeoJSON, { outputType:'arraybuffer' }); }
+      catch(e){ saidaPontos = await shpwrite.zip(pontosGeoJSON); }
       const pontosZip = await JSZip.loadAsync(_normalizarSaidaShpwrite(saidaPontos));
       await Promise.all(Object.keys(pontosZip.files).map(async fname=>{
         const conteudo = await pontosZip.files[fname].async('uint8array');
@@ -7191,8 +7312,80 @@ function satZonasReferenciaDispensar(){
   _satZonasReferenciaEsconder();
 }
 
-function satZonasAlternar(){
-  if(S.satZonas.ativo) satZonasParar(); else satZonasIniciar();
+async function satZonasAlternar(){
+  if(!S.satZonas.ativo){ satZonasIniciar(); return; }
+  // FIX 1b: Se está no modo edição e tem zonas em memória, pergunta
+  // Sim/Não/Cancelar antes de sair (evita sair sem salvar por engano).
+  const temZonas = S.satZonas.itens && S.satZonas.itens.length > 0;
+  if(temZonas){
+    const escolha = await _cgModal3('Você tem zonas desenhadas.\n\nDeseja salvá-las como zonas oficiais antes de sair do modo edição?', {
+      titulo:'Sair do modo edição?',
+      tipo:'warn',
+      opcaoSim:'Sim, salvar e sair',
+      opcaoNao:'Não, sair sem salvar',
+      opcaoCancelar:'Cancelar'
+    });
+    if(escolha === 'cancelar' || escolha === null) return; // fica no modo edição
+    if(escolha === 'sim'){
+      // salva e depois sai
+      await satZonasSalvarOficial();
+      // se o salvamento falhou, satZonasSalvarOficial não fecha nada;
+      // se ok, o próprio fluxo do salvar já mantém a lista intacta.
+      // Só depois de tentar salvar é que a gente encerra o modo.
+    }
+    // 'nao' → só sai, sem salvar
+  }
+  satZonasParar();
+}
+
+// FIX 1b: variante do cgConfirm com 3 opções. Retorna 'sim', 'nao' ou 'cancelar' (null se ESC).
+// Reaproveita _cgModal (existente) — mas como esse só suporta 2 opções, montamos um modal ad-hoc.
+function _cgModal3(mensagem, opts){
+  return new Promise((resolve)=>{
+    opts = opts || {};
+    const titulo = opts.titulo || 'Confirmar';
+    const tipo = opts.tipo || 'info';
+    const lblSim = opts.opcaoSim || 'Sim';
+    const lblNao = opts.opcaoNao || 'Não';
+    const lblCancel = opts.opcaoCancelar || 'Cancelar';
+    const corHeader = { info:'#3a7fd9', warn:'#b8862b', danger:'#b04434', ok:'#2f8a3a' }[tipo] || '#3a7fd9';
+
+    // remove modal anterior se existir
+    const antigo = document.getElementById('_cgModal3'); if(antigo) antigo.remove();
+
+    const wrap = document.createElement('div');
+    wrap.id = '_cgModal3';
+    wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    wrap.innerHTML =
+      '<div style="background:#fff;border-radius:12px;max-width:480px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.25);overflow:hidden;">'
+      +   '<div style="background:'+corHeader+';color:#fff;padding:14px 18px;font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px;">'
+      +     '<span>⚠️</span><span>'+titulo+'</span>'
+      +   '</div>'
+      +   '<div style="padding:18px;font-size:13.5px;line-height:1.55;color:#24271f;white-space:pre-line;">'+mensagem+'</div>'
+      +   '<div style="display:flex;gap:8px;padding:0 18px 18px;justify-content:flex-end;flex-wrap:wrap;">'
+      +     '<button type="button" data-a="cancelar" style="padding:9px 14px;border:1.5px solid #dfe2da;border-radius:8px;background:#fff;color:#24271f;font-weight:600;cursor:pointer;">'+lblCancel+'</button>'
+      +     '<button type="button" data-a="nao" style="padding:9px 14px;border:1.5px solid #dfe2da;border-radius:8px;background:#fff;color:#24271f;font-weight:600;cursor:pointer;">'+lblNao+'</button>'
+      +     '<button type="button" data-a="sim" style="padding:9px 14px;border:none;border-radius:8px;background:'+corHeader+';color:#fff;font-weight:700;cursor:pointer;">'+lblSim+'</button>'
+      +   '</div>'
+      + '</div>';
+    document.body.appendChild(wrap);
+
+    const escutar = (e)=>{
+      if(e.key==='Escape'){ finalizar('cancelar'); }
+      else if(e.key==='Enter'){ finalizar('sim'); }
+    };
+    const finalizar = (val)=>{
+      document.removeEventListener('keydown', escutar);
+      try{ wrap.remove(); }catch(e){}
+      resolve(val);
+    };
+    wrap.addEventListener('click', (e)=>{
+      const btn = e.target.closest('button[data-a]');
+      if(btn){ finalizar(btn.dataset.a); return; }
+      if(e.target === wrap){ finalizar('cancelar'); }
+    });
+    document.addEventListener('keydown', escutar);
+  });
 }
 
 // Numeração sempre sequencial: olha as zonas EXISTENTES com nome puramente
@@ -7268,6 +7461,8 @@ function satZonasIniciar(){
   if(!S.satZonas.labelGrupo) S.satZonas.labelGrupo = new L.LayerGroup().addTo(S.map);
   else if(!S.map.hasLayer(S.satZonas.labelGrupo)) S.satZonas.labelGrupo.addTo(S.map);
   S.satZonas.ativo = true;
+  // FIX 6: mostra o painel de edição (toolbar + lista + salvar)
+  const wrap=document.getElementById('satz-modo-edicao'); if(wrap) wrap.style.display='';
   const btn=document.getElementById('btn-satz-alternar');
   if(btn){ btn.textContent='✕ Sair do modo de edição'; btn.style.background='var(--accent3)'; }
   document.getElementById('satz-toolbar').classList.add('ativo');
@@ -7374,6 +7569,8 @@ function satZonasParar(){
   if(S.satZonas.editandoId) satZonasEditarToggle(S.satZonas.editandoId); // fecha edição em curso, sem perder o desenho
   S.map.off('draw:created', _satZonasAoCriar);
   S.satZonas.ativo = false;
+  // FIX 6: oculta o painel de edição (só o botão "Criar/Editar" fica visível)
+  const wrapZ=document.getElementById('satz-modo-edicao'); if(wrapZ) wrapZ.style.display='none';
   const btn=document.getElementById('btn-satz-alternar');
   if(btn){ btn.textContent='✏️ Criar/Editar'; btn.style.background='#fff'; }
   document.getElementById('satz-toolbar').classList.remove('ativo');
@@ -7655,6 +7852,16 @@ function satZonasMesclarSelecionadas(){
       console.warn('[satZonas] closing morfológico falhou, usando union bruto:', errClose);
     }
 
+    // BUG FIX (Erro 1 - continuação): remove "linhas soltas" dentro do
+    // polígono mesclado. Elas vêm de duas fontes:
+    //  1. Buracos internos (rings de índice >=1) — resíduo do union quando os
+    //     limites se tocam mas não fecham perfeitamente.
+    //  2. Peças MultiPolygon minúsculas (fragmentos <1% da parte principal).
+    // A limpeza preserva a área externa e elimina o "lixo geométrico" visível.
+    try{
+      uniao = _satzLimparGeomMesclada(uniao);
+    }catch(errClean){ console.warn('[satZonas] limpeza pós-union falhou:', errClean); }
+
     // remove as zonas originais
     alvos.forEach(it=>{
       S.satZonas.grupo.removeLayer(it.layer);
@@ -7687,6 +7894,48 @@ function satZonasMesclarSelecionadas(){
 function _satzGeometryDeLayer(layer){
   const gj=layer.toGeoJSON();
   return gj.geometry;
+}
+
+// BUG FIX (Erro 1): remove "linhas soltas" que aparecem dentro de zonas mescladas.
+// Remove buracos internos (rings >=1) do Polygon/MultiPolygon e, para MultiPolygon,
+// mantém APENAS a peça principal se as demais tiverem <1% da maior. Aceita e retorna
+// Feature (com .geometry) — para compatibilidade com o resultado do turf.buffer/union.
+function _satzLimparGeomMesclada(feat){
+  if(!feat || !feat.geometry) return feat;
+  const g = feat.geometry;
+  const props = feat.properties || {};
+
+  const areaAnel = (ring)=>{
+    try{
+      const poly = { type:'Polygon', coordinates:[ring] };
+      return turf.area({ type:'Feature', geometry:poly, properties:{} });
+    }catch(e){ return 0; }
+  };
+
+  if(g.type === 'Polygon'){
+    // remove buracos internos (rings de índice >=1 = eram os "furinhos")
+    const soExterno = [ g.coordinates[0] ];
+    return { type:'Feature', properties:props, geometry:{ type:'Polygon', coordinates: soExterno } };
+  }
+
+  if(g.type === 'MultiPolygon'){
+    // Para cada parte: só o anel externo (sem buracos)
+    const partes = g.coordinates.map(p => [ p[0] ]);
+    // Calcula área de cada parte
+    const areas = partes.map(p => areaAnel(p[0]));
+    const maxA = Math.max.apply(null, areas.concat([0]));
+    // Mantém apenas partes com >1% da maior (elimina fragmentos residuais)
+    const relevantes = partes.filter((p,i) => areas[i] > maxA * 0.01);
+    if(relevantes.length === 0){
+      return { type:'Feature', properties:props, geometry:{ type:'Polygon', coordinates: partes[0] } };
+    }
+    if(relevantes.length === 1){
+      return { type:'Feature', properties:props, geometry:{ type:'Polygon', coordinates: relevantes[0] } };
+    }
+    return { type:'Feature', properties:props, geometry:{ type:'MultiPolygon', coordinates: relevantes } };
+  }
+
+  return feat;
 }
 
 // rótulo no mapa SEMPRE visível (não só no hover) — reaproveita o mesmo
@@ -7730,18 +7979,49 @@ function renderSatzLista(){
   }
   if(vazio) vazio.style.display='none';
   if(btnSalvar){ btnSalvar.style.display=''; btnSalvar.textContent='💾 Salvar como zonas oficiais'; }
-  box.innerHTML = S.satZonas.itens.map(it=>{
+
+  // FIX 5: ordenar zonas do menor para o maior (nomes numéricos primeiro,
+  // depois alfabéticos). Não altera a ordem no S.satZonas.itens (para não
+  // quebrar histórico) — só a ordem visual da lista.
+  const ordenados = [...S.satZonas.itens].sort((a,b)=>{
+    const na = String(a.nome||'').trim(), nb = String(b.nome||'').trim();
+    const ia = parseInt(na, 10), ib = parseInt(nb, 10);
+    const nAeh = !isNaN(ia) && String(ia)===na;
+    const nBeh = !isNaN(ib) && String(ib)===nb;
+    if(nAeh && nBeh) return ia - ib;         // ambos numéricos: por valor
+    if(nAeh && !nBeh) return -1;              // numérico vem antes de texto
+    if(!nAeh && nBeh) return 1;
+    return na.localeCompare(nb, 'pt-BR', { numeric:true, sensitivity:'base' });
+  });
+
+  // FIX 5: detecta duplicidade de nomes (deixa a linha em destaque + aviso no rodapé)
+  const contagem = {};
+  ordenados.forEach(it => { const k = String(it.nome||'').trim(); contagem[k] = (contagem[k]||0)+1; });
+  const duplicados = Object.keys(contagem).filter(k => contagem[k] > 1);
+
+  box.innerHTML = ordenados.map(it=>{
     const ha=_satZonasAtualizarTooltip(it);
     const editando = (S.satZonas.editandoId===it.id);
     const selecionada = S.satZonas.selecionados.has(it.id);
-    return '<div class="satz-item'+(editando?' editando':'')+(selecionada?' selecionada':'')+'" onclick="_satZonasCliqueNaLista(event,\''+it.id+'\')">'+
+    const duplicada = contagem[String(it.nome||'').trim()] > 1;
+    const estiloDup = duplicada ? ' style="border:2px solid #e0392b !important;"' : '';
+    const tituloDup = duplicada ? ' title="⚠️ Nome duplicado: existe mais de uma zona com este nome"' : '';
+    return '<div class="satz-item'+(editando?' editando':'')+(selecionada?' selecionada':'')+'"'+estiloDup+tituloDup+' onclick="_satZonasCliqueNaLista(event,\''+it.id+'\')">'+
       '<span class="satz-cor" style="background:'+it.cor+'"></span>'+
       '<input type="text" value="'+it.nome.replace(/"/g,'&quot;')+'" onclick="event.stopPropagation()" onchange="satZonasRenomear(\''+it.id+'\',this.value)">'+
+      (duplicada ? '<span style="color:#e0392b;font-size:13px;" title="Nome duplicado">⚠️</span>' : '')+
       '<span class="satz-area">'+ha.toFixed(2)+' ha</span>'+
       '<span class="satz-icone'+(editando?' editando':'')+'" onclick="event.stopPropagation();satZonasEditarToggle(\''+it.id+'\')" title="'+(editando?'Concluir edição desta zona':'Arrastar vértices desta zona')+'">'+(editando?'💾':'✎')+'</span>'+
       '<span class="satz-icone satz-del" onclick="event.stopPropagation();satZonasExcluirUma(\''+it.id+'\')" title="Excluir esta zona">✕</span>'+
     '</div>';
   }).join('');
+
+  // Adiciona um aviso no topo da lista se houver duplicidade
+  if(duplicados.length){
+    const aviso = '<div style="background:#ffe8e5;border:1.5px solid #e0392b;border-radius:8px;padding:7px 10px;margin-bottom:6px;font-size:11px;color:#a02010;font-weight:600;">⚠️ Zonas com nomes duplicados: '+duplicados.join(', ')+'. Renomeie antes de salvar.</div>';
+    box.innerHTML = aviso + box.innerHTML;
+  }
+
   const btnMesclar=document.getElementById('btn-satz-mesclar');
   if(btnMesclar){
     const n=S.satZonas.selecionados.size;
@@ -8268,8 +8548,11 @@ async function satDownloadGerar(){
 
 function renderSatLegenda(){
   const box=document.getElementById('sat-legenda');
+  const boxMap=document.getElementById('sat-legenda-map'); // FIX 7: versão flutuante sobre o mapa
+
   if(S.sat.idx==='rgb'){
     if(box) box.innerHTML='<div style="font-size:12px;color:var(--muted);line-height:1.5">Cor natural — composição direta de vermelho, verde e azul. Sem escala de valores.</div>';
+    if(boxMap) boxMap.style.display='none'; // cor natural não tem escala numérica
     const av=document.getElementById('sat-aviso');
     if(av) av.textContent = (S.sat.modo==='absoluto')
       ? 'Reflectância fixa (0 a 0,30) por canal — mesma exposição em qualquer data.'
@@ -8286,6 +8569,17 @@ function renderSatLegenda(){
     box.innerHTML=marcas.slice().reverse().map(m=>
       '<div class="sat-leg-row"><span class="sat-leg-sw" style="background:'+m.cor+'"></span><span class="sat-leg-val">'+m.valor.toFixed(casas)+'</span></div>'
     ).join('');
+  }
+  // FIX 7: espelha na legenda flutuante sobre o mapa (estilo OneSoil)
+  if(boxMap){
+    const titulo = (S.sat.idx==='evi') ? 'EVI' : (S.sat.idx==='ndmi' ? 'NDMI' : String(S.sat.idx||'').toUpperCase());
+    boxMap.innerHTML =
+      '<div class="slm-title">'+titulo+'</div>' +
+      marcas.slice().reverse().map(m=>
+        '<div class="slm-row"><span class="slm-sw" style="background:'+m.cor+'"></span><span class="slm-val">'+m.valor.toFixed(casas)+'</span></div>'
+      ).join('');
+    // Só mostra se estiver na aba Satélite
+    boxMap.style.display = (document.body.classList.contains('mode-sat') || S.mapMode==='satelite') ? '' : 'none';
   }
   const av=document.getElementById('sat-aviso');
   if(av) av.textContent = (S.sat.modo==='absoluto')
