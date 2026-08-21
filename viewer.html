@@ -20,6 +20,8 @@
 <script src="https://unpkg.com/georaster-layer-for-leaflet@4.1.2/dist/georaster-layer-for-leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
+<!-- shp-write: converte GeoJSON para Shapefile (ZIP com .shp/.shx/.dbf/.prj) -->
+<script src="https://cdn.jsdelivr.net/npm/@mapbox/shp-write@0.3.2/shpwrite.js"></script>
 <style>
 :root{
   --bg:#edefe9;--surface:#fbfcfa;--panel:#f1f3ee;--border:#dde0d8;--border2:#c7cabf;
@@ -303,8 +305,8 @@ body.mode-coleta #view-banner{display:none!important;}
 #view-banner{display:none!important;}
 body.mode-coleta #painel-coleta{display:block!important;}
 /* ── modo Satélite (índices Sentinel-2) ── */
-#sec-sat-src,#sec-sat-idx,#sec-sat-app,#sec-sat-leg,#sec-sat-zonas{display:none;}
-body.mode-sat #sec-sat-src,body.mode-sat #sec-sat-idx,body.mode-sat #sec-sat-app,body.mode-sat #sec-sat-leg,body.mode-sat #sec-sat-zonas{display:block;}
+#sec-sat-src,#sec-sat-idx,#sec-sat-app,#sec-sat-leg,#sec-sat-zonas,#sec-sat-pontos,#sec-sat-exportar{display:none;}
+body.mode-sat #sec-sat-src,body.mode-sat #sec-sat-idx,body.mode-sat #sec-sat-app,body.mode-sat #sec-sat-leg,body.mode-sat #sec-sat-zonas,body.mode-sat #sec-sat-pontos,body.mode-sat #sec-sat-exportar{display:block;}
 body.mode-sat #sec-depth,body.mode-sat #sec-nut-add,body.mode-sat #sec-join,body.mode-sat #sec-viz,
 body.mode-sat #sec-pal,body.mode-sat #sec-app,body.mode-sat #sec-leg,body.mode-sat #sec-stat,
 body.mode-sat #sec-pdf,body.mode-sat #sec-upload-geo,body.mode-sat #sec-upload-csv,
@@ -804,11 +806,8 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div id="sat-empty" style="font-size:12px;color:var(--muted);margin-top:6px;display:none"></div>
     <div id="sat-info" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
     <button type="button" id="btn-sat-download" onclick="satDownloadAbrir()" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer;display:none">⬇️ Baixar esta imagem</button>
-    <!-- Item 3: ações pra recuperar / descartar imagem quebrada -->
-    <div style="display:flex;gap:6px;margin-top:7px;">
-      <button type="button" id="btn-sat-recarregar" onclick="satRecarregarAtual()" title="Limpa o cache local e tenta carregar a imagem novamente — útil se a imagem apareceu com erro" style="flex:1;padding:8px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:11px;color:var(--ink);cursor:pointer;">🔄 Recarregar</button>
-      <button type="button" id="btn-sat-remover" onclick="satRemoverAtual()" title="Remove esta data da lista (não apaga do servidor). Use se ficou gravada com erro." style="flex:1;padding:8px;border:1.5px solid #e0c8c4;border-radius:9px;background:#fff;font-weight:700;font-size:11px;color:var(--danger);cursor:pointer;">🗑️ Remover</button>
-    </div>
+    <!-- Toggle: mostrar/ocultar overlay Sentinel no mapa (sem apagar do cache) -->
+    <button type="button" id="btn-sat-toggle" onclick="satOverlayToggle()" title="Oculta o overlay da imagem satélite pra ver melhor as zonas / basemap por baixo" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:12px;color:var(--ink);cursor:pointer;display:none;">👁️ Ocultar imagem</button>
   </div>
 
   <div class="sec" id="sec-sat-zonas">
@@ -832,6 +831,50 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div id="satz-vazio" style="font-size:11.5px;color:var(--muted);margin-top:6px;">Nenhuma zona desenhada ainda.</div>
   <button type="button" id="btn-satz-salvar" onclick="satZonasSalvarOficial()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;display:none">💾 Salvar como zonas oficiais</button>
   <div id="satz-status" style="font-size:11px;color:var(--muted);margin-top:8px;min-height:14px;"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- SEÇÃO: Pontos de Coleta                                            -->
+  <!-- Portada do plugin QGIS "Gerador de Pontos Amostrais" (K-Means).    -->
+  <!-- Gera pontos amostrais dentro das zonas de manejo, respeitando      -->
+  <!-- distância da borda e distribuição uniforme via K-Means.            -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <div class="sec" id="sec-sat-pontos">
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span>Pontos de Coleta</span></div>
+
+    <div style="display:flex;gap:6px;margin-bottom:8px;">
+      <button type="button" onclick="pontosGerar()" style="flex:1;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12px;color:var(--accent2);cursor:pointer;" title="Gera pontos automaticamente dentro das zonas usando K-Means (distribuição uniforme)">✨ Gerar automático</button>
+      <button type="button" id="btn-pontos-manual" onclick="pontosModoManualToggle()" style="flex:1;padding:9px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:12px;color:var(--ink);cursor:pointer;" title="Clique no mapa pra adicionar pontos manualmente">🎯 Manual</button>
+    </div>
+
+    <!-- Configurações do gerador automático -->
+    <div style="background:var(--panel);border-radius:8px;padding:9px;margin-bottom:8px;font-size:11px;">
+      <div style="display:grid;grid-template-columns:1fr auto;gap:6px 8px;align-items:center;">
+        <label>Pontos por zona:</label>
+        <input type="number" id="pontos-por-zona" value="10" min="1" max="500" style="width:60px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;text-align:right;">
+        <label>Distância da borda (m):</label>
+        <input type="number" id="pontos-buffer" value="5" min="0" max="200" step="0.5" style="width:60px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;text-align:right;">
+        <label>Espaçamento mínimo (m):</label>
+        <input type="number" id="pontos-espacamento" value="0" min="0" max="1000" step="1" title="0 = sem restrição (K-Means decide)" style="width:60px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;text-align:right;">
+      </div>
+      <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px;">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="radio" name="pontos-num" value="zona" checked> Numeração: <b>seguir o nome da zona</b> (ex: 22-1, 22-2)
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+          <input type="radio" name="pontos-num" value="seq"> Numeração: <b>sequencial global</b> (1, 2, 3…)
+        </label>
+      </div>
+    </div>
+
+    <div id="pontos-lista" style="display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;"></div>
+    <div id="pontos-vazio" style="font-size:11.5px;color:var(--muted);margin-top:4px;">Nenhum ponto criado ainda.</div>
+
+    <div style="display:flex;gap:6px;margin-top:10px;">
+      <button type="button" id="btn-pontos-legenda" onclick="pontosLegendaToggle()" style="flex:1;padding:8px;border:1.5px solid var(--sand2);border-radius:8px;background:#fff;font-weight:700;font-size:11px;color:var(--ink);cursor:pointer;">🏷 Ocultar rótulos</button>
+      <button type="button" onclick="pontosLimparTodos()" style="flex:1;padding:8px;border:1.5px solid #e0c8c4;border-radius:8px;background:#fff;font-weight:700;font-size:11px;color:var(--danger);cursor:pointer;">🗑️ Limpar todos</button>
+    </div>
+    <div id="pontos-status" style="font-size:11px;color:var(--muted);margin-top:6px;min-height:14px;"></div>
   </div>
 
   <!-- Modal de download da imagem em cache -->
@@ -898,6 +941,20 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div id="sat-legenda"></div>
     <div style="font-size:10px;color:var(--muted);line-height:1.45;margin-top:10px;padding-top:8px;border-top:1px solid var(--sand2)">
       Contém dados Copernicus Sentinel modificados.<br>Fonte: ESA / Copernicus Data Space Ecosystem.
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <!-- SEÇÃO: Exportar                                                     -->
+  <!-- Gera um ZIP com zonas + pontos em shapefile (formato aceito por     -->
+  <!-- todos os aparelhos de coleta de solo comuns no Brasil).             -->
+  <!-- ═══════════════════════════════════════════════════════════════════ -->
+  <div class="sec" id="sec-sat-exportar">
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span>Exportar</span></div>
+    <button type="button" onclick="exportarArquivosColeta()" style="width:100%;padding:11px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;box-shadow:0 2px 6px rgba(108,179,45,.25);">📦 Exportar Arquivos de Coleta</button>
+    <div id="exportar-status" style="font-size:11px;color:var(--muted);margin-top:6px;min-height:14px;"></div>
+    <div style="font-size:10.5px;color:var(--muted);margin-top:6px;line-height:1.4;">
+      Gera um ZIP com as zonas de manejo e os pontos de coleta em formato shapefile (.shp).
     </div>
   </div>
 
@@ -2059,14 +2116,15 @@ function applyCsvData(rows, fields, fileName, idealRow, decimais){
 
 // Relatório B: a linha de níveis ideais veio vazia? Confirma com o consultor.
 // Retorna false se ele optar por NÃO continuar (o upload é cancelado).
-function _confirmaIdeaisAusentes(parsed){
+async function _confirmaIdeaisAusentes(parsed){
   if(!parsed || !parsed.ideaisAusentes) return true;
   if(!(S.modeloB && S.modeloB.on)) return true;   // só o Relatório B usa níveis ideais
-  const ok=confirm('⚠ Faltam os níveis ideais nesta planilha.\n\n'
+  const ok=await cgConfirm('Faltam os níveis ideais nesta planilha.\n\n'
     + 'A primeira linha (reservada aos níveis ideais de cada nutriente) está vazia.\n\n'
     + 'Continuar mesmo assim?\n\n'
-    + '• OK — carrega a planilha ignorando essa linha. Você poderá preencher os níveis ideais depois, na janela do relatório.\n'
-    + '• Cancelar — não carrega a planilha.');
+    + '• Sim, continuar — carrega a planilha ignorando essa linha. Você poderá preencher os níveis ideais depois, na janela do relatório.\n'
+    + '• Cancelar — não carrega a planilha.',
+    { titulo:'Níveis ideais em falta', tipo:'warn', okLabel:'Sim, continuar' });
   if(!ok) toast('Upload cancelado — preencha os níveis ideais na planilha.','wrn');
   return ok;
 }
@@ -2082,10 +2140,10 @@ document.getElementById('f-csv').addEventListener('change',function(e){
     tryActivate();
   };
   const r=new FileReader();
-  if(ext==='csv'){r.onload=ev=>{try{const text=decodeBuffer(ev.target.result);const p=parseCSVText(text);if(!_confirmaIdeaisAusentes(p)){inputEl.value='';return;}done(p.rows,p.fields,p.idealRow);}catch(err){toast('Erro CSV: '+err.message,'err');}};r.readAsArrayBuffer(file);}
-  else{r.onload=ev=>{try{
+  if(ext==='csv'){r.onload=async ev=>{try{const text=decodeBuffer(ev.target.result);const p=parseCSVText(text);if(!(await _confirmaIdeaisAusentes(p))){inputEl.value='';return;}done(p.rows,p.fields,p.idealRow);}catch(err){toast('Erro CSV: '+err.message,'err');}};r.readAsArrayBuffer(file);}
+  else{r.onload=async ev=>{try{
     const parsed=parseXLSX(ev.target.result);
-    if(!_confirmaIdeaisAusentes(parsed)){inputEl.value='';return;}
+    if(!(await _confirmaIdeaisAusentes(parsed))){inputEl.value='';return;}
     done(parsed.rows,parsed.fields,parsed.idealRow);
     // se encontrou aba "rec" separada, carrega a recomendação automaticamente
     if(parsed.hasRecSheet && parsed.recRows && parsed.recRows.length){
@@ -4546,7 +4604,10 @@ function _renderRelStatus(){
 }
 async function _removerPerimetro(){
   if(!sb||!S.tokenAtual) return;
-  if(!confirm('⚠ Excluir o perímetro (contorno) deste talhão?\n\nEsta ação é permanente e não pode ser desfeita.')) return;
+  const ok=await cgConfirm('Excluir o perímetro (contorno) deste talhão?\n\nEsta ação é permanente e não pode ser desfeita.',{
+    titulo:'Excluir perímetro?', tipo:'danger', okLabel:'Sim, excluir', okDanger:true
+  });
+  if(!ok) return;
   const el=document.getElementById('nut-rel-status');
   try{
     const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:null});
@@ -4558,7 +4619,10 @@ async function _removerPerimetro(){
 async function _removerRaster(tipo){
   if(!sb||!S.tokenAtual) return;
   const nomes={evi:'Biomassa (EVI)',ndmi:'Umidade na Planta (NDMI)',textura:'Textura do Solo'};
-  if(!confirm('⚠ Excluir a imagem de '+(nomes[tipo]||tipo)+' deste talhão?\n\nEsta ação é permanente e não pode ser desfeita.')) return;
+  const ok=await cgConfirm('Excluir a imagem de '+(nomes[tipo]||tipo)+' deste talhão?\n\nEsta ação é permanente e não pode ser desfeita.',{
+    titulo:'Excluir imagem?', tipo:'danger', okLabel:'Sim, excluir', okDanger:true
+  });
+  if(!ok) return;
   const el=document.getElementById('nut-rel-status');
   try{
     const r=await sb.rpc('atualizar_raster_relatorio',{p_token:S.tokenAtual,p_tipo:tipo,p_url:''});
@@ -5811,7 +5875,11 @@ async function satCalEscolherDia(iso, eviVazio){
   // dia sem pixels de lavoura visíveis (100% nuvem/sombra no talhão): baixar
   // gastaria cota pra uma imagem inútil. Confirma antes.
   if(eviVazio){
-    const ok = confirm('Esta data não tem lavoura visível — nuvem ou sombra cobrem o talhão inteiro, então não há EVI/NDMI pra medir.\n\nBaixar mesmo assim vai consumir cota do Copernicus e provavelmente trazer uma imagem sem utilidade.\n\nQuer baixar assim mesmo?');
+    const ok = await cgConfirm('Esta data não tem lavoura visível — nuvem ou sombra cobrem o talhão inteiro, então não há EVI/NDMI pra medir.\n\nBaixar mesmo assim vai consumir cota do Copernicus e provavelmente trazer uma imagem sem utilidade.\n\nQuer baixar assim mesmo?', {
+      titulo:'Data sem lavoura visível',
+      tipo:'warn',
+      okLabel:'Sim, baixar mesmo assim'
+    });
     if(!ok) return;
   }
   const status=document.getElementById('sat-cal-status');
@@ -6119,8 +6187,9 @@ async function renderSatelite(){
     if(info){
       info.innerHTML = medias.length ? ('<b>'+medias.join(' · ')+'</b>') : '';
     }
-    // imagem carregada com sucesso -> libera o botão de download
+    // imagem carregada com sucesso -> libera o botão de download e o toggle mostrar/ocultar
     const btnDl=document.getElementById('btn-sat-download'); if(btnDl) btnDl.style.display='';
+    const btnTg=document.getElementById('btn-sat-toggle'); if(btnTg){ btnTg.style.display=''; btnTg.innerHTML='👁️ Ocultar imagem'; btnTg.style.background='#fff'; }
   }catch(e){
     console.warn('[sat] falha ao renderizar:', e);
     // Limpa o cache do raster: se a imagem veio quebrada (URL inválida, GeoTIFF
@@ -6168,79 +6237,636 @@ async function satReprocessarData(iso){
   }
 }
 
-// ── Item 3: Recarregar imagem atual ──
-// Limpa o cache local do georaster e re-renderiza. Útil quando a imagem
-// apareceu com erro pontual (rede, tile, canvas tainted). NÃO chama o
-// backend — pra isso use "Reprocessar" que aparece no erro do renderSatelite.
-function satRecarregarAtual(){
-  if(S.sat.atual==null || !S.sat.capturas[S.sat.atual]){
-    toast('Nenhuma imagem selecionada pra recarregar.','wrn');
-    return;
-  }
-  // limpa cache local (georaster parseado e URL)
-  S.sat._gr=null; S.sat._url=null;
-  // limpa médias em cache da captura atual (serão recalculadas)
-  const c=S.sat.capturas[S.sat.atual];
-  if(c){ delete c._eviMedio; delete c._ndmiMedio; }
-  // remove o overlay atual do mapa antes de re-renderizar
-  if(S.sat.overlay){ try{ S.map.removeLayer(S.sat.overlay); }catch(e){} S.sat.overlay=null; }
-  toast('Recarregando imagem…','ok', 1500);
-  renderSatelite();
-}
-
-// ── Item 3: Remover imagem da lista local ──
-// Tira a captura atual da lista LOCAL (não deleta do banco/storage). Útil
-// quando uma imagem ficou gravada com erro e o consultor quer se livrar
-// dela na visualização — mesmo que o registro no banco continue existindo,
-// não aparece mais no seletor até o próximo reload da página.
-async function satRemoverAtual(){
-  if(S.sat.atual==null || !S.sat.capturas[S.sat.atual]){
-    toast('Nenhuma imagem selecionada pra remover.','wrn');
-    return;
-  }
-  const c=S.sat.capturas[S.sat.atual];
-  const dataFmt = String(c.data).split('-').reverse().join('/');
-  const ok = confirm('Remover a imagem de '+dataFmt+' da lista?\n\n'
-    + '⚠️ Isto NÃO apaga a imagem do servidor — só a esconde nesta sessão. '
-    + 'Se recarregar a página, ela volta a aparecer.\n\n'
-    + 'Use isto quando a imagem ficou gravada com erro e você quer se livrar dela na visualização.');
-  if(!ok) return;
-
-  // remove do array local
-  const idxRem = S.sat.atual;
-  S.sat.capturas.splice(idxRem, 1);
-
-  // remove overlay do mapa
-  if(S.sat.overlay){ try{ S.map.removeLayer(S.sat.overlay); }catch(e){} S.sat.overlay=null; }
-  S.sat._gr=null; S.sat._url=null;
-
-  // reconstrói o select
-  const sel=document.getElementById('sel-sat-data');
-  if(sel){
-    sel.innerHTML=S.sat.capturas.map((cap,i)=>{
-      const [a,m,dd]=String(cap.data).split('-');
-      const nuv=(cap.nuvem==null)?'':' · '+Math.round(cap.nuvem)+'% nuvem';
-      return '<option value="'+i+'">'+dd+'/'+m+'/'+a+nuv+'</option>';
-    }).join('');
-  }
-
-  // seleciona próxima captura (ou anterior se estava na última)
-  if(S.sat.capturas.length){
-    S.sat.atual = Math.min(idxRem, S.sat.capturas.length-1);
-    if(sel) sel.value=String(S.sat.atual);
-    renderSatelite();
-    toast('Imagem removida da lista. Mostrando '+String(S.sat.capturas[S.sat.atual].data).split('-').reverse().join('/')+'.','ok');
+// ── Toggle: mostrar/ocultar overlay Sentinel no mapa ──
+// Substituiu os botões Recarregar/Remover (que não resolviam o caso real do
+// TIFF gravado com erro no banco). Aqui a lógica é MUITO mais simples e
+// resiliente: só liga/desliga a exibição do overlay atualmente carregado
+// — sem tocar em cache, em capturas ou em backend.
+function satOverlayToggle(){
+  const btn=document.getElementById('btn-sat-toggle');
+  if(!btn) return;
+  // Se o overlay está no mapa, remove; senão, tenta re-renderizar.
+  if(S.sat.overlay && S.map.hasLayer(S.sat.overlay)){
+    try{ S.map.removeLayer(S.sat.overlay); }catch(e){}
+    btn.innerHTML='👁️‍🗨️ Mostrar imagem';
+    btn.style.background='var(--accent3)';
+    S.sat._ocultoManual=true;
   } else {
-    S.sat.atual=null;
-    // esconde o botão de download e limpa info
-    const btnDl=document.getElementById('btn-sat-download'); if(btnDl) btnDl.style.display='none';
-    const info=document.getElementById('sat-info'); if(info) info.textContent='';
-    const vazio=document.getElementById('sat-empty');
-    if(vazio){ vazio.style.display='block'; vazio.textContent='Nenhuma imagem disponível. Clique em "Busca de Imagens".'; }
-    toast('Imagem removida. Nenhuma outra captura disponível.','ok');
+    S.sat._ocultoManual=false;
+    // Se já tem overlay em memória, só re-adiciona; senão, re-renderiza do zero.
+    if(S.sat.overlay){
+      try{ S.sat.overlay.addTo(S.map); }catch(e){}
+    } else if(S.sat.atual!=null && S.sat.capturas[S.sat.atual]){
+      renderSatelite();
+    }
+    btn.innerHTML='👁️ Ocultar imagem';
+    btn.style.background='#fff';
   }
 }
 
+
+// ═════════════════════════════════════════════════════════════════════════
+// PONTOS DE COLETA — portado do plugin QGIS "Gerador de Pontos Amostrais"
+// (K-Means + buffer da borda + ordenação por vizinho mais próximo).
+//
+// Diferenças do plugin original (Python + QGIS):
+//   • Fica tudo em WGS84 (o app é web, sem reprojeção UTM). turf.buffer com
+//     units:'meters' já faz o cálculo métrico correto.
+//   • Usa turf.booleanPointInPolygon pra validar candidatos, e turf.distance
+//     (units:'meters') pra achar o vizinho mais próximo.
+//   • K-Means em coordenadas geográficas: para talhões de até ~50 km²
+//     (praticamente todos), a distorção é <0.1% da área — imperceptível.
+//
+// Estado guardado em S.pontos = { itens:[], modoManual:false, mostrarLabels:true,
+//                                  layer, labelLayer, clickHandler }
+// ═════════════════════════════════════════════════════════════════════════
+S.pontos = { itens:[], modoManual:false, mostrarLabels:true, layer:null, labelLayer:null, clickHandler:null, seq:0 };
+
+function _pontosCorLegivel(){ return '#e0392b'; } // vermelho vibrante em cima do satélite
+
+// Fonte de zonas: prioriza zonas EM EDIÇÃO (S.satZonas.itens) — que é o que
+// o consultor está enxergando. Se não estiver editando, cai pras oficiais
+// carregadas em S.geoData.
+function _pontosZonasFonte(){
+  if(S.satZonas && S.satZonas.itens && S.satZonas.itens.length){
+    return S.satZonas.itens.map(it=>({
+      nome: String(it.nome||'').trim() || '?',
+      geometry: _satzGeometryDeLayer(it.layer)
+    }));
+  }
+  if(S.geoData && S.geoData.features && S.geoData.features.length){
+    const fields=S.geoFields||Object.keys(S.geoData.features[0].properties||{});
+    const campoZona=_pickZoneField(fields);
+    return S.geoData.features
+      .filter(f=>f.geometry && (f.geometry.type==='Polygon' || f.geometry.type==='MultiPolygon'))
+      .map((f,i)=>({
+        nome: campoZona ? (String((f.properties||{})[campoZona]??'').trim() || String(i+1)) : String(i+1),
+        geometry: f.geometry
+      }));
+  }
+  return [];
+}
+
+// Gera N pontos aleatórios dentro de um polígono (com limite de tentativas
+// pra evitar loop infinito em polígonos complexos).
+function _pontosCandidatosAleatorios(polyFeature, n){
+  const bbox=turf.bbox(polyFeature); // [minX, minY, maxX, maxY]
+  const out=[];
+  const maxTent = n*500;
+  let t=0;
+  while(out.length<n && t<maxTent){
+    const x = bbox[0] + Math.random()*(bbox[2]-bbox[0]);
+    const y = bbox[1] + Math.random()*(bbox[3]-bbox[1]);
+    const p = turf.point([x,y]);
+    if(turf.booleanPointInPolygon(p, polyFeature)) out.push([x,y]);
+    t++;
+  }
+  return out;
+}
+
+// K-Means simples pra achar K centroides (portado do plugin, sem numpy).
+function _pontosKMeans(pontos, k, maxIter){
+  maxIter = maxIter || 100;
+  if(pontos.length<=k) return pontos.slice(); // menos pontos que clusters: retorna os próprios
+  // inicializa com K pontos aleatórios da lista
+  const idx=new Set();
+  while(idx.size<k) idx.add(Math.floor(Math.random()*pontos.length));
+  let centroides=[...idx].map(i=>pontos[i].slice());
+  for(let it=0; it<maxIter; it++){
+    const clusters=Array.from({length:k},()=>[]);
+    // atribui cada ponto ao centroide mais próximo
+    pontos.forEach(p=>{
+      let melhor=0, dmin=Infinity;
+      for(let c=0;c<k;c++){
+        const dx=p[0]-centroides[c][0], dy=p[1]-centroides[c][1];
+        const d=dx*dx+dy*dy;
+        if(d<dmin){ dmin=d; melhor=c; }
+      }
+      clusters[melhor].push(p);
+    });
+    // recalcula centroides
+    const novos = clusters.map((cl,i)=>{
+      if(!cl.length) return centroides[i].slice(); // cluster vazio → mantém (evita NaN)
+      let sx=0, sy=0;
+      cl.forEach(p=>{ sx+=p[0]; sy+=p[1]; });
+      return [sx/cl.length, sy/cl.length];
+    });
+    // convergiu?
+    let mudou=false;
+    for(let c=0;c<k;c++){
+      if(novos[c][0]!==centroides[c][0] || novos[c][1]!==centroides[c][1]){ mudou=true; break; }
+    }
+    centroides=novos;
+    if(!mudou) break;
+  }
+  return centroides;
+}
+
+// Ordena os centroides pelo vizinho mais próximo, começando pelo mais ao norte.
+// Faz os pontos "andarem" em sequência lógica pelo talhão em vez de zig-zag
+// aleatório — facilita a coleta em campo.
+function _pontosOrdenarPorVizinho(pontos){
+  if(pontos.length<=1) return pontos.slice();
+  const restantes = pontos.slice();
+  // começa pelo ponto MAIS AO NORTE (maior latitude)
+  let atualIdx=0;
+  for(let i=1;i<restantes.length;i++){
+    if(restantes[i][1] > restantes[atualIdx][1]) atualIdx=i;
+  }
+  const ordem=[restantes[atualIdx]];
+  restantes.splice(atualIdx,1);
+  while(restantes.length){
+    const ult=ordem[ordem.length-1];
+    let melhor=0, dmin=Infinity;
+    for(let i=0;i<restantes.length;i++){
+      const dx=ult[0]-restantes[i][0], dy=ult[1]-restantes[i][1];
+      const d=dx*dx+dy*dy;
+      if(d<dmin){ dmin=d; melhor=i; }
+    }
+    ordem.push(restantes[melhor]);
+    restantes.splice(melhor,1);
+  }
+  return ordem;
+}
+
+// Aplica distância mínima entre pontos: descarta pontos que estão a menos
+// de `minMetros` de qualquer ponto já aceito. Preserva a ordem original.
+function _pontosAplicarEspacamento(pontos, minMetros){
+  if(!minMetros || minMetros<=0 || pontos.length<=1) return pontos;
+  const aceitos=[pontos[0]];
+  for(let i=1;i<pontos.length;i++){
+    const p=turf.point(pontos[i]);
+    let ok=true;
+    for(let j=0;j<aceitos.length;j++){
+      const d = turf.distance(p, turf.point(aceitos[j]), { units:'meters' });
+      if(d<minMetros){ ok=false; break; }
+    }
+    if(ok) aceitos.push(pontos[i]);
+  }
+  return aceitos;
+}
+
+// ── Ação principal: Gerar pontos automaticamente ──
+async function pontosGerar(){
+  const status=document.getElementById('pontos-status');
+  const zonas=_pontosZonasFonte();
+  if(!zonas.length){
+    if(status) status.textContent='Sem zonas pra gerar pontos. Desenhe/carregue as zonas primeiro.';
+    toast('Sem zonas pra gerar pontos.','wrn');
+    return;
+  }
+  if(typeof turf==='undefined'){ toast('Biblioteca turf indisponível.','err'); return; }
+
+  const nPorZona = Math.max(1, parseInt(document.getElementById('pontos-por-zona').value)||10);
+  const buffer   = Math.max(0, parseFloat(document.getElementById('pontos-buffer').value)||0);
+  const espaco   = Math.max(0, parseFloat(document.getElementById('pontos-espacamento').value)||0);
+  const modoNum  = (document.querySelector('input[name="pontos-num"]:checked')||{}).value || 'zona';
+
+  // Confirmação se já existem pontos (vai substituir)
+  if(S.pontos.itens.length){
+    const ok=await cgConfirm('Isso vai SUBSTITUIR os '+S.pontos.itens.length+' ponto(s) já criado(s) pelos novos gerados agora.\n\nContinuar?',{
+      titulo:'Substituir pontos?', tipo:'warn', okLabel:'Sim, substituir'
+    });
+    if(!ok) return;
+    pontosLimparInterno();
+  }
+
+  if(status) status.textContent='Gerando pontos… (pode levar alguns segundos)';
+
+  // Deixa o browser respirar antes do processamento pesado
+  await new Promise(r=>setTimeout(r,20));
+
+  let seqGlobal=1;
+  let totalGerados=0, zonasComProblema=[];
+
+  for(let z=0; z<zonas.length; z++){
+    const zona=zonas[z];
+    // Aplica buffer negativo (afasta os pontos da borda)
+    let poliBuf;
+    try{
+      if(buffer>0){
+        poliBuf = turf.buffer(turf.feature(zona.geometry), -buffer, { units:'meters' });
+        if(!poliBuf || !poliBuf.geometry || turf.area(poliBuf)<1){
+          // zona ficou vazia após buffer — usa o polígono original
+          poliBuf = turf.feature(zona.geometry);
+        }
+      } else {
+        poliBuf = turf.feature(zona.geometry);
+      }
+    }catch(e){
+      poliBuf = turf.feature(zona.geometry);
+    }
+
+    // Gera candidatos aleatórios (10x mais que o desejado → K-Means seleciona melhores)
+    const candidatos = _pontosCandidatosAleatorios(poliBuf, nPorZona*10);
+    if(candidatos.length < nPorZona){
+      zonasComProblema.push(zona.nome);
+      // ainda tenta gerar com o que tem
+    }
+    if(!candidatos.length) continue;
+
+    // K-Means para achar N centroides bem distribuídos
+    const k = Math.min(nPorZona, candidatos.length);
+    let centroides = _pontosKMeans(candidatos, k);
+
+    // Aplica espaçamento mínimo (se pedido)
+    if(espaco>0){
+      centroides = _pontosAplicarEspacamento(centroides, espaco);
+    }
+
+    // Ordena os pontos por vizinho mais próximo (path traversal)
+    const ordenados = _pontosOrdenarPorVizinho(centroides);
+
+    // Cria os itens e adiciona ao mapa
+    ordenados.forEach((c,i)=>{
+      S.pontos.seq++;
+      totalGerados++;
+      const nome = (modoNum==='zona')
+        ? (zona.nome + '-' + (i+1))
+        : String(seqGlobal++);
+      _pontosAdicionar(c[0], c[1], nome, zona.nome, false);
+    });
+  }
+
+  _pontosRedesenhar();
+  _pontosRenderLista();
+  _pontosSincronizarColeta(); // reflete os novos pontos na aba Coleta de Solo
+  if(status){
+    let msg = totalGerados+' ponto(s) gerado(s) em '+zonas.length+' zona(s).';
+    if(zonasComProblema.length) msg += ' Poucos candidatos em: '+zonasComProblema.join(', ')+'.';
+    status.textContent = msg;
+  }
+  toast(totalGerados+' pontos gerados.','ok');
+}
+
+// Cria um ponto no state (sem redesenhar — quem chama decide quando)
+function _pontosAdicionar(lng, lat, nome, zonaNome, redesenhar){
+  const item = { id:'p'+(Date.now())+'_'+Math.random().toString(36).slice(2,6), lng, lat, nome:String(nome), zona:zonaNome||null };
+  S.pontos.itens.push(item);
+  if(redesenhar){ _pontosRedesenhar(); _pontosRenderLista(); }
+  return item;
+}
+
+// Descobre em qual zona (pelo nome) um lng/lat cai. Retorna null se fora.
+function _pontosZonaEm(lng, lat){
+  const zonas=_pontosZonasFonte();
+  const p = turf.point([lng,lat]);
+  for(const z of zonas){
+    try{ if(turf.booleanPointInPolygon(p, turf.feature(z.geometry))) return z.nome; }catch(e){}
+  }
+  return null;
+}
+
+// ── Modo manual: clica no mapa pra adicionar ponto ──
+function pontosModoManualToggle(){
+  const btn=document.getElementById('btn-pontos-manual');
+  if(S.pontos.modoManual){
+    // desativa
+    if(S.pontos.clickHandler){ S.map.off('click', S.pontos.clickHandler); S.pontos.clickHandler=null; }
+    if(btn){ btn.style.background='#fff'; btn.innerHTML='🎯 Manual'; }
+    S.pontos.modoManual=false;
+    try{ document.getElementById('map').style.cursor=''; }catch(e){}
+  } else {
+    // ativa
+    S.pontos.modoManual=true;
+    if(btn){ btn.style.background='var(--accent3)'; btn.innerHTML='✕ Sair do manual'; }
+    try{ document.getElementById('map').style.cursor='crosshair'; }catch(e){}
+    S.pontos.clickHandler=function(e){
+      const zonaNome = _pontosZonaEm(e.latlng.lng, e.latlng.lat);
+      // Numeração no manual: se caiu numa zona, vira nome-N (próximo N daquela zona);
+      // se caiu fora, vira sequencial global.
+      let nome;
+      if(zonaNome){
+        const jaNaZona = S.pontos.itens.filter(p=>p.zona===zonaNome).length;
+        nome = zonaNome+'-'+(jaNaZona+1);
+      } else {
+        S.pontos.seq++;
+        nome = String(S.pontos.seq);
+      }
+      _pontosAdicionar(e.latlng.lng, e.latlng.lat, nome, zonaNome, true);
+      _pontosSincronizarColeta();
+      toast('Ponto '+nome+' criado.','ok', 1500);
+    };
+    S.map.on('click', S.pontos.clickHandler);
+    toast('Modo manual: clique no mapa pra adicionar pontos.','ok', 3500);
+  }
+}
+
+// Remove um ponto específico (chamado pelo botão ✕ da lista)
+function pontosRemover(id){
+  S.pontos.itens = S.pontos.itens.filter(p=>p.id!==id);
+  _pontosRedesenhar();
+  _pontosRenderLista();
+  _pontosSincronizarColeta();
+}
+
+// Limpa TODOS os pontos (com confirmação)
+async function pontosLimparTodos(){
+  if(!S.pontos.itens.length){ toast('Não há pontos pra limpar.','wrn'); return; }
+  const ok=await cgConfirm('Remover todos os '+S.pontos.itens.length+' ponto(s) criado(s)?\n\nEssa ação não pode ser desfeita.',{
+    titulo:'Limpar todos os pontos?', tipo:'danger', okLabel:'Sim, limpar', okDanger:true
+  });
+  if(!ok) return;
+  pontosLimparInterno();
+  toast('Pontos removidos.','ok');
+}
+
+function pontosLimparInterno(){
+  S.pontos.itens=[];
+  S.pontos.seq=0;
+  _pontosRedesenhar();
+  _pontosRenderLista();
+  _pontosSincronizarColeta();
+}
+
+// Toggle: mostrar/ocultar rótulos dos pontos
+function pontosLegendaToggle(){
+  S.pontos.mostrarLabels=!S.pontos.mostrarLabels;
+  const btn=document.getElementById('btn-pontos-legenda');
+  if(btn) btn.innerHTML = S.pontos.mostrarLabels ? '🏷 Ocultar rótulos' : '🏷 Mostrar rótulos';
+  _pontosRedesenhar();
+}
+
+// Redesenha a camada de pontos no mapa (marker + label opcional)
+function _pontosRedesenhar(){
+  if(S.pontos.layer){ try{ S.map.removeLayer(S.pontos.layer); }catch(e){} S.pontos.layer=null; }
+  if(S.pontos.labelLayer){ try{ S.map.removeLayer(S.pontos.labelLayer); }catch(e){} S.pontos.labelLayer=null; }
+  if(!S.pontos.itens.length) return;
+  if(!S.map) return;
+
+  const grupo = L.layerGroup();
+  const grupoLab = L.layerGroup();
+  S.pontos.itens.forEach(p=>{
+    // Marker: círculo pequeno vermelho (destacado em qualquer basemap)
+    const m = L.circleMarker([p.lat, p.lng], {
+      radius:6, color:'#fff', weight:2, fillColor:_pontosCorLegivel(), fillOpacity:0.95
+    });
+    m.bindTooltip('<b>'+p.nome+'</b>'+(p.zona?'<br>Zona '+p.zona:''), { direction:'top', offset:[0,-6] });
+    // Clique = pergunta se quer realocar
+    m.on('click', function(){
+      _pontosRealocarPrompt(p.id);
+    });
+    grupo.addLayer(m);
+    if(S.pontos.mostrarLabels){
+      const lbl = L.marker([p.lat, p.lng], {
+        icon: L.divIcon({
+          className:'ponto-label-wrap',
+          html:'<div style="background:rgba(0,0,0,.72);color:#fff;font-size:10px;padding:1px 5px;border-radius:3px;white-space:nowrap;transform:translate(9px,-14px);font-weight:700;">'+p.nome+'</div>',
+          iconSize:null
+        }),
+        interactive:false,
+        zIndexOffset:600
+      });
+      grupoLab.addLayer(lbl);
+    }
+  });
+  S.pontos.layer = grupo.addTo(S.map);
+  S.pontos.labelLayer = grupoLab.addTo(S.map);
+}
+
+// Prompt de realocação: pergunta se quer mover pra outra posição (clique no mapa)
+async function _pontosRealocarPrompt(id){
+  const p = S.pontos.itens.find(x=>x.id===id);
+  if(!p) return;
+  const ok=await cgConfirm('Ponto: '+p.nome+(p.zona?' (Zona '+p.zona+')':'')+'\n\nO que deseja fazer?',{
+    titulo:'Ponto '+p.nome,
+    okLabel:'Realocar (clicar no mapa)',
+    cancelLabel:'Cancelar'
+  });
+  if(!ok) return;
+  toast('Clique no mapa para reposicionar o ponto '+p.nome+'.','ok', 3000);
+  const oneShot=function(e){
+    S.map.off('click', oneShot);
+    p.lng = e.latlng.lng;
+    p.lat = e.latlng.lat;
+    // Reavaliar em qual zona caiu
+    p.zona = _pontosZonaEm(p.lng, p.lat);
+    _pontosRedesenhar();
+    _pontosRenderLista();
+    _pontosSincronizarColeta();
+    toast('Ponto '+p.nome+' reposicionado.','ok');
+  };
+  S.map.on('click', oneShot);
+}
+
+// Renderiza a lista de pontos no painel lateral
+function _pontosRenderLista(){
+  const wrap=document.getElementById('pontos-lista');
+  const vazio=document.getElementById('pontos-vazio');
+  if(!wrap) return;
+  if(!S.pontos.itens.length){
+    wrap.innerHTML='';
+    if(vazio) vazio.style.display='';
+    return;
+  }
+  if(vazio) vazio.style.display='none';
+  // Agrupa por zona pra visualização mais compacta
+  const grupos={};
+  S.pontos.itens.forEach(p=>{
+    const k=p.zona||'(fora de zona)';
+    if(!grupos[k]) grupos[k]=[];
+    grupos[k].push(p);
+  });
+  const linhas=[];
+  Object.keys(grupos).sort().forEach(z=>{
+    const lista=grupos[z];
+    linhas.push('<div style="font-size:10.5px;color:var(--muted);font-weight:700;margin-top:4px;padding-left:2px;">Zona '+z+' ('+lista.length+' ponto'+(lista.length>1?'s':'')+')</div>');
+    lista.forEach(p=>{
+      linhas.push(
+        '<div style="display:flex;align-items:center;gap:6px;padding:3px 6px;background:#fff;border:1px solid var(--border);border-radius:6px;font-size:11px;">'
+        + '<span style="width:8px;height:8px;background:'+_pontosCorLegivel()+';border-radius:50%;border:1.5px solid #fff;box-shadow:0 0 0 1px var(--border);flex-shrink:0;"></span>'
+        + '<span style="flex:1;font-weight:600;">'+p.nome+'</span>'
+        + '<span style="color:var(--muted);font-size:9.5px;">'+p.lat.toFixed(5)+', '+p.lng.toFixed(5)+'</span>'
+        + '<span onclick="pontosRemover(\''+p.id+'\')" title="Remover" style="cursor:pointer;color:var(--danger);padding:0 3px;">✕</span>'
+        + '</div>'
+      );
+    });
+  });
+  wrap.innerHTML=linhas.join('');
+}
+
+// GeoJSON dos pontos (usado pelo exportar e pra sincronizar com Coleta de Solo)
+function _pontosParaGeoJSON(){
+  return {
+    type:'FeatureCollection',
+    features: S.pontos.itens.map(p=>({
+      type:'Feature',
+      properties:{
+        id_ponto: p.nome,
+        zona:     p.zona || '',
+        lat:      +p.lat.toFixed(7),
+        lng:      +p.lng.toFixed(7)
+      },
+      geometry:{ type:'Point', coordinates:[p.lng, p.lat] }
+    }))
+  };
+}
+
+// Sincroniza os pontos gerados com a aba Coleta de Solo (bidirecional-ish:
+// ao gerar pontos aqui, eles aparecem lá; edições futuras da aba Coleta
+// permanecem lá — não sobrescrevemos coleta com pontos vazios daqui).
+function _pontosSincronizarColeta(){
+  if(!S.pontos.itens.length){
+    // Sem pontos criados aqui: não faz nada. Não apaga o que veio da aba
+    // Coleta de Solo (o consultor pode ter carregado pontos por outro
+    // caminho, tipo shapefile importado direto).
+    return;
+  }
+  const gj = _pontosParaGeoJSON();
+  // Injeta como se fosse a fonte de pontos "carregada" da aba Coleta.
+  // A aba Coleta lê de S.geoDataPoints (quando não tem shapefile de pontos
+  // próprio) ou de S.coletaGeo.pontos.
+  S.geoDataPoints = gj;
+  if(S.coletaGeo) S.coletaGeo.pontos = gj;
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════
+// EXPORTAR — Arquivos de Coleta (ZIP com shapefile de zonas + pontos)
+// Formato aceito por praticamente todos os aparelhos de coleta usados no
+// Brasil (Trimble, TopCon, GPS de campo etc). Nome do ZIP inclui cliente,
+// fazenda e talhão pra facilitar organização em campo.
+// ═════════════════════════════════════════════════════════════════════════
+async function exportarArquivosColeta(){
+  const status=document.getElementById('exportar-status');
+  const zonas=_pontosZonasFonte();
+  if(!zonas.length){
+    if(status) status.textContent='Sem zonas pra exportar. Desenhe/carregue as zonas primeiro.';
+    toast('Sem zonas pra exportar.','wrn');
+    return;
+  }
+  if(typeof shpwrite==='undefined'){
+    toast('Biblioteca shpwrite indisponível — verifique a internet.','err');
+    return;
+  }
+  if(typeof JSZip==='undefined'){
+    toast('Biblioteca JSZip indisponível.','err');
+    return;
+  }
+  if(status) status.textContent='Gerando arquivos…';
+
+  try{
+    // Nome do arquivo: "Arquivos para amostragem de solo - CLIENTE - FAZENDA - TALHÃO"
+    const cliente = String((S.linkData && S.linkData.cliente) || 'Cliente').trim();
+    const fazenda = String((S.linkData && (S.linkData.fazenda || S.linkData.faz)) || S.fazendaAtual || 'Fazenda').trim();
+    const talhao  = String((S.linkData && (S.linkData.talhao || S.linkData.tal)) || S.talhaoAtual || 'Talhão').trim();
+    // Sanitiza (remove caracteres inválidos pra nome de arquivo)
+    const limpo = s => String(s).replace(/[\\\/:*?"<>|]/g, '_').replace(/\s+/g,' ').trim();
+    const nomeBase = 'Arquivos para amostragem de solo - '+limpo(cliente)+' - '+limpo(fazenda)+' - '+limpo(talhao);
+
+    // Monta GeoJSON das zonas (FeatureCollection de Polygon)
+    const zonasGeoJSON = {
+      type:'FeatureCollection',
+      features: zonas.map(z=>({
+        type:'Feature',
+        properties:{
+          ZG:      z.nome,
+          nome:    z.nome,
+          area_ha: +(_polyHa ? _polyHa(z.geometry).toFixed(2) : 0)
+        },
+        geometry: z.geometry
+      }))
+    };
+
+    // Monta GeoJSON dos pontos
+    const pontosGeoJSON = _pontosParaGeoJSON();
+
+    // shp-write gera um ZIP com os arquivos .shp/.shx/.dbf/.prj de CADA
+    // geometria. Retorna base64 por padrão; algumas versões suportam
+    // `outputType:'arraybuffer'`. Como precisamos empacotar 2 shapefiles
+    // (zonas + pontos) num ZIP só, fazemos duas chamadas e reagrupamos
+    // com JSZip. A helper `_normalizarSaidaShpwrite` cobre os dois formatos.
+    const zipFinal = new JSZip();
+
+    // Helper: converte a saída do shp-write num formato que JSZip.loadAsync aceite.
+    // Base64 → Uint8Array; ArrayBuffer → passa direto.
+    function _normalizarSaidaShpwrite(saida){
+      if(saida instanceof ArrayBuffer) return saida;
+      if(saida && saida.buffer instanceof ArrayBuffer) return saida.buffer; // TypedArray
+      if(typeof saida === 'string'){
+        // base64 → binary
+        const bin = atob(saida);
+        const u8 = new Uint8Array(bin.length);
+        for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i);
+        return u8.buffer;
+      }
+      throw new Error('Saída shp-write em formato inesperado: '+(typeof saida));
+    }
+
+    if(zonasGeoJSON.features.length){
+      let saidaZonas;
+      try{ saidaZonas = shpwrite.zip(zonasGeoJSON, { outputType:'arraybuffer' }); }
+      catch(e){ saidaZonas = shpwrite.zip(zonasGeoJSON); } // fallback: retorna base64
+      const zonasZip = await JSZip.loadAsync(_normalizarSaidaShpwrite(saidaZonas));
+      // Renomeia os arquivos dentro pra ficarem organizados
+      await Promise.all(Object.keys(zonasZip.files).map(async fname=>{
+        const conteudo = await zonasZip.files[fname].async('uint8array');
+        const ext = fname.split('.').pop();
+        zipFinal.file('zonas_de_manejo.'+ext, conteudo);
+      }));
+    }
+
+    if(pontosGeoJSON.features.length){
+      let saidaPontos;
+      try{ saidaPontos = shpwrite.zip(pontosGeoJSON, { outputType:'arraybuffer' }); }
+      catch(e){ saidaPontos = shpwrite.zip(pontosGeoJSON); }
+      const pontosZip = await JSZip.loadAsync(_normalizarSaidaShpwrite(saidaPontos));
+      await Promise.all(Object.keys(pontosZip.files).map(async fname=>{
+        const conteudo = await pontosZip.files[fname].async('uint8array');
+        const ext = fname.split('.').pop();
+        zipFinal.file('pontos_de_coleta.'+ext, conteudo);
+      }));
+    } else {
+      // Sem pontos: adiciona um README dentro do zip avisando
+      zipFinal.file('LEIA-ME.txt',
+        'Este pacote contém APENAS as zonas de manejo em shapefile.\n'
+        + 'Não havia pontos de coleta criados no momento da exportação.\n\n'
+        + 'Para gerar pontos automaticamente, use a seção "Pontos de Coleta"\n'
+        + 'na aba Satélite e clique em "Gerar automático".\n');
+    }
+
+    // Adiciona um README com metadados úteis
+    const infoTxt =
+      'ARQUIVOS PARA AMOSTRAGEM DE SOLO\n'
+      + '════════════════════════════════════════\n\n'
+      + 'Cliente : '+cliente+'\n'
+      + 'Fazenda : '+fazenda+'\n'
+      + 'Talhão  : '+talhao+'\n'
+      + 'Gerado  : '+new Date().toLocaleString('pt-BR')+'\n\n'
+      + '── ARQUIVOS INCLUSOS ──\n'
+      + 'zonas_de_manejo.shp/.shx/.dbf/.prj  → '+zonasGeoJSON.features.length+' zona(s)\n'
+      + (pontosGeoJSON.features.length
+          ? 'pontos_de_coleta.shp/.shx/.dbf/.prj → '+pontosGeoJSON.features.length+' ponto(s)\n'
+          : '(sem pontos de coleta neste pacote)\n')
+      + '\n── SISTEMA DE COORDENADAS ──\n'
+      + 'WGS84 / EPSG:4326 (Lat/Lng geográfico)\n\n'
+      + '── USO EM CAMPO ──\n'
+      + 'Importe os shapefiles no seu aparelho GPS ou aplicativo de coleta\n'
+      + '(Trimble, TopCon, QField, Locus GIS, etc). Ambos estão em WGS84\n'
+      + 'e podem ser reprojetados pra UTM local no software receptor.\n';
+    zipFinal.file('INFORMAÇÕES.txt', infoTxt);
+
+    // Gera o blob final e dispara download
+    const blob = await zipFinal.generateAsync({ type:'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nomeBase + '.zip';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1200);
+
+    const partesGeradas = [];
+    if(zonasGeoJSON.features.length) partesGeradas.push(zonasGeoJSON.features.length+' zona(s)');
+    if(pontosGeoJSON.features.length) partesGeradas.push(pontosGeoJSON.features.length+' ponto(s)');
+    if(status) status.textContent='✓ Exportado: '+partesGeradas.join(' + ');
+    toast('ZIP baixado: '+nomeBase.slice(0,60)+'…','ok');
+  }catch(e){
+    console.error('[exportar] erro:', e);
+    if(status) status.innerHTML='<span style="color:var(--danger)">Erro ao exportar: '+String((e&&e.message)||e).slice(0,150)+'</span>';
+    toast('Erro ao exportar. Veja o console.','err');
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────
 // DOWNLOAD da imagem em cache
@@ -6348,14 +6974,14 @@ function _satZonasProximoNumero(){
 
 // carrega as zonas OFICIAIS já salvas (S.geoData — vem do upload manual ou
 // de um save anterior deste mesmo módulo) como itens EDITÁVEIS no desenho.
-// MultiPolygon vira uma zona por parte (mesmo tratamento do corte por
-// linha), com sufixo a/b/c pra diferenciar. Sem área/nome reconhecido nas
-// properties, cai no numeral sequencial de sempre.
+// MultiPolygon vira uma zona por parte, cada uma com numeração SEQUENCIAL
+// nova (não mais sufixos a/b/c — a preferência do consultor é numeração
+// sequencial pura, e sufixos só voltavam a aparecer aqui quando uma zona
+// cortada era salva como MultiPolygon).
 function _satZonasCarregarDeGeoData(){
   if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return;
   const fields=S.geoFields||Object.keys(S.geoData.features[0].properties||{});
   const campoZona=_pickZoneField(fields);
-  const sufixos='abcdefgh';
   S.geoData.features.forEach(f=>{
     const g=f.geometry; if(!g) return;
     const nomeBase = campoZona ? String((f.properties||{})[campoZona]??'').trim() : '';
@@ -6367,7 +6993,17 @@ function _satZonasCarregarDeGeoData(){
       S.satZonas.seq++;
       const cor=SATZ_CORES[(S.satZonas.seq-1)%SATZ_CORES.length];
       layer.setStyle && layer.setStyle({ color:cor, weight:2, fillColor:cor, fillOpacity:0.28 });
-      const nome = nomeBase ? (pecas.length>1 ? nomeBase+sufixos[i%8] : nomeBase) : String(S.satZonas.seq);
+      // Nome: se é peça única, usa o nome original salvo. Se é MultiPolygon
+      // dividido em várias peças, primeira peça mantém o nome original,
+      // demais recebem o PRÓXIMO número sequencial (não mais 22a/22b/22c).
+      let nome;
+      if(pecas.length===1){
+        nome = nomeBase || String(S.satZonas.seq);
+      } else {
+        nome = (i===0)
+          ? (nomeBase || String(S.satZonas.seq))
+          : _satZonasProximoNumero();
+      }
       const item={ id:'z'+S.satZonas.seq, nome, cor, layer };
       layer._satzId=item.id;
       S.satZonas.itens.push(item);
@@ -6475,13 +7111,17 @@ function _satZonasAplicarSnapshot(snap){
 
 // desfaz só a ÚLTIMA ação (não tudo de uma vez). Clicar de novo desfaz a
 // ação anterior a essa, e assim por diante, até chegar no que está salvo.
-function satZonasReverter(){
+async function satZonasReverter(){
   if(S.satZonas.historico.length){
     const snap=S.satZonas.historico.pop();
     _satZonasAplicarSnapshot(snap);
     toast('Última ação desfeita.'+(S.satZonas.historico.length?' (mais '+S.satZonas.historico.length+' no histórico)':''),'ok');
   }else{
-    const ok=confirm('Não há mais ações pra desfazer nesta sessão. Isso vai voltar pro que está salvo oficialmente.\n\nContinuar?');
+    const ok=await cgConfirm('Não há mais ações pra desfazer nesta sessão. Isso vai voltar pro que está salvo oficialmente.\n\nContinuar?', {
+      titulo:'Voltar ao estado salvo?',
+      tipo:'warn',
+      okLabel:'Sim, voltar'
+    });
     if(!ok) return;
     _satZonasAplicarSnapshot(null);
     toast(S.satZonas.itens.length ? ('Revertido: '+S.satZonas.itens.length+' zona(s) oficiais restauradas.') : 'Revertido: este talhão não tinha zonas oficiais salvas.','ok');
@@ -6620,6 +7260,74 @@ function _satZonasAoCriar(e){
     }
   }
   _satZonasEmpilharHistorico(); // guarda o estado de ANTES desta zona nova existir
+
+  // BUG FIX (Erro 2 / diferença simétrica): se o novo polígono sobrepõe
+  // qualquer zona existente, SUBTRAI a área do novo dessas zonas — deixando
+  // um "buraco" onde o novo se encaixa perfeitamente, sem sobreposição.
+  // (é a operação OPOSTA do anel: anel tira uma parte da zona pai e deixa
+  // buraco; aqui o novo polígono é adicionado E abre buraco na zona de baixo.)
+  //
+  // O polígono novo é adicionado normalmente; as zonas de baixo são
+  // recortadas via turf.difference. Se recortar deixaria uma zona com
+  // MultiPolygon (novo cortou ela em pedaços não-contíguos), cada peça vira
+  // uma zona separada na lista, com numeração sequencial nova.
+  try{
+    if(typeof turf!=='undefined' && e.layerType==='polygon' || e.layerType==='circle'){
+      const novoGeo = turf.feature(layer.toGeoJSON().geometry);
+      // Percorre zonas existentes; qualquer uma que intersecta o novo é recortada.
+      // Cópia da lista pra iterar com segurança enquanto altera S.satZonas.itens.
+      const itensExistentes = [...S.satZonas.itens];
+      itensExistentes.forEach(it=>{
+        try{
+          const baseGeo = turf.feature(_satzGeometryDeLayer(it.layer));
+          // Só recorta se realmente há sobreposição (evita gastar CPU à toa).
+          const inter = turf.intersect(baseGeo, novoGeo);
+          if(!inter) return;
+          const restante = turf.difference(baseGeo, novoGeo);
+          if(!restante){
+            // O novo cobre a zona inteira: a zona de baixo some (o novo herda).
+            S.satZonas.grupo.removeLayer(it.layer);
+            if(it.labelMarker && S.satZonas.labelGrupo) S.satZonas.labelGrupo.removeLayer(it.labelMarker);
+            S.satZonas.itens = S.satZonas.itens.filter(x=>x.id!==it.id);
+            return;
+          }
+          // Substitui a geometria da zona de baixo pela versão recortada.
+          // Se virou MultiPolygon (novo cortou em várias peças), separa em
+          // zonas distintas com numeração sequencial nova.
+          const pecas = restante.geometry.type==='MultiPolygon'
+            ? restante.geometry.coordinates.map(c=>({ type:'Polygon', coordinates:c }))
+            : [restante.geometry];
+          // Primeira peça: substitui a layer da zona existente (mantém nome/cor).
+          const primeiraLayer = L.geoJSON(pecas[0]).getLayers()[0];
+          primeiraLayer.setStyle && primeiraLayer.setStyle({ color:it.cor, weight:2, fillColor:it.cor, fillOpacity:0.28 });
+          S.satZonas.grupo.removeLayer(it.layer);
+          S.satZonas.grupo.addLayer(primeiraLayer);
+          primeiraLayer._satzId = it.id;
+          it.layer = primeiraLayer;
+          _satZonasAnexarEventos(it);
+          // Demais peças (raro — só se o novo dividiu a zona em partes
+          // desconectadas): vira zonas novas com numeração sequencial.
+          for(let p=1; p<pecas.length; p++){
+            S.satZonas.seq++;
+            const corExtra = SATZ_CORES[(S.satZonas.seq-1)%SATZ_CORES.length];
+            const extraLayer = L.geoJSON(pecas[p]).getLayers()[0];
+            extraLayer.setStyle && extraLayer.setStyle({ color:corExtra, weight:2, fillColor:corExtra, fillOpacity:0.28 });
+            S.satZonas.grupo.addLayer(extraLayer);
+            const extraItem = { id:'z'+S.satZonas.seq, nome:_satZonasProximoNumero(), cor:corExtra, layer:extraLayer };
+            extraLayer._satzId = extraItem.id;
+            S.satZonas.itens.push(extraItem);
+            _satZonasAnexarEventos(extraItem);
+          }
+        }catch(errCorte){
+          console.warn('[satZonas] falha ao recortar zona '+it.nome+' contra novo polígono:', errCorte);
+          // não interrompe — a nova zona é adicionada normalmente por cima
+        }
+      });
+    }
+  }catch(errDiff){
+    console.warn('[satZonas] diferença simétrica falhou (novo será adicionado por cima):', errDiff);
+  }
+
   S.satZonas.grupo.addLayer(layer);
   S.satZonas.seq++;
   const cor=SATZ_CORES[(S.satZonas.seq-1)%SATZ_CORES.length];
@@ -6687,6 +7395,26 @@ function satZonasMesclarSelecionadas(){
       uniao=turf.union(uniao, turf.feature(_satzGeometryDeLayer(alvos[i].layer)));
       if(!uniao) throw new Error('Falha ao unir uma das zonas (geometrias podem não se tocar).');
     }
+    // BUG FIX (Erro 1): quando mescla zonas que vieram de um CORTE, as duas
+    // peças estão a ~1mm de distância entre si (buffer da linha de corte é
+    // 0.001m). turf.union NÃO funde arestas nesse gap — resultado vira
+    // MultiPolygon com uma "linha residual" visível no mapa. Ao salvar +
+    // recarregar, isso vira 2 zonas separadas de novo (com sufixos a/b).
+    //
+    // Solução: fechamento morfológico (buffer positivo 2mm + buffer negativo
+    // 2mm). Isso "cola" qualquer aresta com gap <2mm, preservando a área
+    // externa. Teste: 11230.74 (MultiPolygon com gap) → 11230.95 (Polygon
+    // único, área idêntica ao polígono original antes do corte).
+    try{
+      const expandido = turf.buffer(uniao, 0.002, { units:'meters' });
+      const contraido = turf.buffer(expandido, -0.002, { units:'meters' });
+      if(contraido && contraido.geometry) uniao = contraido;
+    }catch(errClose){
+      // se por algum motivo o closing falhar, segue com o union bruto (o pior
+      // caso é a linha residual reaparecer, mas a área e a lista continuam ok)
+      console.warn('[satZonas] closing morfológico falhou, usando union bruto:', errClose);
+    }
+
     // remove as zonas originais
     alvos.forEach(it=>{
       S.satZonas.grupo.removeLayer(it.layer);
@@ -6959,7 +7687,12 @@ async function satZonasSalvarOficial(){
   const msg = vazio
     ? 'Isso vai REMOVER todas as zonas oficiais deste talhão (usadas em Nutrientes, Coleta de Solo e Recomendações). Não vai sobrar nenhuma zona.\n\nContinuar?'
     : 'Isso vai SUBSTITUIR as zonas oficiais atuais deste talhão (usadas em Nutrientes, Coleta de Solo e Recomendações) pelas '+S.satZonas.itens.length+' zona(s) desenhada(s) aqui.\n\nContinuar?';
-  const ok=confirm(msg);
+  const ok=await cgConfirm(msg, {
+    titulo: vazio ? 'Remover zonas oficiais?' : 'Substituir zonas oficiais?',
+    tipo: vazio ? 'danger' : 'warn',
+    okLabel: vazio ? 'Sim, remover' : 'Sim, substituir',
+    okDanger: vazio
+  });
   if(!ok) return;
   try{
     if(status) status.textContent=vazio?'Removendo zonas…':'Salvando zonas…';
@@ -7291,6 +8024,12 @@ function setMapMode(mode){
     if(S.satZonas.grupo){ try{ S.map.removeLayer(S.satZonas.grupo); }catch(e){} } // some da tela, mas mantém os dados
     if(S.satZonas.labelGrupo){ try{ S.map.removeLayer(S.satZonas.labelGrupo); }catch(e){} }
     _satZonasReferenciaEsconder();
+    // Pontos de Coleta: some do mapa (mas mantém os itens em memória —
+    // reaparece ao voltar pra aba Satélite). Também desliga modo manual se
+    // estava ativo, pra não capturar cliques na aba errada.
+    if(S.pontos && S.pontos.modoManual){ pontosModoManualToggle(); }
+    if(S.pontos && S.pontos.layer){ try{ S.map.removeLayer(S.pontos.layer); }catch(e){} S.pontos.layer=null; }
+    if(S.pontos && S.pontos.labelLayer){ try{ S.map.removeLayer(S.pontos.labelLayer); }catch(e){} S.pontos.labelLayer=null; }
   }
   else {
     // BUG FIX (item 4): a aba Satélite NÃO deve mostrar o overlay opaco
@@ -7351,6 +8090,12 @@ function setMapMode(mode){
     // if(!S.sat.capturas.length && !(S.geoData && S.geoData.features && S.geoData.features.length) && !S.satZonas.itens.length){
     //   _satZonasReferenciaMostrar();
     // }
+    // Redesenha pontos de coleta se já existirem (foram removidos do mapa
+    // ao sair da aba). A lista lateral também é re-renderizada.
+    if(S.pontos && S.pontos.itens && S.pontos.itens.length){
+      _pontosRedesenhar();
+      _pontosRenderLista();
+    }
   }
   document.getElementById('mode-nutrientes').classList.toggle('active', mode==='nutrientes');
   document.getElementById('mode-coleta').classList.toggle('active', mode==='coleta');
@@ -9059,6 +9804,141 @@ function showLoading(m){document.getElementById('loading-text').textContent=m;do
 function setLoading(m){document.getElementById('loading-text').textContent=m;}
 function hideLoading(){document.getElementById('pdf-loading').classList.remove('show');}
 function toast(msg,type='ok',dur=3800){const el=document.createElement('div');el.className=`toast ${type}`;const ic={ok:'✓',err:'✗',wrn:'⚠'},c={ok:'var(--accent2)',err:'var(--danger)',wrn:'var(--warn)'};el.innerHTML=`<span style="color:${c[type]};font-weight:700">${ic[type]}</span> ${msg}`;document.getElementById('toast-wrap').appendChild(el);setTimeout(()=>el.remove(),dur);}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MODAIS INTERNOS — cgAlert / cgConfirm / cgPrompt
+// Substituem alert()/confirm()/prompt() nativos do browser, que aparecem como
+// popups agressivos fora do estilo da plataforma. Estes usam a mesma estética
+// dos modais existentes (Editar Cliente, etc): overlay escurecido + card
+// centralizado, animação suave, foco no botão principal.
+//
+// Uso:
+//   await cgAlert('Mensagem', {titulo:'Aviso', tipo:'warn'});
+//   const ok = await cgConfirm('Confirmar?', {titulo:'...', okLabel:'Sim, excluir', okDanger:true});
+//   const txt = await cgPrompt('Nome:', {padrao:'Zona 1', placeholder:'...'});
+// ═══════════════════════════════════════════════════════════════════════════
+function _cgModalBase(){
+  // Cria (uma vez só) o container do modal genérico. Reaproveitado por todos.
+  let bg=document.getElementById('cg-modal-bg');
+  if(!bg){
+    bg=document.createElement('div');
+    bg.id='cg-modal-bg';
+    bg.className='modal-bg';
+    bg.style.zIndex='11000'; // acima dos outros modais/toasts pra sempre ganhar prioridade
+    bg.innerHTML=''
+      +'<div class="modal" style="max-width:440px;">'
+      +'  <div class="modal-head" id="cg-modal-head" style="background:#4a4a4a;padding:16px 20px;">'
+      +'    <div class="modal-title" id="cg-modal-title" style="font-size:16px;display:flex;align-items:center;gap:9px;">'
+      +'      <span id="cg-modal-icon" style="font-size:20px;"></span>'
+      +'      <span id="cg-modal-title-txt">Confirmação</span>'
+      +'    </div>'
+      +'  </div>'
+      +'  <div class="modal-body" style="padding:18px 20px;">'
+      +'    <div id="cg-modal-msg" style="font-size:13px;line-height:1.5;color:var(--ink);white-space:pre-wrap;"></div>'
+      +'    <div id="cg-modal-input-wrap" style="margin-top:14px;display:none;">'
+      +'      <input type="text" id="cg-modal-input" style="width:100%;box-sizing:border-box;padding:9px 12px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;outline:none;">'
+      +'    </div>'
+      +'    <div style="margin-top:18px;display:flex;justify-content:flex-end;gap:8px;">'
+      +'      <button type="button" id="cg-modal-cancel" style="padding:8px 16px;border:1.5px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);font-weight:600;font-size:13px;cursor:pointer;">Cancelar</button>'
+      +'      <button type="button" id="cg-modal-ok" style="padding:8px 18px;border:none;border-radius:8px;background:var(--leaf);color:#fff;font-weight:700;font-size:13px;cursor:pointer;">OK</button>'
+      +'    </div>'
+      +'  </div>'
+      +'</div>';
+    document.body.appendChild(bg);
+    // Fecha clicando fora
+    bg.addEventListener('click', e=>{ if(e.target===bg){ const c=document.getElementById('cg-modal-cancel'); if(c) c.click(); } });
+  }
+  return bg;
+}
+
+// Modal genérico com Promise. modo: 'alert'|'confirm'|'prompt'
+function _cgModal(modo, msg, opts){
+  opts = opts || {};
+  return new Promise(resolve=>{
+    const bg=_cgModalBase();
+    const iconEl=document.getElementById('cg-modal-icon');
+    const titleEl=document.getElementById('cg-modal-title-txt');
+    const msgEl=document.getElementById('cg-modal-msg');
+    const inpWrap=document.getElementById('cg-modal-input-wrap');
+    const inp=document.getElementById('cg-modal-input');
+    const cancelBtn=document.getElementById('cg-modal-cancel');
+    const okBtn=document.getElementById('cg-modal-ok');
+    const headEl=document.getElementById('cg-modal-head');
+
+    // Título + ícone por tipo
+    const tipo=opts.tipo||(modo==='confirm'?'warn':'info');
+    const icones={info:'ℹ️', warn:'⚠️', danger:'🚫', ok:'✓'};
+    iconEl.textContent=opts.icone || icones[tipo] || icones.info;
+    titleEl.textContent=opts.titulo || (modo==='confirm'?'Confirmação':(modo==='prompt'?'Digite':'Aviso'));
+
+    // Header colorido por tipo (mais suave, tom escuro por padrão)
+    const bgHead = {
+      info:   '#4a4a4a',
+      warn:   '#8a6a1a',
+      danger: '#8a3a2f',
+      ok:     '#3a6a2a'
+    }[tipo] || '#4a4a4a';
+    headEl.style.background=bgHead;
+
+    // Mensagem (aceita HTML mínimo? não — evita XSS; usa textContent + white-space:pre-wrap pra respeitar \n)
+    if(opts.html){ msgEl.innerHTML=msg; }
+    else { msgEl.textContent=msg; }
+
+    // Prompt: mostra input
+    if(modo==='prompt'){
+      inpWrap.style.display='';
+      inp.value=opts.padrao||'';
+      inp.placeholder=opts.placeholder||'';
+      setTimeout(()=>{ inp.focus(); inp.select(); }, 60);
+    } else {
+      inpWrap.style.display='none';
+    }
+
+    // Botões (labels + estilo do OK)
+    okBtn.textContent = opts.okLabel || (modo==='alert'?'OK':(modo==='confirm'?'Confirmar':'OK'));
+    if(opts.okDanger){
+      okBtn.style.background='var(--danger)';
+    } else if(tipo==='ok'){
+      okBtn.style.background='var(--leaf)';
+    } else {
+      okBtn.style.background='var(--leaf)';
+    }
+    cancelBtn.textContent = opts.cancelLabel || 'Cancelar';
+    // Alert só tem OK (esconde Cancelar)
+    cancelBtn.style.display = (modo==='alert' && !opts.forceCancel) ? 'none' : '';
+
+    // Limpa listeners antigos clonando os botões
+    const newOk = okBtn.cloneNode(true); okBtn.parentNode.replaceChild(newOk, okBtn);
+    const newCancel = cancelBtn.cloneNode(true); cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
+    const newInp = inp.cloneNode(true); inp.parentNode.replaceChild(newInp, inp);
+
+    const fechar = (resultado)=>{
+      bg.classList.remove('show');
+      resolve(resultado);
+    };
+
+    newOk.addEventListener('click', ()=>{
+      if(modo==='prompt'){ fechar(newInp.value); }
+      else { fechar(true); }
+    });
+    newCancel.addEventListener('click', ()=>{
+      fechar(modo==='prompt'?null:false);
+    });
+    // Enter no prompt = OK
+    if(modo==='prompt'){
+      newInp.addEventListener('keydown', e=>{
+        if(e.key==='Enter'){ e.preventDefault(); newOk.click(); }
+        else if(e.key==='Escape'){ e.preventDefault(); newCancel.click(); }
+      });
+    }
+
+    bg.classList.add('show');
+    if(modo!=='prompt') setTimeout(()=>newOk.focus(), 60);
+  });
+}
+function cgAlert(msg, opts){ return _cgModal('alert', msg, opts); }
+function cgConfirm(msg, opts){ return _cgModal('confirm', msg, opts); }
+function cgPrompt(msg, opts){ return _cgModal('prompt', msg, opts); }
 
 initMap();
 loadFromURL();
