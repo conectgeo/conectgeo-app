@@ -20,8 +20,20 @@
 <script src="https://unpkg.com/georaster-layer-for-leaflet@4.1.2/dist/georaster-layer-for-leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Turf.js/6.5.0/turf.min.js"></script>
-<!-- shp-write: converte GeoJSON para Shapefile (ZIP com .shp/.shx/.dbf/.prj) -->
-<script src="https://cdn.jsdelivr.net/npm/@mapbox/shp-write@0.3.2/shpwrite.js"></script>
+<!-- shp-write: converte GeoJSON para Shapefile (ZIP com .shp/.shx/.dbf/.prj).
+     A versão 0.3.2 NÃO EXISTE no npm (só 0.4.0-0.4.3), o CDN retornava 404
+     e a lib nunca carregava. Corrigido para 0.4.3 com fallback pra unpkg.  -->
+<script src="https://cdn.jsdelivr.net/npm/@mapbox/shp-write@0.4.3/shpwrite.js"></script>
+<script>
+  // Fallback: se jsdelivr não carregou o shpwrite (bloqueio de rede, timeout),
+  // tenta o unpkg. E se ainda assim falhar, o botão de exportar dá mensagem
+  // clara. Roda ANTES do resto da página inicializar.
+  if(typeof window.shpwrite === 'undefined'){
+    var _s = document.createElement('script');
+    _s.src = 'https://unpkg.com/@mapbox/shp-write@0.4.3/shpwrite.js';
+    document.head.appendChild(_s);
+  }
+</script>
 <style>
 :root{
   --bg:#edefe9;--surface:#fbfcfa;--panel:#f1f3ee;--border:#dde0d8;--border2:#c7cabf;
@@ -807,7 +819,11 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div id="sat-info" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
     <button type="button" id="btn-sat-download" onclick="satDownloadAbrir()" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer;display:none">⬇️ Baixar esta imagem</button>
     <!-- Toggle: mostrar/ocultar overlay Sentinel no mapa (sem apagar do cache) -->
-    <button type="button" id="btn-sat-toggle" onclick="satOverlayToggle()" title="Oculta o overlay da imagem satélite pra ver melhor as zonas / basemap por baixo" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:12px;color:var(--ink);cursor:pointer;display:none;">👁️ Ocultar imagem</button>
+    <button type="button" id="btn-sat-toggle" onclick="satOverlayToggle()" title="Oculta o overlay da imagem satélite pra ver melhor as zonas / basemap por baixo" style="display:none;"></button>
+    <div class="invert-row" id="sat-overlay-row" style="display:none;">
+      <span class="label">Mostrar imagem do satélite</span>
+      <div class="toggle on" id="sat-overlay-toggle"></div>
+    </div>
   </div>
 
   <div class="sec" id="sec-sat-zonas">
@@ -827,7 +843,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <button type="button" onclick="satZonasReverter()" class="satz-btn satz-btn-perigo" title="Desfaz a última ação (clique de novo pra desfazer a anterior)">↺ Reverter</button>
   </div>
   <div style="font-size:10.5px;color:var(--muted);margin-top:4px;display:none;" id="satz-dica-editar">Toque no ✎ de uma zona na lista pra arrastar os vértices dela direto no mapa. Segure Ctrl e clique em zonas no mapa pra selecionar várias e mesclar.</div>
-  <div id="satz-lista" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;"></div>
+  <div id="satz-lista" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;max-height:320px;overflow-y:auto;padding-right:2px;"></div>
   <div id="satz-vazio" style="font-size:11.5px;color:var(--muted);margin-top:6px;">Nenhuma zona desenhada ainda.</div>
   <button type="button" id="btn-satz-salvar" onclick="satZonasSalvarOficial()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;display:none">💾 Salvar como zonas oficiais</button>
   <div id="satz-status" style="font-size:11px;color:var(--muted);margin-top:8px;min-height:14px;"></div>
@@ -842,13 +858,14 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="sec" id="sec-sat-pontos">
     <div class="sec-label"><span class="txt"><span class="sec-num"></span>Pontos de Coleta</span></div>
 
-    <div style="display:flex;gap:6px;margin-bottom:8px;">
-      <button type="button" onclick="pontosGerar()" style="flex:1;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12px;color:var(--accent2);cursor:pointer;" title="Gera pontos automaticamente dentro das zonas usando K-Means (distribuição uniforme)">✨ Gerar automático</button>
-      <button type="button" id="btn-pontos-manual" onclick="pontosModoManualToggle()" style="flex:1;padding:9px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:12px;color:var(--ink);cursor:pointer;" title="Clique no mapa pra adicionar pontos manualmente">🎯 Manual</button>
+    <!-- FASE 6: dois botões-toggle (radio visual) para MODO — sem ícones -->
+    <div style="display:flex;gap:6px;margin-bottom:10px;">
+      <button type="button" id="btn-pontos-modo-auto" onclick="pontosModoSelecionar('auto')" style="flex:1;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12px;color:var(--accent2);cursor:pointer;transition:.15s;">Automático</button>
+      <button type="button" id="btn-pontos-modo-manual" onclick="pontosModoSelecionar('manual')" style="flex:1;padding:9px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:12px;color:var(--ink);cursor:pointer;transition:.15s;">Manual</button>
     </div>
 
-    <!-- Configurações do gerador automático -->
-    <div style="background:var(--panel);border-radius:8px;padding:9px;margin-bottom:8px;font-size:11px;">
+    <!-- Configurações do gerador automático (SÓ aparece no modo Automático) -->
+    <div id="pontos-config-auto" style="background:var(--panel);border-radius:8px;padding:9px;margin-bottom:8px;font-size:11px;">
       <div style="display:grid;grid-template-columns:1fr auto;gap:6px 8px;align-items:center;">
         <label>Pontos por zona:</label>
         <input type="number" id="pontos-por-zona" value="10" min="1" max="500" style="width:60px;padding:4px 6px;border:1px solid var(--border);border-radius:5px;text-align:right;">
@@ -867,13 +884,32 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       </div>
     </div>
 
-    <div id="pontos-lista" style="display:flex;flex-direction:column;gap:4px;max-height:200px;overflow-y:auto;"></div>
+    <!-- Instrução do modo manual (SÓ aparece no modo Manual) -->
+    <div id="pontos-config-manual" style="display:none;background:var(--panel);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:11px;color:var(--muted);line-height:1.5;">
+      Clique em <b>Gerar</b> para ativar. Depois, cada clique no mapa adiciona um ponto. A numeração segue a zona onde caiu (ex: 3-1, 3-2) ou é sequencial global se estiver fora de qualquer zona.
+    </div>
+
+    <!-- FASE 6: botão único "Gerar" (verde grande, no lugar do antigo "Ocultar rótulos") -->
+    <button type="button" id="btn-pontos-gerar" onclick="pontosGerarAcao()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;margin-bottom:10px;">Gerar</button>
+
+    <!-- FASE 7: lista de pontos com max-height + scroll (já tinha, mantido) -->
+    <div id="pontos-lista" style="display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto;"></div>
     <div id="pontos-vazio" style="font-size:11.5px;color:var(--muted);margin-top:4px;">Nenhum ponto criado ainda.</div>
 
-    <div style="display:flex;gap:6px;margin-top:10px;">
-      <button type="button" id="btn-pontos-legenda" onclick="pontosLegendaToggle()" style="flex:1;padding:8px;border:1.5px solid var(--sand2);border-radius:8px;background:#fff;font-weight:700;font-size:11px;color:var(--ink);cursor:pointer;">🏷 Ocultar rótulos</button>
-      <button type="button" onclick="pontosLimparTodos()" style="flex:1;padding:8px;border:1.5px solid #e0c8c4;border-radius:8px;background:#fff;font-weight:700;font-size:11px;color:var(--danger);cursor:pointer;">🗑️ Limpar todos</button>
+    <!-- FASE 6/9: rodapé — botões "Limpar" e "Confirmar" só aparecem com pontos -->
+    <div id="pontos-rodape" style="display:none;margin-top:10px;">
+      <!-- FASE 6: toggle "Mostrar rótulos" no padrão .invert-row (só se há pontos) -->
+      <div class="invert-row" id="pontos-rot-row" style="margin-top:0;">
+        <span class="label">Mostrar rótulos dos pontos</span>
+        <div class="toggle on" id="pontos-rot-toggle" onclick="pontosLegendaToggle()"></div>
+      </div>
+      <button type="button" onclick="pontosLimparTodos()" style="width:100%;margin-top:8px;padding:8px;border:1.5px solid #e0c8c4;border-radius:8px;background:#fff;font-weight:700;font-size:11.5px;color:var(--danger);cursor:pointer;">🗑️ Limpar todos</button>
+      <!-- FASE 9: botão "Confirmar/Salvar Pontos" (verde, igual "Salvar zonas oficiais") -->
+      <button type="button" id="btn-pontos-confirmar" onclick="pontosConfirmarSalvar()" style="width:100%;margin-top:8px;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;">✓ Confirmar Pontos</button>
     </div>
+    <!-- botão legado (oculto) — mantido pra não quebrar código antigo que ainda referencia -->
+    <button type="button" id="btn-pontos-legenda" onclick="pontosLegendaToggle()" style="display:none;"></button>
+    <button type="button" id="btn-pontos-manual" onclick="pontosModoSelecionar('manual')" style="display:none;"></button>
     <div id="pontos-status" style="font-size:11px;color:var(--muted);margin-top:6px;min-height:14px;"></div>
   </div>
 
@@ -5924,6 +5960,18 @@ async function carregarSatCapturas(){
   }catch(e){ console.warn('[sat] não consegui listar capturas:', e); S.sat.capturas=[]; }
   S.sat.temOutraVersao=temOutraVersao;
 
+  // FIX: Ao abrir o talhão, reseta o relógio de 24h em TODAS as capturas
+  // deste talhão (não só na que vai ser renderizada). Sem isso, o consultor
+  // vê a mais recente e — na próxima sessão — as antigas somem porque só a
+  // renderizada tem seu acesso registrado. Chamadas em paralelo (fire-and-forget).
+  try{
+    if(S.sat.capturas.length){
+      S.sat.capturas.forEach(c=>{
+        try{ sb.rpc('marcar_sentinel_acesso',{ p_token:S.tokenAtual, p_data:c.data, p_versao:(c.versao||SAT_VERSAO) }); }catch(e){}
+      });
+    }
+  }catch(e){}
+
   // Feature-flag de acesso antecipado: libera a aba mesmo sem captura ainda,
   // pra talhões de consultores marcados com satelite_beta=true no banco
   // (token -> talhão -> fazenda -> cliente -> consultor). Falha na RPC (ex:
@@ -6189,7 +6237,17 @@ async function renderSatelite(){
     }
     // imagem carregada com sucesso -> libera o botão de download e o toggle mostrar/ocultar
     const btnDl=document.getElementById('btn-sat-download'); if(btnDl) btnDl.style.display='';
-    const btnTg=document.getElementById('btn-sat-toggle'); if(btnTg){ btnTg.style.display=''; btnTg.innerHTML='👁️ Ocultar imagem'; btnTg.style.background='#fff'; }
+    // FASE 8: exibe o toggle novo (invert-row) e marca como ON (imagem visível)
+    const rowOv=document.getElementById('sat-overlay-row'); if(rowOv) rowOv.style.display='';
+    const tglOv=document.getElementById('sat-overlay-toggle'); if(tglOv) tglOv.classList.add('on');
+    // Anexa click handler ao toggle (feito uma única vez)
+    if(tglOv && !tglOv._bound){
+      tglOv._bound=true;
+      const rowOv2=document.getElementById('sat-overlay-row');
+      const chamar=()=>satOverlayToggle();
+      tglOv.addEventListener('click', chamar);
+      if(rowOv2) rowOv2.addEventListener('click', function(e){ if(e.target===tglOv) return; chamar(); });
+    }
   }catch(e){
     console.warn('[sat] falha ao renderizar:', e);
     // Limpa o cache do raster: se a imagem veio quebrada (URL inválida, GeoTIFF
@@ -6243,24 +6301,26 @@ async function satReprocessarData(iso){
 // resiliente: só liga/desliga a exibição do overlay atualmente carregado
 // — sem tocar em cache, em capturas ou em backend.
 function satOverlayToggle(){
-  const btn=document.getElementById('btn-sat-toggle');
-  if(!btn) return;
-  // Se o overlay está no mapa, remove; senão, tenta re-renderizar.
-  if(S.sat.overlay && S.map.hasLayer(S.sat.overlay)){
+  // FASE 8: novo toggle padrão (mesmo estilo do "Mostrar rótulos das zonas").
+  // Mantém compatibilidade com o antigo btn-sat-toggle (que agora está oculto).
+  const tgl=document.getElementById('sat-overlay-toggle');
+  const row=document.getElementById('sat-overlay-row');
+  // Estado atual: overlay está visível?
+  const visivel = !!(S.sat.overlay && S.map.hasLayer(S.sat.overlay));
+  if(visivel){
+    // OCULTA
     try{ S.map.removeLayer(S.sat.overlay); }catch(e){}
-    btn.innerHTML='👁️‍🗨️ Mostrar imagem';
-    btn.style.background='var(--accent3)';
     S.sat._ocultoManual=true;
+    if(tgl) tgl.classList.remove('on');
   } else {
+    // MOSTRA
     S.sat._ocultoManual=false;
-    // Se já tem overlay em memória, só re-adiciona; senão, re-renderiza do zero.
     if(S.sat.overlay){
       try{ S.sat.overlay.addTo(S.map); }catch(e){}
     } else if(S.sat.atual!=null && S.sat.capturas[S.sat.atual]){
       renderSatelite();
     }
-    btn.innerHTML='👁️ Ocultar imagem';
-    btn.style.background='#fff';
+    if(tgl) tgl.classList.add('on');
   }
 }
 
@@ -6280,7 +6340,7 @@ function satOverlayToggle(){
 // Estado guardado em S.pontos = { itens:[], modoManual:false, mostrarLabels:true,
 //                                  layer, labelLayer, clickHandler }
 // ═════════════════════════════════════════════════════════════════════════
-S.pontos = { itens:[], modoManual:false, mostrarLabels:true, layer:null, labelLayer:null, clickHandler:null, seq:0 };
+S.pontos = { itens:[], modoManual:false, mostrarLabels:true, layer:null, labelLayer:null, clickHandler:null, seq:0, modo:'auto', salvoConfirmado:false };
 
 function _pontosCorLegivel(){ return '#e0392b'; } // vermelho vibrante em cima do satélite
 
@@ -6517,24 +6577,97 @@ function _pontosZonaEm(lng, lat){
   return null;
 }
 
-// ── Modo manual: clica no mapa pra adicionar ponto ──
-function pontosModoManualToggle(){
-  const btn=document.getElementById('btn-pontos-manual');
+// ═════════════════════════════════════════════════════════════════════════
+// FASE 6: seleciona o MODO (auto vs manual). NÃO executa nada — apenas
+// muda o visual dos botões e mostra a config correspondente. A execução
+// vem depois quando o consultor clica em "Gerar" (pontosGerarAcao).
+// ═════════════════════════════════════════════════════════════════════════
+function pontosModoSelecionar(modo){
+  if(modo!=='auto' && modo!=='manual') modo='auto';
+  S.pontos.modo = modo;
+
+  // Se estava no modo manual (mapa esperando cliques), desativa
   if(S.pontos.modoManual){
-    // desativa
-    if(S.pontos.clickHandler){ S.map.off('click', S.pontos.clickHandler); S.pontos.clickHandler=null; }
-    if(btn){ btn.style.background='#fff'; btn.innerHTML='🎯 Manual'; }
+    if(S.pontos.clickHandler){ try{ S.map.off('click', S.pontos.clickHandler); }catch(e){} S.pontos.clickHandler=null; }
     S.pontos.modoManual=false;
     try{ document.getElementById('map').style.cursor=''; }catch(e){}
+  }
+
+  // Visual: destacar o botão do modo escolhido
+  const btnA=document.getElementById('btn-pontos-modo-auto');
+  const btnM=document.getElementById('btn-pontos-modo-manual');
+  if(btnA){
+    if(modo==='auto'){
+      btnA.style.borderColor='var(--leaf)';
+      btnA.style.background='var(--accent3)';
+      btnA.style.color='var(--accent2)';
+    } else {
+      btnA.style.borderColor='var(--sand2)';
+      btnA.style.background='#fff';
+      btnA.style.color='var(--ink)';
+    }
+  }
+  if(btnM){
+    if(modo==='manual'){
+      btnM.style.borderColor='var(--leaf)';
+      btnM.style.background='var(--accent3)';
+      btnM.style.color='var(--accent2)';
+    } else {
+      btnM.style.borderColor='var(--sand2)';
+      btnM.style.background='#fff';
+      btnM.style.color='var(--ink)';
+    }
+  }
+
+  // Mostra/oculta a config correspondente
+  const cAuto=document.getElementById('pontos-config-auto');
+  const cMan=document.getElementById('pontos-config-manual');
+  if(cAuto) cAuto.style.display = (modo==='auto') ? '' : 'none';
+  if(cMan)  cMan.style.display  = (modo==='manual') ? '' : 'none';
+
+  // Label do botão "Gerar" muda conforme o modo
+  const btnG=document.getElementById('btn-pontos-gerar');
+  if(btnG){
+    if(modo==='manual'){
+      btnG.textContent = S.pontos._manualAtivo ? '✕ Sair do modo manual' : '🎯 Ativar modo manual';
+    } else {
+      btnG.textContent = 'Gerar';
+    }
+  }
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// FASE 6: executa a ação conforme o modo escolhido.
+//   - Automático: chama o gerador K-Means (pontosGerar).
+//   - Manual: ativa/desativa o modo manual (mapa aceita cliques).
+// ═════════════════════════════════════════════════════════════════════════
+async function pontosGerarAcao(){
+  if(S.pontos.modo==='manual'){
+    _pontosAtivarModoManualExecutar();
+  } else {
+    await pontosGerar();
+  }
+}
+
+// Ativa (ou desativa) o modo manual de fato — quando "Gerar" é clicado no modo Manual.
+function _pontosAtivarModoManualExecutar(){
+  const btnG=document.getElementById('btn-pontos-gerar');
+  if(S.pontos._manualAtivo){
+    // desativa
+    if(S.pontos.clickHandler){ try{ S.map.off('click', S.pontos.clickHandler); }catch(e){} S.pontos.clickHandler=null; }
+    S.pontos._manualAtivo=false;
+    S.pontos.modoManual=false;
+    try{ document.getElementById('map').style.cursor=''; }catch(e){}
+    if(btnG) btnG.textContent='🎯 Ativar modo manual';
+    toast('Modo manual desativado.','ok',1500);
   } else {
     // ativa
+    S.pontos._manualAtivo=true;
     S.pontos.modoManual=true;
-    if(btn){ btn.style.background='var(--accent3)'; btn.innerHTML='✕ Sair do manual'; }
     try{ document.getElementById('map').style.cursor='crosshair'; }catch(e){}
+    if(btnG) btnG.textContent='✕ Sair do modo manual';
     S.pontos.clickHandler=function(e){
       const zonaNome = _pontosZonaEm(e.latlng.lng, e.latlng.lat);
-      // Numeração no manual: se caiu numa zona, vira nome-N (próximo N daquela zona);
-      // se caiu fora, vira sequencial global.
       let nome;
       if(zonaNome){
         const jaNaZona = S.pontos.itens.filter(p=>p.zona===zonaNome).length;
@@ -6545,11 +6678,19 @@ function pontosModoManualToggle(){
       }
       _pontosAdicionar(e.latlng.lng, e.latlng.lat, nome, zonaNome, true);
       _pontosSincronizarColeta();
+      _pontosAtualizarRodape();
       toast('Ponto '+nome+' criado.','ok', 1500);
     };
     S.map.on('click', S.pontos.clickHandler);
-    toast('Modo manual: clique no mapa pra adicionar pontos.','ok', 3500);
+    toast('Clique no mapa para adicionar pontos. Clique em "Sair do modo manual" quando terminar.','ok', 3500);
   }
+}
+
+// Compatibilidade retroativa: código antigo que chama pontosModoManualToggle
+// continua funcionando (redireciona pro novo fluxo).
+function pontosModoManualToggle(){
+  pontosModoSelecionar('manual');
+  _pontosAtivarModoManualExecutar();
 }
 
 // Remove um ponto específico (chamado pelo botão ✕ da lista)
@@ -6558,6 +6699,7 @@ function pontosRemover(id){
   _pontosRedesenhar();
   _pontosRenderLista();
   _pontosSincronizarColeta();
+  _pontosAtualizarRodape();
 }
 
 // Limpa TODOS os pontos (com confirmação)
@@ -6577,14 +6719,27 @@ function pontosLimparInterno(){
   _pontosRedesenhar();
   _pontosRenderLista();
   _pontosSincronizarColeta();
+  _pontosAtualizarRodape();
 }
 
-// Toggle: mostrar/ocultar rótulos dos pontos
+// Toggle: mostrar/ocultar rótulos dos pontos (FASE 6: usa .toggle padrão)
 function pontosLegendaToggle(){
   S.pontos.mostrarLabels=!S.pontos.mostrarLabels;
-  const btn=document.getElementById('btn-pontos-legenda');
-  if(btn) btn.innerHTML = S.pontos.mostrarLabels ? '🏷 Ocultar rótulos' : '🏷 Mostrar rótulos';
+  const tgl=document.getElementById('pontos-rot-toggle');
+  if(tgl) tgl.classList.toggle('on', S.pontos.mostrarLabels);
+  // compat com botão legado
+  const btnLeg=document.getElementById('btn-pontos-legenda');
+  if(btnLeg) btnLeg.innerHTML = S.pontos.mostrarLabels ? '🏷 Ocultar rótulos' : '🏷 Mostrar rótulos';
   _pontosRedesenhar();
+}
+
+// FASES 6/9: mostra ou oculta o rodapé (rótulos + limpar + confirmar) conforme
+// haja pontos. Se não há pontos: rodapé sumiu. Se há: rodapé aparece.
+function _pontosAtualizarRodape(){
+  const rod=document.getElementById('pontos-rodape');
+  if(rod) rod.style.display = (S.pontos.itens.length ? '' : 'none');
+  const tgl=document.getElementById('pontos-rot-toggle');
+  if(tgl) tgl.classList.toggle('on', S.pontos.mostrarLabels);
 }
 
 // Redesenha a camada de pontos no mapa (marker + label opcional)
@@ -6653,10 +6808,11 @@ async function _pontosRealocarPrompt(id){
 function _pontosRenderLista(){
   const wrap=document.getElementById('pontos-lista');
   const vazio=document.getElementById('pontos-vazio');
-  if(!wrap) return;
+  if(!wrap){ _pontosAtualizarRodape(); return; }
   if(!S.pontos.itens.length){
     wrap.innerHTML='';
     if(vazio) vazio.style.display='';
+    _pontosAtualizarRodape();
     return;
   }
   if(vazio) vazio.style.display='none';
@@ -6672,17 +6828,95 @@ function _pontosRenderLista(){
     const lista=grupos[z];
     linhas.push('<div style="font-size:10.5px;color:var(--muted);font-weight:700;margin-top:4px;padding-left:2px;">Zona '+z+' ('+lista.length+' ponto'+(lista.length>1?'s':'')+')</div>');
     lista.forEach(p=>{
+      // FASE 9: ícones ✎ (editar coords) | → (mover no mapa) | ✕ (remover)
       linhas.push(
-        '<div style="display:flex;align-items:center;gap:6px;padding:3px 6px;background:#fff;border:1px solid var(--border);border-radius:6px;font-size:11px;">'
+        '<div style="display:flex;align-items:center;gap:5px;padding:3px 6px;background:#fff;border:1px solid var(--border);border-radius:6px;font-size:11px;">'
         + '<span style="width:8px;height:8px;background:'+_pontosCorLegivel()+';border-radius:50%;border:1.5px solid #fff;box-shadow:0 0 0 1px var(--border);flex-shrink:0;"></span>'
-        + '<span style="flex:1;font-weight:600;">'+p.nome+'</span>'
-        + '<span style="color:var(--muted);font-size:9.5px;">'+p.lat.toFixed(5)+', '+p.lng.toFixed(5)+'</span>'
-        + '<span onclick="pontosRemover(\''+p.id+'\')" title="Remover" style="cursor:pointer;color:var(--danger);padding:0 3px;">✕</span>'
+        + '<span style="flex:1;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+p.nome+'</span>'
+        + '<span style="color:var(--muted);font-size:9.5px;white-space:nowrap;">'+p.lat.toFixed(5)+', '+p.lng.toFixed(5)+'</span>'
+        + '<span onclick="pontosEditarCoords(\''+p.id+'\')" title="Editar coordenadas" style="cursor:pointer;color:var(--accent);padding:0 3px;font-size:12px;">✎</span>'
+        + '<span onclick="pontosMoverNoMapa(\''+p.id+'\')" title="Mover no mapa (clique no novo local)" style="cursor:pointer;color:var(--accent2);padding:0 3px;font-size:12px;">→</span>'
+        + '<span onclick="pontosRemover(\''+p.id+'\')" title="Remover" style="cursor:pointer;color:var(--danger);padding:0 3px;font-size:12px;">✕</span>'
         + '</div>'
       );
     });
   });
   wrap.innerHTML=linhas.join('');
+  _pontosAtualizarRodape();
+}
+
+// FASE 9: editar coordenadas de um ponto manualmente (modal)
+async function pontosEditarCoords(id){
+  const p=S.pontos.itens.find(x=>x.id===id); if(!p) return;
+  const novoLat = await cgPrompt('Latitude atual: '+p.lat.toFixed(7)+'\n\nInforme a nova latitude:', {
+    titulo:'Editar ponto '+p.nome, defaultVal:String(p.lat), okLabel:'Próximo'
+  });
+  if(novoLat===null || novoLat===undefined || String(novoLat).trim()==='') return;
+  const latN = parseFloat(String(novoLat).replace(',','.'));
+  if(!isFinite(latN) || latN<-90 || latN>90){ toast('Latitude inválida (deve estar entre -90 e 90).','err'); return; }
+  const novoLng = await cgPrompt('Longitude atual: '+p.lng.toFixed(7)+'\n\nInforme a nova longitude:', {
+    titulo:'Editar ponto '+p.nome, defaultVal:String(p.lng), okLabel:'Salvar'
+  });
+  if(novoLng===null || novoLng===undefined || String(novoLng).trim()==='') return;
+  const lngN = parseFloat(String(novoLng).replace(',','.'));
+  if(!isFinite(lngN) || lngN<-180 || lngN>180){ toast('Longitude inválida (deve estar entre -180 e 180).','err'); return; }
+  p.lat = latN;
+  p.lng = lngN;
+  p.zona = _pontosZonaEm(p.lng, p.lat);
+  _pontosRedesenhar();
+  _pontosRenderLista();
+  _pontosSincronizarColeta();
+  toast('Ponto '+p.nome+' atualizado.','ok');
+}
+
+// FASE 9: mover ponto clicando no mapa (usa _pontosRealocarPrompt existente)
+function pontosMoverNoMapa(id){
+  const p=S.pontos.itens.find(x=>x.id===id); if(!p) return;
+  toast('Clique no mapa para reposicionar o ponto '+p.nome+'.','ok', 3000);
+  const oneShot=function(e){
+    S.map.off('click', oneShot);
+    p.lng = e.latlng.lng;
+    p.lat = e.latlng.lat;
+    p.zona = _pontosZonaEm(p.lng, p.lat);
+    _pontosRedesenhar();
+    _pontosRenderLista();
+    _pontosSincronizarColeta();
+    toast('Ponto '+p.nome+' reposicionado.','ok');
+  };
+  S.map.on('click', oneShot);
+}
+
+// FASE 9: "Confirmar/Salvar Pontos" — persiste os pontos no backend (bucket
+// da Coleta de Solo). Semelhante ao satZonasSalvarOficial, mas para pontos.
+async function pontosConfirmarSalvar(){
+  const status=document.getElementById('pontos-status');
+  if(!S.pontos.itens.length){ toast('Sem pontos para salvar.','wrn'); return; }
+  if(!sb || !S.tokenAtual){ if(status) status.textContent='Sem conexão para salvar.'; return; }
+  const ok=await cgConfirm('Confirmar '+S.pontos.itens.length+' ponto(s) de coleta?\n\nEles serão salvos como oficiais e ficarão disponíveis nas outras abas (Coleta de Solo, Exportação).',{
+    titulo:'Confirmar pontos de coleta?', tipo:'info', okLabel:'Sim, salvar'
+  });
+  if(!ok) return;
+  try{
+    if(status) status.textContent='Salvando pontos…';
+    const geojson=_pontosParaGeoJSON();
+    const blob=new Blob([JSON.stringify(geojson)], { type:'application/json' });
+    const path='coleta/'+S.tokenAtual+'/pontos_'+Date.now()+'.geojson';
+    const up=await sb.storage.from('arquivos').upload(path, blob, { upsert:true, contentType:'application/json' });
+    if(up && up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message);
+    const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
+    // A RPC atualizar_coleta aceita p_pontos_url
+    const r=await sb.rpc('atualizar_coleta', { p_token:S.tokenAtual, p_pontos_url:url });
+    if(r && r.error) throw new Error(r.error.message);
+    S.pontos.salvoConfirmado=true;
+    if(S.coleta) S.coleta.pontos = url;
+    if(status) status.textContent='✅ Pontos salvos como oficiais.';
+    toast('Pontos confirmados e salvos.','ok');
+    _pontosSincronizarColeta();
+  }catch(err){
+    console.warn('[pontos] falha ao salvar:', err);
+    if(status) status.textContent='Erro: '+String((err&&err.message)||err).slice(0,160);
+    toast('Erro ao salvar pontos: '+String((err&&err.message)||err).slice(0,80),'err');
+  }
 }
 
 // GeoJSON dos pontos (usado pelo exportar e pra sincronizar com Coleta de Solo)
@@ -6736,8 +6970,14 @@ async function exportarArquivosColeta(){
     return;
   }
   if(typeof shpwrite==='undefined'){
-    toast('Biblioteca shpwrite indisponível — verifique a internet.','err');
-    return;
+    // Última tentativa: espera 1s e tenta de novo (script pode estar carregando ainda).
+    if(status) status.textContent='Carregando biblioteca de exportação…';
+    await new Promise(r=>setTimeout(r,1000));
+    if(typeof shpwrite==='undefined'){
+      toast('Biblioteca de exportação indisponível — verifique a internet e recarregue a página.','err');
+      if(status) status.textContent='Erro: biblioteca shp-write não carregou.';
+      return;
+    }
   }
   if(typeof JSZip==='undefined'){
     toast('Biblioteca JSZip indisponível.','err');
@@ -7704,8 +7944,83 @@ async function satZonasSalvarOficial(){
     const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl + '?v=' + Date.now();
     const r=await sb.rpc('atualizar_nutrientes', { p_token:S.tokenAtual, p_zonas_geojson_url:url });
     if(r && r.error) throw new Error(r.error.message);
-    if(status) status.textContent=vazio?'✅ Zonas removidas! Atualizando…':'✅ Zonas salvas como oficiais! Atualizando…';
-    setTimeout(()=>location.reload(), 900);
+
+    // FASE 5 (talhão sem shapefile inicial): recalcula e atualiza EXPLICITAMENTE
+    // o total de hectares e o número de zonas do talhão. A RPC atualizar_nutrientes
+    // pode não fazer isso no lado do banco — este update garante que cliente.html,
+    // fazenda.html e o dashboard (app.html) mostrem os valores corretos.
+    try{
+      let totalHa = 0;
+      if(typeof turf!=='undefined'){
+        for(const f of geojson.features){
+          try{ totalHa += turf.area(f)/10000; }catch(e){}
+        }
+      }
+      // Só atualiza se conseguiu resolver o talhão via link
+      if(S.linkData && S.linkData.talhao_id){
+        try{
+          await sb.from('talhoes').update({
+            hectares: Math.round(totalHa*100)/100,
+            zonas: geojson.features.length,
+            zonas_geojson_url: url
+          }).eq('id', S.linkData.talhao_id);
+        }catch(e){ console.warn('[satZonas] update de hectares falhou (não crítico):', e); }
+      }
+    }catch(e){ console.warn('[satZonas] recálculo de hectares falhou:', e); }
+
+    // ═════════════════════════════════════════════════════════════════════
+    // FIX: NÃO recarregar a página (perde pontos de coleta + estado local).
+    // Atualiza a "fonte oficial" (S.geoData) in-place — as outras abas
+    // (Nutrientes/Coleta/Recomendação) leem de lá, então já refletem as
+    // novas zonas. Os pontos de coleta ficam preservados em S.pontos.itens.
+    // Se algum ponto agora está fora das novas zonas, avisa (não deleta).
+    // ═════════════════════════════════════════════════════════════════════
+    try{
+      // Atualiza cache in-memory das zonas oficiais
+      S.geoData = geojson;
+      S.geoFields = Object.keys((geojson.features[0]||{}).properties||{});
+
+      // Verifica quantos pontos ficaram fora de qualquer zona nova
+      let fora = 0;
+      if(S.pontos && S.pontos.itens && S.pontos.itens.length && typeof turf!=='undefined' && geojson.features.length){
+        for(const p of S.pontos.itens){
+          const pt = turf.point([p.lng, p.lat]);
+          let dentro = false;
+          for(const f of geojson.features){
+            try{
+              if(turf.booleanPointInPolygon(pt, f)){ dentro = true; break; }
+            }catch(e){}
+          }
+          if(!dentro) fora++;
+        }
+      }
+
+      if(status){
+        let msgOk = vazio ? '✅ Zonas removidas.' : '✅ Zonas salvas como oficiais.';
+        if(fora>0) msgOk += ' ⚠️ '+fora+' ponto(s) de coleta ficaram fora das novas zonas.';
+        status.textContent = msgOk;
+      }
+      toast(vazio ? 'Zonas removidas.' : 'Zonas salvas.', 'ok');
+      if(fora>0){
+        toast(fora+' ponto(s) de coleta agora estão fora das zonas — revise antes de exportar.', 'wrn');
+      }
+
+      // Re-sincroniza pontos com aba Coleta (caso pontos existam)
+      if(S.pontos && S.pontos.itens && S.pontos.itens.length){
+        try{ _pontosSincronizarColeta(); }catch(e){}
+        try{ _pontosRedesenhar(); }catch(e){}
+        try{ _pontosRenderLista(); }catch(e){}
+      }
+
+      // Se estiver em outras abas que dependem de S.geoData, força re-render
+      try{ if(typeof renderNutrientes==='function' && S.mapMode==='nutrientes') renderNutrientes(); }catch(e){}
+      try{ if(typeof renderColeta==='function' && S.mapMode==='coleta') renderColeta(); }catch(e){}
+    }catch(reErr){
+      console.warn('[satZonas] atualização in-place falhou, caindo para reload:', reErr);
+      // Fallback: só recarrega se a atualização in-place quebrou por algum motivo
+      if(status) status.textContent='Salvo. Recarregando página…';
+      setTimeout(()=>location.reload(), 900);
+    }
   }catch(err){
     console.warn('[satZonas] falha ao salvar:', err);
     if(status) status.textContent='Erro: '+String((err&&err.message)||err).slice(0,160);
@@ -8027,7 +8342,12 @@ function setMapMode(mode){
     // Pontos de Coleta: some do mapa (mas mantém os itens em memória —
     // reaparece ao voltar pra aba Satélite). Também desliga modo manual se
     // estava ativo, pra não capturar cliques na aba errada.
-    if(S.pontos && S.pontos.modoManual){ pontosModoManualToggle(); }
+    if(S.pontos && S.pontos._manualAtivo){ _pontosAtivarModoManualExecutar(); }
+    else if(S.pontos && S.pontos.modoManual && S.pontos.clickHandler){
+      try{ S.map.off('click', S.pontos.clickHandler); }catch(e){}
+      S.pontos.clickHandler=null;
+      S.pontos.modoManual=false;
+    }
     if(S.pontos && S.pontos.layer){ try{ S.map.removeLayer(S.pontos.layer); }catch(e){} S.pontos.layer=null; }
     if(S.pontos && S.pontos.labelLayer){ try{ S.map.removeLayer(S.pontos.labelLayer); }catch(e){} S.pontos.labelLayer=null; }
   }

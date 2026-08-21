@@ -465,10 +465,10 @@ tr:hover td{background:var(--sand);}
           <div class="ff"><label>Nome do talhão</label><input type="text" id="inp-talhao" placeholder="Ex: Gleba Norte, Talhão A, Pivô 3…"></div>
 
           <div class="fdiv" style="margin-top:14px">2 · Arquivos</div>
-          <div style="font-size:11.5px;color:#9a9088;margin:-4px 0 12px">Envie os shapefiles (.zip) de zonas e/ou pontos — a plataforma identifica qual é qual. A planilha de análises e o raster são opcionais (você pode subir depois).</div>
+          <div style="font-size:11.5px;color:#9a9088;margin:-4px 0 12px">Se tiver, envie os shapefiles (.zip) de zonas e/ou pontos — a plataforma identifica qual é qual. Se não tiver, deixe em branco: você poderá desenhar o perímetro depois na aba "Satélite" do viewer. A planilha de análises e o raster também são opcionais.</div>
 
           <div class="ff">
-            <label>Shapefiles de manejo (.zip) — zonas e/ou pontos</label>
+            <label>Shapefiles de manejo (.zip) — zonas e/ou pontos <span style="color:#9a9088;font-weight:400;">(opcional)</span></label>
             <div class="upa" id="upa-shp">
               <button type="button" class="upa-x" onclick="removerUpa('shp',event)" title="Remover arquivo">✕</button>
               <input type="file" id="f-shp" accept=".geojson,.json,.zip" multiple onchange="onShpFiles(this)">
@@ -1196,7 +1196,12 @@ async function salvarTalhao(){
     // validações
     const talhaoNome=document.getElementById('inp-talhao').value.trim();
     if(!talhaoNome){ toast('Digite o nome do talhão','⚠️'); return; }
-    if(!geoJson){ toast('Envie ao menos o shapefile de zonas de manejo','⚠️'); return; }
+    // FASE 5: shapefile NÃO é mais obrigatório. Se não foi enviado, o consultor
+    // vai desenhar o perímetro depois na aba Satélite do viewer.
+    if(!geoJson){
+      const okSem = confirm('Nenhum shapefile foi enviado.\n\nO talhão será criado SEM GEOMETRIA. Você poderá desenhar o perímetro depois na aba "Satélite" do viewer.\n\nContinuar?');
+      if(!okSem){ return; }
+    }
 
     let clienteId=document.getElementById('sel-cliente').value;
     let fazendaId=document.getElementById('sel-fazenda').value;
@@ -1258,32 +1263,42 @@ async function salvarTalhao(){
         return;
       }
     }
-    const ha=geodesicAreaHa(geoJson);
+    const ha = geoJson ? geodesicAreaHa(geoJson) : 0;
+    const nZonas = geoJson ? geoJson.features.length : 0;
     const { data:tal, error:talErr } = await sb.from('talhoes').insert({
       fazenda_id: fazendaId, nome: talhaoNome,
-      zonas: geoJson.features.length, hectares: Math.round(ha*100)/100
+      zonas: nZonas, hectares: Math.round(ha*100)/100
     }).select('id').single();
     if(talErr) throw talErr;
 
-    // 4. upload arquivos
-    btn.textContent='Enviando arquivos…';
-    const base=`${USER.id}/${tal.id}`;
-    const geoBlob=new Blob([JSON.stringify(geoJson)],{type:'application/json'});
-    const { error:gErr } = await sb.storage.from('arquivos').upload(`${base}/zonas.geojson`, geoBlob, { upsert:true });
-    if(gErr) throw gErr;
-    const geoUrl=sb.storage.from('arquivos').getPublicUrl(`${base}/zonas.geojson`).data.publicUrl;
-    await sb.from('talhoes').update({ zonas_geojson_url: geoUrl }).eq('id', tal.id);
+    // 4. upload arquivos — só se houver geoJson. Sem geom o talhão fica pendente
+    // e o consultor vai desenhá-lo depois no viewer (aba Satélite → Criar/Editar
+    // → Salvar como zonas oficiais), que já preenche zonas_geojson_url e
+    // recalcula hectares no banco.
+    let geoUrl = null;
+    let coletaZonasUrl = null;
+    let recZonasUrl = null;
+    if(geoJson){
+      btn.textContent='Enviando arquivos…';
+      const base=`${USER.id}/${tal.id}`;
+      const geoBlob=new Blob([JSON.stringify(geoJson)],{type:'application/json'});
+      const { error:gErr } = await sb.storage.from('arquivos').upload(`${base}/zonas.geojson`, geoBlob, { upsert:true });
+      if(gErr) throw gErr;
+      geoUrl=sb.storage.from('arquivos').getPublicUrl(`${base}/zonas.geojson`).data.publicUrl;
+      await sb.from('talhoes').update({ zonas_geojson_url: geoUrl }).eq('id', tal.id);
 
-    // cópias INDEPENDENTES da geometria por setor (isolamento: cada tela edita só o seu arquivo)
-    const _copiaGeo=async(nome)=>{
-      const blob=new Blob([JSON.stringify(geoJson)],{type:'application/json'});
-      const { error }=await sb.storage.from('arquivos').upload(`${base}/${nome}`, blob, { upsert:true });
-      if(error) throw error;
-      return sb.storage.from('arquivos').getPublicUrl(`${base}/${nome}`).data.publicUrl + '?v=' + Date.now();
-    };
-    const coletaZonasUrl = await _copiaGeo('coleta_zonas.geojson');
-    const recZonasUrl    = await _copiaGeo('recomendacao_zonas.geojson');
-    await sb.from('talhoes').update({ coleta_zonas_url: coletaZonasUrl, recomendacao_zonas_url: recZonasUrl }).eq('id', tal.id);
+      // cópias INDEPENDENTES da geometria por setor (isolamento: cada tela edita só o seu arquivo)
+      const _copiaGeo=async(nome)=>{
+        const blob=new Blob([JSON.stringify(geoJson)],{type:'application/json'});
+        const { error }=await sb.storage.from('arquivos').upload(`${base}/${nome}`, blob, { upsert:true });
+        if(error) throw error;
+        return sb.storage.from('arquivos').getPublicUrl(`${base}/${nome}`).data.publicUrl + '?v=' + Date.now();
+      };
+      coletaZonasUrl = await _copiaGeo('coleta_zonas.geojson');
+      recZonasUrl    = await _copiaGeo('recomendacao_zonas.geojson');
+      await sb.from('talhoes').update({ coleta_zonas_url: coletaZonasUrl, recomendacao_zonas_url: recZonasUrl }).eq('id', tal.id);
+    }
+    const base=`${USER.id}/${tal.id}`; // usado adiante para uploads opcionais
 
     // 5. planilha de análises (OPCIONAL)
     if(csvFile){
