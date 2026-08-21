@@ -244,18 +244,21 @@ body.pdf-no-id .zone-label-val{
 .basemap-float{position:absolute;top:auto;bottom:26px;right:12px;z-index:600;display:none;gap:6px;background:rgba(255,255,255,.92);padding:5px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.18);}
 
 /* BUSCA POR COORDENADAS (item 9) — só aparece na aba Satélite */
-.coord-search{position:absolute;top:60px;right:12px;z-index:640;display:none;flex-direction:column;align-items:flex-end;gap:4px;}
+/* Botão da lupa alinhado com o botão "Editar" da aba Recomendação:
+   mesma cor (branco com borda/texto laranja), mesma altura (padding 7px),
+   mesmo border-radius (12px) e box-shadow. Mesmo top:12px pra ficarem alinhados. */
+.coord-search{position:absolute;top:12px;right:12px;z-index:641;display:none;flex-direction:column;align-items:flex-end;gap:6px;}
 body.mode-sat .coord-search{display:flex;}
-.coord-search-toggle{width:38px;height:38px;background:rgba(255,255,255,.95);border:none;border-radius:10px;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center;color:var(--accent);transition:.15s;}
-.coord-search-toggle:hover{background:#fff;color:var(--leaf);}
-.coord-search.open .coord-search-toggle{background:var(--leaf);color:#fff;}
-.coord-search-panel{display:none;background:rgba(255,255,255,.98);border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.18);padding:5px;gap:4px;align-items:center;}
+.coord-search-toggle{display:inline-flex;align-items:center;justify-content:center;gap:6px;background:#fff;border:2px solid #f6990d;color:#dd7d00;font-weight:700;font-size:12.5px;padding:7px 12px;border-radius:12px;cursor:pointer;box-shadow:0 2px 12px rgba(0,0,0,.2);transition:.15s;white-space:nowrap;min-height:36px;}
+.coord-search-toggle:hover{background:#fff7ec;}
+.coord-search.open .coord-search-toggle{background:#f6990d;color:#fff;}
+.coord-search-panel{display:none;background:rgba(255,255,255,.98);border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.2);padding:5px;gap:4px;align-items:center;}
 .coord-search.open .coord-search-panel{display:flex;}
 .coord-search-panel input{border:1.5px solid var(--border);border-radius:7px;padding:7px 10px;font-size:12px;width:220px;outline:none;background:#fff;color:var(--ink);}
-.coord-search-panel input:focus{border-color:var(--leaf);}
+.coord-search-panel input:focus{border-color:#f6990d;}
 .coord-search-panel input.erro{border-color:var(--danger);background:#fff5f4;}
-.coord-search-go, .coord-search-x{border:none;background:transparent;cursor:pointer;font-size:14px;padding:5px 8px;border-radius:6px;font-weight:700;color:var(--accent2);transition:.15s;}
-.coord-search-go:hover{background:var(--accent3);}
+.coord-search-go, .coord-search-x{border:none;background:transparent;cursor:pointer;font-size:14px;padding:5px 8px;border-radius:6px;font-weight:700;color:#dd7d00;transition:.15s;}
+.coord-search-go:hover{background:#fff7ec;}
 .coord-search-x{color:var(--danger);}
 .coord-search-x:hover{background:#fff0ee;}
 .coord-search-err{font-size:10.5px;color:var(--danger);background:rgba(255,255,255,.95);border-radius:6px;padding:4px 8px;box-shadow:0 1px 5px rgba(0,0,0,.15);max-width:280px;display:none;}
@@ -801,6 +804,11 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div id="sat-empty" style="font-size:12px;color:var(--muted);margin-top:6px;display:none"></div>
     <div id="sat-info" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
     <button type="button" id="btn-sat-download" onclick="satDownloadAbrir()" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer;display:none">⬇️ Baixar esta imagem</button>
+    <!-- Item 3: ações pra recuperar / descartar imagem quebrada -->
+    <div style="display:flex;gap:6px;margin-top:7px;">
+      <button type="button" id="btn-sat-recarregar" onclick="satRecarregarAtual()" title="Limpa o cache local e tenta carregar a imagem novamente — útil se a imagem apareceu com erro" style="flex:1;padding:8px;border:1.5px solid var(--sand2);border-radius:9px;background:#fff;font-weight:700;font-size:11px;color:var(--ink);cursor:pointer;">🔄 Recarregar</button>
+      <button type="button" id="btn-sat-remover" onclick="satRemoverAtual()" title="Remove esta data da lista (não apaga do servidor). Use se ficou gravada com erro." style="flex:1;padding:8px;border:1.5px solid #e0c8c4;border-radius:9px;background:#fff;font-weight:700;font-size:11px;color:var(--danger);cursor:pointer;">🗑️ Remover</button>
+    </div>
   </div>
 
   <div class="sec" id="sec-sat-zonas">
@@ -925,7 +933,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <!-- Busca por coordenadas (Item 9) - só aparece no modo Satélite (via CSS) -->
   <div class="coord-search" id="coord-search">
     <button class="coord-search-toggle" id="coord-search-toggle" onclick="coordSearchToggle()" title="Pesquisar por coordenadas">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
       </svg>
     </button>
@@ -2340,11 +2348,15 @@ function renderZonasVazias(){
     return;
   }
   S.layer=L.geoJSON(S.geoData,{
-    style:{ color:'#333', weight:1.2, fillColor:'#cfd3cb', fillOpacity:0.2 },
+    // Zonas sem análise: transparentes (fillOpacity:0), só contorno — igual às
+    // abas Coleta/Satélite. Antes ficavam com preenchimento cinza opaco
+    // (#cfd3cb) que cobria a imagem de fundo. Agora deixa ver o que está por
+    // baixo e o hover destaca a zona sob o cursor. (item 2)
+    style:{ color:'#1a1a1a', weight:1.4, opacity:0.9, fillColor:'#1a1a1a', fillOpacity:0 },
     onEachFeature:(f,layer)=>{
       const key=String(f.properties[S.joinGeo]??'').trim();
       layer.bindTooltip(`<div class="tt-head">Zona ${key||'—'}</div><div class="tt-col">Sem análises ainda</div>`,{sticky:true,opacity:1,permanent:false});
-      layer.on('mouseover',function(){this.setStyle({weight:2.5,color:'#fff'});this.bringToFront();});
+      layer.on('mouseover',function(){this.setStyle({weight:3,color:'#fff'});this.bringToFront();});
       layer.on('mouseout',function(){S.layer.resetStyle(this);});
     }
   }).addTo(S.map);
@@ -2435,7 +2447,7 @@ function renderMap(){
       const valStr=(_fmtNut(v, (typeof useCol!=='undefined'&&useCol)?useCol:S.colorCol) ?? 'N/D');
       layer.bindTooltip(`<div class="tt-head">Zona ${key||'—'}</div><div class="tt-col">${effectiveCol}</div><div class="tt-val">${valStr}</div>`,{sticky:true,opacity:1,permanent:false});
 
-      layer.on('mouseover',function(e){this.setStyle({weight:2.5,color:'#fff'});this.bringToFront();this.openTooltip(e.latlng);});
+      layer.on('mouseover',function(e){this.setStyle({weight:3.5,color:'#fff'});this.bringToFront();this.openTooltip(e.latlng);});
       layer.on('mousemove',function(e){this.getTooltip()&&this.getTooltip().setLatLng(e.latlng);});
       layer.on('mouseout',function(){S.layer.resetStyle(this);this.closeTooltip();});
     }
@@ -4094,8 +4106,16 @@ function renderRecomendacao(){
   // sem recomendação → zonas vazias (igual nutrientes/coleta)
   if(!S.rec.rows.length || !S.rec.col){
     const joinGeo0=S.joinGeo||_zoneField(recGeo().features[0].properties);
-    S.rec.layer=L.geoJSON(recGeo(),{ filter:_isPoly, style:{color:'#333',weight:1.2,fillColor:'#cfd3cb',fillOpacity:0.25},
-      onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo0]??'').trim(); l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">Sem recomendação</div>',{sticky:true,opacity:1}); }
+    S.rec.layer=L.geoJSON(recGeo(),{ filter:_isPoly, style:{color:'#1a1a1a',weight:1.4,opacity:0.9,fillColor:'#1a1a1a',fillOpacity:0},
+      onEachFeature:(f,l)=>{
+        const k=String(f.properties[joinGeo0]??'').trim();
+        l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">Sem recomendação</div>',{sticky:true,opacity:1});
+        // BUG FIX (item 2): mesmo sem recomendação carregada, as zonas devem ter
+        // hover dinâmico como nas outras abas (Satélite/Coleta). Antes só tinha
+        // tooltip, e o preenchimento cinza opaco cobria a imagem de fundo.
+        l.on('mouseover',function(){ this.setStyle({weight:3,color:'#fff'}); this.bringToFront(); });
+        l.on('mouseout',function(){ if(S.rec.layer) S.rec.layer.resetStyle(this); });
+      }
     }).addTo(S.map);
     if(!S.pdfMode){ try{ S.map.fitBounds(S.rec.layer.getBounds(),{padding:[24,24]}); }catch(e){} }
     if(legEl) legEl.innerHTML='<div style="font-size:12px;color:var(--muted)">Sem planilha de recomendação para este talhão.</div>';
@@ -4118,7 +4138,7 @@ function renderRecomendacao(){
     style:f=>{ const d=doseDe(f); return {fillColor:corRec(d),color:'#333',weight:(S.pdfMode&&S.modeloB&&S.modeloB.on)?0:1.1,stroke:!(S.pdfMode&&S.modeloB&&S.modeloB.on),fillOpacity:(S.opacity||0.85)}; },
     onEachFeature:(f,l)=>{ const k=String(f.properties[joinGeo]??'').trim(); const d=doseDe(f); const ha=zoneHa(f);
       l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">'+col+'</div><div class="tt-val">'+(d==null?'N/D':recFmt(d)+' kg/ha')+'</div><div style="font-size:10px;opacity:.85">'+ha.toFixed(2)+' ha</div>',{sticky:true,opacity:1});
-      l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
+      l.on('mouseover',function(){ this.setStyle({weight:3.5,color:'#fff'}); this.bringToFront(); });
       l.on('mouseout',function(){ if(S.rec.layer) S.rec.layer.resetStyle(this); });
       l.on('click',function(e){ if(S.rec.editing){ L.DomEvent.stop(e); openZoneEdit(k, e.latlng); } });
     }
@@ -6103,17 +6123,129 @@ async function renderSatelite(){
     const btnDl=document.getElementById('btn-sat-download'); if(btnDl) btnDl.style.display='';
   }catch(e){
     console.warn('[sat] falha ao renderizar:', e);
-    if(info) info.textContent='Não consegui abrir esta imagem: '+String((e&&e.message)||e).slice(0,140);
+    // Limpa o cache do raster: se a imagem veio quebrada (URL inválida, GeoTIFF
+    // corrompido — ex: uma data que falhou no processamento e ficou gravada
+    // errada no banco), o cache não pode segurar o estado ruim, senão nem
+    // reprocessar resolve na mesma sessão.
+    S.sat._gr=null; S.sat._url=null;
+    if(info){
+      const dataIso=c.data;
+      info.innerHTML='<span style="color:var(--danger)">Não consegui abrir esta imagem'
+        + (String((e&&e.message)||'').match(/HTTP 4|HTTP 5|georref|corromp/i)?' (arquivo inválido ou não gerado)':'')
+        + '.</span><br><button onclick="satReprocessarData(\''+dataIso+'\')" style="margin-top:6px;padding:6px 12px;border:1.5px solid var(--leaf);border-radius:8px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:11.5px;cursor:pointer">🔄 Reprocessar esta data</button>';
+    }
   }finally{
     S.sat.carregando=false;
     renderSatLegenda();
   }
 }
 
+// Reprocessa uma data que falhou (imagem gravada errada no banco: URL inválida,
+// GeoTIFF corrompido ou não gerado). Chama a Edge Function de novo para essa
+// data — o servidor regenera e atualiza a URL. Depois recarrega o raster
+// ignorando o cache local.
+async function satReprocessarData(iso){
+  const info=document.getElementById('sat-info');
+  if(info) info.textContent='Reprocessando '+String(iso).split('-').reverse().join('/')+'… (pode levar até 30s)';
+  try{
+    // limpa qualquer cache local dessa imagem antes de repuxar
+    S.sat._gr=null; S.sat._url=null;
+    const { data, error } = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'data', data:iso, force:true } });
+    if(error) throw error;
+    if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao reprocessar essa data.');
+
+    // atualiza a captura na lista local com a URL nova
+    const idx=S.sat.capturas.findIndex(c=>c.data===data.data_captura);
+    const entrada={ data:data.data_captura, nuvem:data.cobertura_nuvem, url:data.raw_url, versao:(data.versao||SAT_VERSAO) };
+    if(idx>=0) S.sat.capturas[idx]=entrada; else S.sat.capturas.unshift(entrada);
+    // limpa médias em cache dessa captura (serão recalculadas no render)
+    delete entrada._eviMedio; delete entrada._ndmiMedio;
+    S.sat.atual=S.sat.capturas.findIndex(c=>c.data===data.data_captura);
+    renderSatelite();
+  }catch(e){
+    console.warn('[sat] falha ao reprocessar:', e);
+    if(info) info.innerHTML='<span style="color:var(--danger)">Não consegui reprocessar: '+String((e&&e.message)||e).slice(0,120)+'</span>';
+  }
+}
+
+// ── Item 3: Recarregar imagem atual ──
+// Limpa o cache local do georaster e re-renderiza. Útil quando a imagem
+// apareceu com erro pontual (rede, tile, canvas tainted). NÃO chama o
+// backend — pra isso use "Reprocessar" que aparece no erro do renderSatelite.
+function satRecarregarAtual(){
+  if(S.sat.atual==null || !S.sat.capturas[S.sat.atual]){
+    toast('Nenhuma imagem selecionada pra recarregar.','wrn');
+    return;
+  }
+  // limpa cache local (georaster parseado e URL)
+  S.sat._gr=null; S.sat._url=null;
+  // limpa médias em cache da captura atual (serão recalculadas)
+  const c=S.sat.capturas[S.sat.atual];
+  if(c){ delete c._eviMedio; delete c._ndmiMedio; }
+  // remove o overlay atual do mapa antes de re-renderizar
+  if(S.sat.overlay){ try{ S.map.removeLayer(S.sat.overlay); }catch(e){} S.sat.overlay=null; }
+  toast('Recarregando imagem…','ok', 1500);
+  renderSatelite();
+}
+
+// ── Item 3: Remover imagem da lista local ──
+// Tira a captura atual da lista LOCAL (não deleta do banco/storage). Útil
+// quando uma imagem ficou gravada com erro e o consultor quer se livrar
+// dela na visualização — mesmo que o registro no banco continue existindo,
+// não aparece mais no seletor até o próximo reload da página.
+async function satRemoverAtual(){
+  if(S.sat.atual==null || !S.sat.capturas[S.sat.atual]){
+    toast('Nenhuma imagem selecionada pra remover.','wrn');
+    return;
+  }
+  const c=S.sat.capturas[S.sat.atual];
+  const dataFmt = String(c.data).split('-').reverse().join('/');
+  const ok = confirm('Remover a imagem de '+dataFmt+' da lista?\n\n'
+    + '⚠️ Isto NÃO apaga a imagem do servidor — só a esconde nesta sessão. '
+    + 'Se recarregar a página, ela volta a aparecer.\n\n'
+    + 'Use isto quando a imagem ficou gravada com erro e você quer se livrar dela na visualização.');
+  if(!ok) return;
+
+  // remove do array local
+  const idxRem = S.sat.atual;
+  S.sat.capturas.splice(idxRem, 1);
+
+  // remove overlay do mapa
+  if(S.sat.overlay){ try{ S.map.removeLayer(S.sat.overlay); }catch(e){} S.sat.overlay=null; }
+  S.sat._gr=null; S.sat._url=null;
+
+  // reconstrói o select
+  const sel=document.getElementById('sel-sat-data');
+  if(sel){
+    sel.innerHTML=S.sat.capturas.map((cap,i)=>{
+      const [a,m,dd]=String(cap.data).split('-');
+      const nuv=(cap.nuvem==null)?'':' · '+Math.round(cap.nuvem)+'% nuvem';
+      return '<option value="'+i+'">'+dd+'/'+m+'/'+a+nuv+'</option>';
+    }).join('');
+  }
+
+  // seleciona próxima captura (ou anterior se estava na última)
+  if(S.sat.capturas.length){
+    S.sat.atual = Math.min(idxRem, S.sat.capturas.length-1);
+    if(sel) sel.value=String(S.sat.atual);
+    renderSatelite();
+    toast('Imagem removida da lista. Mostrando '+String(S.sat.capturas[S.sat.atual].data).split('-').reverse().join('/')+'.','ok');
+  } else {
+    S.sat.atual=null;
+    // esconde o botão de download e limpa info
+    const btnDl=document.getElementById('btn-sat-download'); if(btnDl) btnDl.style.display='none';
+    const info=document.getElementById('sat-info'); if(info) info.textContent='';
+    const vazio=document.getElementById('sat-empty');
+    if(vazio){ vazio.style.display='block'; vazio.textContent='Nenhuma imagem disponível. Clique em "Busca de Imagens".'; }
+    toast('Imagem removida. Nenhuma outra captura disponível.','ok');
+  }
+}
+
+
 // ─────────────────────────────────────────────────────────────────
 // DOWNLOAD da imagem em cache
 //
-// Duas formas:
+//  Duas formas:
 //  - GeoTIFF bruto: é o .tif que já está no Storage (valores originais,
 //    6 bandas, 10m). Download direto da URL, sem reprocessar nada.
 //  - JPEG colorido: pinta o índice escolhido num canvas (reaproveitando
@@ -8177,9 +8309,14 @@ function _pickZoneField(fields){
 }
 function _zoneField(props){ const fs=Object.keys(props||{}); return _pickZoneField(fs)||fs[0]; }
 function _emptyZonesLayer(geo){
-  return L.geoJSON(geo,{ style:{color:'#333',weight:1.1,fillColor:'#cfd3cb',fillOpacity:0.2},
+  const lay=L.geoJSON(geo,{ style:{color:'#333',weight:1.1,fillColor:'#cfd3cb',fillOpacity:0.2},
     onEachFeature:(f,l)=>{ const zf=_zoneField(f.properties); const k=String((f.properties||{})[zf]??'').trim();
-      l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">Sem este mapa</div>',{sticky:true,opacity:1}); } });
+      l.bindTooltip('<div class="tt-head">Zona '+(k||'—')+'</div><div class="tt-col">Sem este mapa</div>',{sticky:true,opacity:1});
+      // hover dinâmico (item 2)
+      l.on('mouseover',function(){ this.setStyle({weight:2.5,color:'#fff'}); this.bringToFront(); });
+      l.on('mouseout',function(){ if(lay) lay.resetStyle(this); });
+    } });
+  return lay;
 }
 function _zkey(v){
   // chave de junção tolerante: "01"="1", "1.0"="1", "1,5"="1.5"; texto sem acento/caixa
