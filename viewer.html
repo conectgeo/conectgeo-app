@@ -6446,6 +6446,88 @@ function _distanciaMetros2(a, b){
 
 // ── fim distância em metros ──
 
+// ── Projeção WGS84 ↔ UTM (para gerar pontos em metros planos) ──
+// O plugin de referência (QGIS) projeta a zona inteira para UTM e roda buffer,
+// candidatos e K-Means em COORDENADAS MÉTRICAS PLANAS, convertendo os pontos
+// de volta para WGS84 no fim. Fazer o K-Means direto em graus (mesmo com
+// distância corrigida) distorce o recálculo dos centróides, porque a média de
+// coordenadas em graus não é a média métrica. Projetar para UTM elimina isso.
+// Fórmulas USGS; round-trip com erro < 0.01 cm na nossa região.
+function _utmZonaDe(lon, lat){
+  const zone=Math.floor((lon+180)/6)+1;
+  return { zone, south: lat<0 };
+}
+function _wgs84ToUtm(lon, lat, zone, south){
+  const a=6378137.0, f=1/298.257223563, e2=f*(2-f), k0=0.9996;
+  if(zone==null){ const z=_utmZonaDe(lon,lat); zone=z.zone; south=z.south; }
+  const lon0r=((zone-1)*6-180+3)*Math.PI/180;
+  const latr=lat*Math.PI/180, lonr=lon*Math.PI/180;
+  const ep2=e2/(1-e2);
+  const N=a/Math.sqrt(1-e2*Math.sin(latr)**2);
+  const T=Math.tan(latr)**2;
+  const C=ep2*Math.cos(latr)**2;
+  const A=(lonr-lon0r)*Math.cos(latr);
+  const M=a*((1-e2/4-3*e2**2/64-5*e2**3/256)*latr
+    -(3*e2/8+3*e2**2/32+45*e2**3/1024)*Math.sin(2*latr)
+    +(15*e2**2/256+45*e2**3/1024)*Math.sin(4*latr)
+    -(35*e2**3/3072)*Math.sin(6*latr));
+  let x=k0*N*(A+(1-T+C)*A**3/6+(5-18*T+T**2+72*C-58*ep2)*A**5/120)+500000;
+  let y=k0*(M+N*Math.tan(latr)*(A**2/2+(5-T+9*C+4*C**2)*A**4/24+(61-58*T+T**2+600*C-330*ep2)*A**6/720));
+  if(south) y+=10000000;
+  return [x,y];
+}
+function _utmToWgs84(x, y, zone, south){
+  const a=6378137.0, f=1/298.257223563, e2=f*(2-f), k0=0.9996;
+  const e1=(1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2));
+  const x1=x-500000; let y1=y; if(south) y1-=10000000;
+  const lon0=(zone-1)*6-180+3;
+  const M=y1/k0;
+  const mu=M/(a*(1-e2/4-3*e2**2/64-5*e2**3/256));
+  const phi1=mu+(3*e1/2-27*e1**3/32)*Math.sin(2*mu)
+    +(21*e1**2/16-55*e1**4/32)*Math.sin(4*mu)
+    +(151*e1**3/96)*Math.sin(6*mu)
+    +(1097*e1**4/512)*Math.sin(8*mu);
+  const ep2=e2/(1-e2);
+  const C1=ep2*Math.cos(phi1)**2, T1=Math.tan(phi1)**2;
+  const N1=a/Math.sqrt(1-e2*Math.sin(phi1)**2);
+  const R1=a*(1-e2)/Math.pow(1-e2*Math.sin(phi1)**2,1.5);
+  const D=x1/(N1*k0);
+  const lat=phi1-(N1*Math.tan(phi1)/R1)*(D**2/2
+    -(5+3*T1+10*C1-4*C1**2-9*ep2)*D**4/24
+    +(61+90*T1+298*C1+45*T1**2-252*ep2-3*C1**2)*D**6/720);
+  const lon=lon0*Math.PI/180+(D-(1+2*T1+C1)*D**3/6
+    +(5-2*C1+28*T1-3*C1**2+8*ep2+24*T1**2)*D**5/120)/Math.cos(phi1);
+  return [lon*180/Math.PI, lat*180/Math.PI];
+}
+// Teste ray-casting ponto-em-anéis UTM (externo + buracos).
+function _pontoEmAnel(x, y, ring){
+  let dentro=false;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const xi=ring[i][0], yi=ring[i][1], xj=ring[j][0], yj=ring[j][1];
+    const inter=((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi);
+    if(inter) dentro=!dentro;
+  }
+  return dentro;
+}
+function _pontoEmAneisUtm(x, y, rings){
+  if(!_pontoEmAnel(x,y,rings[0])) return false;
+  for(let i=1;i<rings.length;i++){ if(_pontoEmAnel(x,y,rings[i])) return false; }
+  return true;
+}
+// Gera candidatos aleatórios EM UTM (sorteio no bbox + contenção), como o plugin.
+function _pontosCandidatosUtm(ringsUtm, bbox, num){
+  const out=[]; const maxTent=num*500; let t=0;
+  const [xmin,ymin,xmax,ymax]=bbox;
+  while(out.length<num && t<maxTent){
+    const x=xmin+Math.random()*(xmax-xmin);
+    const y=ymin+Math.random()*(ymax-ymin);
+    if(_pontoEmAneisUtm(x,y,ringsUtm)) out.push([x,y]);
+    t++;
+  }
+  return out;
+}
+// ── fim projeção UTM ──
+
 function _pontosKMeans(pontos, k, maxIter){
   maxIter = maxIter || 100;
   if(pontos.length<=k) return pontos.slice(); // menos pontos que clusters: retorna os próprios
@@ -6455,20 +6537,15 @@ function _pontosKMeans(pontos, k, maxIter){
   let centroides=[...idx].map(i=>pontos[i].slice());
   for(let it=0; it<maxIter; it++){
     const clusters=Array.from({length:k},()=>[]);
-    // atribui cada ponto ao centroide mais próximo
+    // atribui cada ponto ao centroide mais próximo.
+    // Os pontos aqui estão em UTM (metros planos), então a distância
+    // euclidiana simples (dx²+dy²) já é a distância métrica correta — igual
+    // ao plugin QGIS, que roda o K-Means na projeção UTM.
     pontos.forEach(p=>{
       let melhor=0, dmin=Infinity;
       for(let c=0;c<k;c++){
-        // Distância em METROS via turf (geodésica), não em graus
-        let d=Infinity;
-        if(typeof turf!=='undefined'){
-          try{ d = turf.distance(turf.point(p), turf.point(centroides[c]), {units:'meters'}); }catch(e){}
-        }
-        // Fallback para graus aproximado (raro, se turf falhar)
-        if(!isFinite(d)){
-          const dx=p[0]-centroides[c][0], dy=p[1]-centroides[c][1];
-          d=Math.sqrt(dx*dx+dy*dy)*111000; // 1 grau ≈ 111 km
-        }
+        const dx=p[0]-centroides[c][0], dy=p[1]-centroides[c][1];
+        const d=dx*dx+dy*dy;
         if(d<dmin){ dmin=d; melhor=c; }
       }
       clusters[melhor].push(p);
@@ -6542,6 +6619,46 @@ function _pontosAplicarEspacamento(pontos, minMetros){
   return aceitos;
 }
 
+// Espaçamento mínimo em UTM plano: descarta pontos a menos de minMetros de
+// qualquer já aceito. Como x,y são metros, a distância é euclidiana direta.
+function _pontosEspacamentoUtm(pontos, minMetros){
+  if(!minMetros || minMetros<=0 || pontos.length<=1) return pontos;
+  const min2=minMetros*minMetros;
+  const aceitos=[pontos[0]];
+  for(let i=1;i<pontos.length;i++){
+    const p=pontos[i]; let ok=true;
+    for(let j=0;j<aceitos.length;j++){
+      const dx=p[0]-aceitos[j][0], dy=p[1]-aceitos[j][1];
+      if(dx*dx+dy*dy < min2){ ok=false; break; }
+    }
+    if(ok) aceitos.push(p);
+  }
+  return aceitos;
+}
+
+// Ordenação por vizinho mais próximo em UTM plano, começando pelo mais ao
+// Norte (maior Y). Igual ao plugin (min por -y, depois nearest-neighbor).
+function _pontosOrdenarUtm(pontos){
+  if(pontos.length<=1) return pontos.slice();
+  const restantes=pontos.slice();
+  let atualIdx=0;
+  for(let i=1;i<restantes.length;i++){ if(restantes[i][1] > restantes[atualIdx][1]) atualIdx=i; }
+  const ordem=[restantes[atualIdx]];
+  restantes.splice(atualIdx,1);
+  while(restantes.length){
+    const ult=ordem[ordem.length-1];
+    let melhor=0, dmin=Infinity;
+    for(let i=0;i<restantes.length;i++){
+      const dx=ult[0]-restantes[i][0], dy=ult[1]-restantes[i][1];
+      const d=dx*dx+dy*dy;
+      if(d<dmin){ dmin=d; melhor=i; }
+    }
+    ordem.push(restantes[melhor]);
+    restantes.splice(melhor,1);
+  }
+  return ordem;
+}
+
 // ── Ação principal: Gerar pontos automaticamente ──
 async function pontosGerar(){
   const status=document.getElementById('pontos-status');
@@ -6575,58 +6692,84 @@ async function pontosGerar(){
   let seqGlobal=1;
   let totalGerados=0, zonasComProblema=[];
 
+  // Zona UTM comum a todo o talhão (usa o centro da 1ª zona como referência,
+  // como o plugin faz pelo centróide do extent). Todos os pontos são gerados
+  // nessa projeção métrica e convertidos de volta pra WGS84 no fim.
+  let utmRef=null;
+  try{
+    const c0=turf.centroid(turf.feature(zonas[0].geometry)).geometry.coordinates;
+    utmRef=_utmZonaDe(c0[0], c0[1]);
+  }catch(e){ utmRef={zone:22, south:true}; } // fallback: fuso comum no Brasil
+
+  // helper: projeta a geometria (Polygon/MultiPolygon) de uma zona para anéis UTM.
+  // Retorna { rings, bbox } onde rings[0] é o anel externo e o resto são buracos.
+  function _zonaParaUtm(geometry){
+    const gtype=geometry.type;
+    let polys=[];
+    if(gtype==='Polygon') polys=[geometry.coordinates];
+    else if(gtype==='MultiPolygon') polys=geometry.coordinates;
+    else return null;
+    // usa o maior polígono (por nº de vértices do anel externo) se for MultiPolygon
+    let best=polys[0], bestN=(polys[0][0]||[]).length;
+    for(const p of polys){ const n=(p[0]||[]).length; if(n>bestN){ best=p; bestN=n; } }
+    const rings=best.map(ring=>ring.map(([lon,lat])=>_wgs84ToUtm(lon,lat,utmRef.zone,utmRef.south)));
+    let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
+    for(const [x,y] of rings[0]){ if(x<xmin)xmin=x; if(y<ymin)ymin=y; if(x>xmax)xmax=x; if(y>ymax)ymax=y; }
+    return { rings, bbox:[xmin,ymin,xmax,ymax] };
+  }
+
   for(let z=0; z<zonas.length; z++){
     const zona=zonas[z];
-    // Aplica buffer negativo (afasta os pontos da borda)
-    let poliBuf;
-    try{
-      if(buffer>0){
-        poliBuf = turf.buffer(turf.feature(zona.geometry), -buffer, { units:'meters' });
-        if(!poliBuf || !poliBuf.geometry || turf.area(poliBuf)<1){
-          // zona ficou vazia após buffer — usa o polígono original
-          poliBuf = turf.feature(zona.geometry);
+
+    // 1) Projeta a zona para UTM (metros planos)
+    let zonaUtm=null;
+    try{ zonaUtm=_zonaParaUtm(zona.geometry); }catch(e){}
+    if(!zonaUtm || !zonaUtm.rings || !zonaUtm.rings[0] || zonaUtm.rings[0].length<4){
+      zonasComProblema.push(zona.nome); continue;
+    }
+    let ringsUtm=zonaUtm.rings, bboxUtm=zonaUtm.bbox;
+
+    // 2) Buffer negativo EM METROS (afasta da borda), feito em UTM com turf.
+    //    turf opera em lat/lng, então bufferizamos no espaço WGS e reprojetamos.
+    if(buffer>0){
+      try{
+        const buff=turf.buffer(turf.feature(zona.geometry), -buffer, { units:'meters' });
+        if(buff && buff.geometry && turf.area(buff)>=1){
+          const zb=_zonaParaUtm(buff.geometry);
+          if(zb && zb.rings && zb.rings[0] && zb.rings[0].length>=4){ ringsUtm=zb.rings; bboxUtm=zb.bbox; }
         }
-      } else {
-        poliBuf = turf.feature(zona.geometry);
-      }
-    }catch(e){
-      poliBuf = turf.feature(zona.geometry);
+      }catch(e){ /* mantém a zona sem buffer */ }
     }
 
-    // Gera candidatos aleatórios (10x mais que o desejado → K-Means seleciona melhores)
-    const candidatos = _pontosCandidatosAleatorios(poliBuf, nPorZona*10);
+    // 3) Candidatos aleatórios EM UTM — k*100 como o plugin (10x mais que antes)
+    const candidatos = _pontosCandidatosUtm(ringsUtm, bboxUtm, nPorZona*100);
     if(candidatos.length < nPorZona){
       zonasComProblema.push(zona.nome);
-      // ainda tenta gerar com o que tem
+      if(!candidatos.length) continue;
     }
-    if(!candidatos.length) continue;
 
-    // K-Means para achar N centroides bem distribuídos
-    // NOTA: K-Means usa distância em METROS (via turf.distance) para evitar
-    // distorção de latitude, então os pontos saem uniformes em metros reais.
-    // Os candidatos e resultado continuam em WGS84.
+    // 4) K-Means EM UTM PLANO. Aqui a distância euclidiana simples (dx²+dy²)
+    //    está CORRETA porque x,y já são metros — e o recálculo do centróide
+    //    (mean) também fica métrico. É isso que dá a distribuição coerente
+    //    dentro de cada zona, igual ao plugin.
     const k = Math.min(nPorZona, candidatos.length);
-    let centroides = _pontosKMeans(candidatos, k);
+    let centroidesUtm = _pontosKMeans(candidatos, k);
 
-    // Aplica espaçamento mínimo (se pedido)
+    // 5) Espaçamento mínimo (metros) — opera em UTM plano (euclidiano direto)
     if(espaco>0){
-      centroides = _pontosAplicarEspacamento(centroides, espaco);
+      centroidesUtm = _pontosEspacamentoUtm(centroidesUtm, espaco);
     }
 
-    // Ordena os pontos por vizinho mais próximo (path traversal)
-    const ordenados = _pontosOrdenarPorVizinho(centroides);
+    // 6) Ordena por vizinho mais próximo em UTM (metros), começando pelo N
+    const ordenadosUtm = _pontosOrdenarUtm(centroidesUtm);
 
-    // Cria os itens e adiciona ao mapa
-    ordenados.forEach((c,i)=>{
+    // 7) Converte cada centróide de volta pra WGS84 e cria o ponto
+    ordenadosUtm.forEach((c)=>{
       S.pontos.seq++;
       totalGerados++;
-      // "igual ao da zona": o ponto recebe EXATAMENTE o nome da zona, sem
-      // sufixo. Todos os pontos da zona 5 se chamam "5". A distinção entre
-      // eles no campo é a posição, não o rótulo.
-      const nome = (modoNum==='zona')
-        ? String(zona.nome)
-        : String(seqGlobal++);
-      _pontosAdicionar(c[0], c[1], nome, zona.nome, false);
+      const [lng,lat]=_utmToWgs84(c[0], c[1], utmRef.zone, utmRef.south);
+      const nome = (modoNum==='zona') ? String(zona.nome) : String(seqGlobal++);
+      _pontosAdicionar(lng, lat, nome, zona.nome, false);
     });
   }
 
@@ -7265,15 +7408,20 @@ async function exportarArquivosColeta(){
     const nomeBase = 'Arquivos para amostragem de solo - '+limpo(cliente)+' - '+limpo(fazenda)+' - '+limpo(talhao);
 
     // Monta GeoJSON das zonas (FeatureCollection de Polygon)
-    // Colunas do .dbf: ZG (identificador da zona) e "Area (ha)" com 2 casas.
-    // A antiga coluna "nome" era cópia idêntica de ZG e foi removida.
+    // Colunas do .dbf: ZG (identificador da zona, NUMÉRICO) e "Area (ha)"
+    // (NUMÉRICO com 2 casas). A antiga coluna "nome" era cópia de ZG e saiu.
+    // Converter para Number faz o shp-write gravar como campo numérico (N) no
+    // dbf, não texto (C). Se o nome da zona não for numérico (raro), cai para
+    // string pra não perder o identificador.
+    const _numOuTxt = (v)=>{ const n=Number(v); return (v!=null && v!=='' && isFinite(n)) ? n : v; };
     const zonasGeoJSON = {
       type:'FeatureCollection',
       features: zonas.map(z=>({
         type:'Feature',
         properties:{
-          ZG:          z.nome,
-          'Area (ha)': +( _polyHa ? _polyHa(z.geometry).toFixed(2) : 0 )
+          ZG:          _numOuTxt(z.nome),
+          // 2 casas: arredonda pra centésimo e mantém como Number.
+          'Area (ha)': Math.round((_polyHa ? _polyHa(z.geometry) : 0) * 100) / 100
         },
         geometry: z.geometry
       }))
@@ -7281,14 +7429,14 @@ async function exportarArquivosColeta(){
 
     // Monta GeoJSON dos pontos.
     // No shapefile de pontos vai só a identificação da zona, na coluna "ID"
-    // (id_ponto/lat/lng saem: lat e lng já estão na própria geometria e o
-    // id_ponto era redundante com a numeração da zona).
+    // (NUMÉRICA). id_ponto/lat/lng saem: lat/lng já estão na geometria e o
+    // id_ponto era redundante com a numeração da zona.
     const pontosGeoJSONcompleto = _pontosParaGeoJSON();
     const pontosGeoJSON = {
       type:'FeatureCollection',
       features: pontosGeoJSONcompleto.features.map(f=>({
         type:'Feature',
-        properties:{ ID: (f.properties && (f.properties.zona || f.properties.id_ponto)) || '' },
+        properties:{ ID: _numOuTxt((f.properties && (f.properties.zona || f.properties.id_ponto)) || '') },
         geometry: f.geometry
       }))
     };
@@ -7320,6 +7468,61 @@ async function exportarArquivosColeta(){
     // que a biblioteca gere (ex: um .txt de metadados) fica de fora do ZIP.
     const EXT_SHP = ['shp','shx','dbf','prj','cpg'];
 
+    // Corrige o número de casas decimais declarado por campo no cabeçalho do
+    // .dbf. A lib dbf@0.2.0 (usada pelo shp-write) FIXA 3 decimais em TODO
+    // campo numérico — está hardcoded na lib. Isso faz "ZG"/"ID" saírem como
+    // 5.000 e "Area (ha)" com 3 casas em vez de 2. Aqui reescrevemos o byte de
+    // decimais (posição 17 de cada descritor de campo de 32 bytes) conforme um
+    // mapa nome→casas, e reformatamos os valores dos registros pra baterem.
+    // Formato dbf: [32 bytes header][N × 32 bytes descritor de campo][registros].
+    function _corrigirDecimaisDbf(bytes, decimaisPorCampo){
+      try{
+        const buf = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+        const dv  = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+        const headerLen = dv.getUint16(8, true);
+        const recLen    = dv.getUint16(10, true);
+        const nRec      = dv.getUint32(4, true);
+        const nFields   = Math.floor((headerLen - 32 - 1) / 32);
+
+        // lê metadados dos campos (nome, tipo, tamanho, offset dentro do registro)
+        const campos=[]; let offRec=1; // 1 = flag de deleção
+        for(let i=0;i<nFields;i++){
+          const off=32+i*32;
+          let nome='';
+          for(let j=0;j<11;j++){ const c=buf[off+j]; if(c) nome+=String.fromCharCode(c); }
+          const tipo=String.fromCharCode(buf[off+11]);
+          const size=buf[off+16];
+          campos.push({nome, tipo, size, descOff:off, recOff:offRec});
+          offRec+=size;
+        }
+
+        // aplica os novos decimais no cabeçalho e reformata os valores
+        campos.forEach(f=>{
+          if(f.tipo!=='N') return;
+          if(!(f.nome in decimaisPorCampo)) return;
+          const dec=decimaisPorCampo[f.nome];
+          buf[f.descOff+17]=dec; // byte de decimais do descritor
+
+          // reescreve cada valor com a formatação certa (lpad à direita, campo size)
+          for(let r=0;r<nRec;r++){
+            const base=headerLen + r*recLen + f.recOff;
+            // lê o valor atual (texto) do registro
+            let s=''; for(let k=0;k<f.size;k++){ s+=String.fromCharCode(buf[base+k]); }
+            const num=parseFloat(s);
+            let novo = isNaN(num) ? '' : (dec>0 ? num.toFixed(dec) : String(Math.round(num)));
+            // alinhado à direita, preenchido com espaço, no tamanho do campo
+            if(novo.length>f.size) novo=novo.slice(0,f.size);
+            while(novo.length<f.size) novo=' '+novo;
+            for(let k=0;k<f.size;k++){ buf[base+k]=novo.charCodeAt(k); }
+          }
+        });
+        return buf;
+      }catch(e){
+        console.warn('[dbf] correção de decimais falhou (mantém original):', e);
+        return bytes;
+      }
+    }
+
     // FIX 4: aguarda a Promise antes de passar pra JSZip.loadAsync
     if(zonasGeoJSON.features.length){
       let saidaZonas;
@@ -7331,7 +7534,9 @@ async function exportarArquivosColeta(){
         if(zonasZip.files[fname].dir) return;
         const ext = (fname.split('.').pop()||'').toLowerCase();
         if(EXT_SHP.indexOf(ext)===-1) return;
-        const conteudo = await zonasZip.files[fname].async('uint8array');
+        let conteudo = await zonasZip.files[fname].async('uint8array');
+        // ZG inteiro (0 casas), Area (ha) com 2 casas
+        if(ext==='dbf') conteudo = _corrigirDecimaisDbf(conteudo, { 'ZG':0, 'Area (ha)':2 });
         zipFinal.file('zonas_de_manejo.'+ext, conteudo);
       }));
     }
@@ -7345,7 +7550,9 @@ async function exportarArquivosColeta(){
         if(pontosZip.files[fname].dir) return;
         const ext = (fname.split('.').pop()||'').toLowerCase();
         if(EXT_SHP.indexOf(ext)===-1) return;
-        const conteudo = await pontosZip.files[fname].async('uint8array');
+        let conteudo = await pontosZip.files[fname].async('uint8array');
+        // ID inteiro (0 casas decimais)
+        if(ext==='dbf') conteudo = _corrigirDecimaisDbf(conteudo, { 'ID':0 });
         zipFinal.file('pontos_de_coleta.'+ext, conteudo);
       }));
     }
