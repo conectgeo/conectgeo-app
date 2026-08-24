@@ -917,21 +917,21 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       </div>
       <div style="margin-top:8px;display:flex;flex-direction:column;gap:5px;">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-          <input type="radio" name="pontos-num" value="zona" checked> Numeração: <b>seguir o nome da zona</b> (ex: 22-1, 22-2)
+          <input type="radio" name="pontos-num" value="zona" checked> Numeração: <b>igual ao da zona</b>
         </label>
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
-          <input type="radio" name="pontos-num" value="seq"> Numeração: <b>sequencial global</b> (1, 2, 3…)
+          <input type="radio" name="pontos-num" value="seq"> Numeração: <b>sequencial</b>
         </label>
       </div>
     </div>
 
     <!-- Instrução do modo manual (SÓ aparece no modo Manual) -->
     <div id="pontos-config-manual" style="display:none;background:var(--panel);border-radius:8px;padding:9px 11px;margin-bottom:8px;font-size:11px;color:var(--muted);line-height:1.5;">
-      Clique em <b>Gerar</b> para ativar. Depois, cada clique no mapa adiciona um ponto. A numeração segue a zona onde caiu (ex: 3-1, 3-2) ou é sequencial global se estiver fora de qualquer zona.
+      Clique em <b>Criar/Editar</b> para ativar. Depois, cada clique no mapa adiciona um ponto. A numeração segue a zona onde caiu ou é sequencial se estiver fora de qualquer zona.
     </div>
 
-    <!-- FASE 6: botão único "Gerar" (verde grande, no lugar do antigo "Ocultar rótulos") -->
-    <button type="button" id="btn-pontos-gerar" onclick="pontosGerarAcao()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;margin-bottom:10px;">Gerar</button>
+    <!-- FASE 6: botão único (verde grande, no lugar do antigo "Ocultar rótulos") -->
+    <button type="button" id="btn-pontos-gerar" onclick="pontosGerarAcao()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;margin-bottom:10px;">✏️ Criar/Editar</button>
 
     <!-- FASE 7: lista de pontos com max-height + scroll (já tinha, mantido) -->
     <div id="pontos-lista" style="display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto;"></div>
@@ -3385,31 +3385,12 @@ async function generatePDF(nutrients){
   };
 
   // helper: parse unit from nutrient column name like "M.O mg/dm³" or "P (mg/dm³)"
-  // FIX: o NOME do nutriente sai SEMPRE exatamente como está na planilha.
-  // A unidade só é separada quando é uma unidade de verdade (lista branca).
-  // Antes, a última palavra era assumida como unidade e minusculizada,
-  // quebrando "pH CaCl2" -> "pH cacl2" e "H + Al" -> "H + al".
   function parseNutUnit(n){
-    const s=String(n||'').trim();
-    if(!s) return {name:'', unit:''};
-
-    // 1) unidade explícita entre parênteses/colchetes no final: "P (mg/dm³)"
-    let m=s.match(/[\(\[]\s*([^)\]]+?)\s*[\)\]]\s*$/);
-    if(m){
-      const name=s.slice(0,s.length-m[0].length).trim();
-      return { name: name || s, unit: m[1].trim() };
-    }
-
-    // 2) unidade solta no final — só se casar com unidade conhecida
-    const UNIDADE=/\s+((?:mg|µg|ug|g|dag|kg|t|cmolc?|mmolc?|meq|ppm|%|mS|dS|mmho)\s*(?:\/\s*(?:dm|cm|kg|ha|L|l|m|100g)\s*[³3²2]?)?)\s*$/;
-    m=s.match(UNIDADE);
-    if(m){
-      const name=s.slice(0,s.length-m[0].length).trim();
-      if(name) return { name, unit: m[1].replace(/\s+/g,'').trim() };
-    }
-
-    // 3) sem unidade → nome exatamente como veio da planilha
-    return { name: s, unit: '' };
+    const s=String(n||''); const m=s.match(/[\(\[]([^)\]]+)[\)\]]\s*$/) || s.match(/\s+([a-zA-Zµ%°\.]+\s*\/?\s*[a-zA-Z0-9³²]*)\s*$/);
+    if(!m) return {name:s.trim(), unit:''};
+    const unit=m[1].trim().toLowerCase();
+    const name=s.slice(0,s.length-m[0].length).trim();
+    return {name:name||s.trim(), unit};
   }
 
   // compute combined stats (primary + extras) for current nutrient/depth
@@ -6122,6 +6103,14 @@ function _satValoresValidos(gr, bandaIdx, mask){
 // nenhuma biblioteca de geometria (sem turf: só contorno, não união).
 function _satZonasDesenhar(){
   _satZonasLimpar();
+  // FIX (rótulos duplicados): no modo de edição quem manda na tela são as
+  // camadas editáveis (S.satZonas.grupo/labelGrupo). Desenhar a sobreposição
+  // oficial por cima delas cria um segundo contorno e um segundo rótulo para
+  // CADA zona. Isso acontecia, por exemplo, ao usar o toggle "Mostrar rótulos
+  // das zonas" sem sair da edição. Aqui a função simplesmente não desenha
+  // enquanto a edição estiver ativa — satZonasParar() a chama depois de
+  // desligar o modo, que é o momento correto.
+  if(S.satZonas && S.satZonas.ativo) return;
   if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return;
   const fields=S.geoFields||Object.keys(S.geoData.features[0].properties||{});
   const campoZona=_pickZoneField(fields);
@@ -6385,7 +6374,7 @@ function satOverlayToggle(){
 // Estado guardado em S.pontos = { itens:[], modoManual:false, mostrarLabels:true,
 //                                  layer, labelLayer, clickHandler }
 // ═════════════════════════════════════════════════════════════════════════
-S.pontos = { itens:[], modoManual:false, mostrarLabels:true, layer:null, labelLayer:null, clickHandler:null, seq:0, modo:'auto', salvoConfirmado:false };
+S.pontos = { itens:[], modoManual:false, mostrarLabels:true, layer:null, labelLayer:null, clickHandler:null, seq:0, modo:'auto', salvoConfirmado:false, _painelAberto:true };
 
 function _pontosCorLegivel(){ return '#e0392b'; } // vermelho vibrante em cima do satélite
 
@@ -6673,13 +6662,13 @@ function pontosModoSelecionar(modo){
   if(cAuto) cAuto.style.display = (modo==='auto') ? '' : 'none';
   if(cMan)  cMan.style.display  = (modo==='manual') ? '' : 'none';
 
-  // Label do botão "Gerar" muda conforme o modo
+  // Label do botão principal muda conforme o modo
   const btnG=document.getElementById('btn-pontos-gerar');
   if(btnG){
     if(modo==='manual'){
       btnG.textContent = S.pontos._manualAtivo ? '✕ Sair do modo manual' : '🎯 Ativar modo manual';
     } else {
-      btnG.textContent = 'Gerar';
+      btnG.textContent = '✏️ Criar/Editar';
     }
   }
 }
@@ -6690,11 +6679,15 @@ function pontosModoSelecionar(modo){
 //   - Manual: ativa/desativa o modo manual (mapa aceita cliques).
 // ═════════════════════════════════════════════════════════════════════════
 async function pontosGerarAcao(){
+  // "Criar/Editar" é também o caminho de volta pro painel de coordenadas
+  // depois que o consultor confirmou os pontos e a lista foi fechada.
+  S.pontos._painelAberto = true;
   if(S.pontos.modo==='manual'){
     _pontosAtivarModoManualExecutar();
   } else {
     await pontosGerar();
   }
+  try{ _pontosRenderLista(); }catch(e){}
 }
 
 // Ativa (ou desativa) o modo manual de fato — quando "Gerar" é clicado no modo Manual.
@@ -6785,7 +6778,8 @@ function pontosLegendaToggle(){
 // haja pontos. Se não há pontos: rodapé sumiu. Se há: rodapé aparece.
 function _pontosAtualizarRodape(){
   const rod=document.getElementById('pontos-rodape');
-  if(rod) rod.style.display = (S.pontos.itens.length ? '' : 'none');
+  // só aparece se há pontos E o painel de coordenadas está aberto
+  if(rod) rod.style.display = (S.pontos.itens.length && S.pontos._painelAberto!==false) ? '' : 'none';
   const tgl=document.getElementById('pontos-rot-toggle');
   if(tgl) tgl.classList.toggle('on', S.pontos.mostrarLabels);
 }
@@ -6946,6 +6940,15 @@ async function _pontosRealocarPrompt(id){
 function _pontosRenderLista(){
   const wrap=document.getElementById('pontos-lista');
   const vazio=document.getElementById('pontos-vazio');
+  // Painel de coordenadas fechado (o consultor já confirmou os pontos): a
+  // lista some da tela, mas os pontos continuam no mapa e em S.pontos.itens.
+  // Reabre clicando em "Criar/Editar".
+  if(S.pontos._painelAberto===false){
+    if(wrap) wrap.innerHTML='';
+    if(vazio) vazio.style.display='none';
+    _pontosAtualizarRodape();
+    return;
+  }
   if(!wrap){ _pontosAtualizarRodape(); return; }
   if(!S.pontos.itens.length){
     wrap.innerHTML='';
@@ -7050,6 +7053,10 @@ async function pontosConfirmarSalvar(){
     if(status) status.textContent='✅ Pontos salvos como oficiais.';
     toast('Pontos confirmados e salvos.','ok');
     _pontosSincronizarColeta();
+    // Fecha o painel com a lista de coordenadas. Os pontos continuam no mapa;
+    // pra editar de novo é só clicar em "Criar/Editar".
+    S.pontos._painelAberto=false;
+    try{ _pontosRenderLista(); }catch(e){}
   }catch(err){
     console.warn('[pontos] falha ao salvar:', err);
     if(status) status.textContent='Erro: '+String((err&&err.message)||err).slice(0,160);
@@ -7594,6 +7601,16 @@ function satZonasParar(){
   if(btn){ btn.textContent='✏️ Criar/Editar'; btn.style.background='#fff'; }
   document.getElementById('satz-toolbar').classList.remove('ativo');
   const dica=document.getElementById('satz-dica-editar'); if(dica) dica.style.display='none';
+  // FIX (rótulos duplicados): as camadas de EDIÇÃO (polígonos coloridos +
+  // rótulos com área em 2 casas) precisam sair do mapa ANTES de redesenhar
+  // as zonas OFICIAIS (contorno preto + rótulo com área em 1 casa). Sem
+  // isso, os dois sistemas de rótulo ficavam sobrepostos e cada zona
+  // aparecia duas vezes, com áreas levemente diferentes (ex: 11.81 e 11.8)
+  // — porque um lê _polyHa(geometria) e o outro lê a coluna de área.
+  // Só remove do MAPA; S.satZonas.itens continua intacto, então reentrar no
+  // modo de edição restaura tudo (satZonasIniciar readiciona os dois grupos).
+  if(S.satZonas.grupo){ try{ S.map.removeLayer(S.satZonas.grupo); }catch(e){} }
+  if(S.satZonas.labelGrupo){ try{ S.map.removeLayer(S.satZonas.labelGrupo); }catch(e){} }
   // volta a mostrar a sobreposição somente-leitura das zonas oficiais tal
   // como estão em S.geoData agora (se salvou, já reflete o novo estado após
   // o reload; se só saiu sem salvar, mostra o que já era oficial antes).
@@ -7728,7 +7745,7 @@ function _satZonasAoCriar(e){
   // MultiPolygon (novo cortou ela em pedaços não-contíguos), cada peça vira
   // uma zona separada na lista, com numeração sequencial nova.
   try{
-    if(typeof turf!=='undefined' && e.layerType==='polygon' || e.layerType==='circle'){
+    if(typeof turf!=='undefined' && (e.layerType==='polygon' || e.layerType==='circle')){
       const novoGeo = turf.feature(layer.toGeoJSON().geometry);
       // Percorre zonas existentes; qualquer uma que intersecta o novo é recortada.
       // Cópia da lista pra iterar com segurança enquanto altera S.satZonas.itens.
@@ -7739,6 +7756,17 @@ function _satZonasAoCriar(e){
           // Só recorta se realmente há sobreposição (evita gastar CPU à toa).
           const inter = turf.intersect(baseGeo, novoGeo);
           if(!inter) return;
+          // FIX (áreas mudando sozinhas / zonas sumindo): zonas VIZINHAS
+          // compartilham fronteira, e turf.intersect devolve uma "lasquinha"
+          // de área desprezível nesse encosto. Sem este guarda, desenhar uma
+          // zona nova recortava um fio de todas as vizinhas — a área delas
+          // mudava sozinha (3.40 -> 3.38) e zonas pequenas podiam sumir.
+          // Só recorta quando a sobreposição é REAL: >0.5% da zona de baixo
+          // e pelo menos 1 m². Encostar não conta como sobrepor.
+          let areaInter=0, areaBase=0;
+          try{ areaInter = turf.area(inter); }catch(e2){ areaInter = 0; }
+          try{ areaBase  = turf.area(baseGeo); }catch(e2){ areaBase = 0; }
+          if(!(areaInter > 1 && areaBase > 0 && (areaInter / areaBase) > 0.005)) return;
           const restante = turf.difference(baseGeo, novoGeo);
           if(!restante){
             // O novo cobre a zona inteira: a zona de baixo some (o novo herda).
@@ -7881,6 +7909,14 @@ function satZonasMesclarSelecionadas(){
       uniao = _satzLimparGeomMesclada(uniao);
     }catch(errClean){ console.warn('[satZonas] limpeza pós-union falhou:', errClean); }
 
+    // FIX (linhas residuais): tira os vértices colineares/repetidos que o
+    // union deixa ao longo da antiga fronteira comum. Sem isso, ao entrar no
+    // modo de edição da zona mesclada aparecia uma fileira de pontinhos
+    // formando uma "linha" atravessando a zona.
+    try{
+      uniao = _satzRemoverVerticesRedundantes(uniao);
+    }catch(errVert){ console.warn('[satZonas] remoção de vértices redundantes falhou:', errVert); }
+
     // remove as zonas originais
     alvos.forEach(it=>{
       S.satZonas.grupo.removeLayer(it.layer);
@@ -7954,6 +7990,75 @@ function _satzLimparGeomMesclada(feat){
     return { type:'Feature', properties:props, geometry:{ type:'MultiPolygon', coordinates: relevantes } };
   }
 
+  return feat;
+}
+
+// FIX (linhas residuais após mesclar): o turf.union costuma devolver o
+// contorno da fronteira que era compartilhada entre as zonas cheio de
+// vértices COLINEARES e de pontos repetidos. Eles não mudam a forma, mas no
+// modo de edição viram uma fileira de pontinhos arrastáveis — é a "linha"
+// que sobrava dentro da zona mesclada. Estas duas funções apagam só o que é
+// geometricamente redundante (nada que altere o desenho da zona).
+
+// distância, em METROS, de um ponto até o segmento a-b (tudo em [lng,lat]).
+function _satzDistPontoSegmento(p, a, b){
+  const latRef=((a[1]+b[1])/2)*Math.PI/180;
+  const kx=111320*Math.cos(latRef);   // metros por grau de longitude
+  const ky=110540;                    // metros por grau de latitude
+  const bx=(b[0]-a[0])*kx, by=(b[1]-a[1])*ky;
+  const px=(p[0]-a[0])*kx, py=(p[1]-a[1])*ky;
+  const len2=bx*bx+by*by;
+  if(len2===0) return Math.sqrt(px*px+py*py);
+  let t=(px*bx+py*by)/len2;
+  if(t<0) t=0; else if(t>1) t=1;
+  const dx=px-t*bx, dy=py-t*by;
+  return Math.sqrt(dx*dx+dy*dy);
+}
+
+// limpa UM anel: tira pontos repetidos e pontos que estão em cima da reta
+// formada pelos vizinhos. Tolerância de 1 cm — muito abaixo de qualquer
+// relevância agronômica, e o resíduo do union é praticamente colinear exato.
+function _satzLimparAnel(ring, tolM){
+  if(!Array.isArray(ring) || ring.length<4) return ring;
+  const tol=(tolM==null)?0.01:tolM;
+  let pts=ring.slice(0, ring.length-1);   // sem o ponto de fechamento
+  // 1) pontos consecutivos repetidos
+  const dedup=[];
+  for(const p of pts){
+    const q=dedup[dedup.length-1];
+    if(!q || Math.abs(q[0]-p[0])>1e-12 || Math.abs(q[1]-p[1])>1e-12) dedup.push(p);
+  }
+  pts=dedup;
+  if(pts.length<3) return ring;
+  // 2) colineares (varre até não sobrar nenhum, sempre mantendo >=3 vértices)
+  let mudou=true, guarda=0;
+  while(mudou && pts.length>3 && guarda<10000){
+    mudou=false;
+    for(let i=0;i<pts.length;i++){
+      const a=pts[(i-1+pts.length)%pts.length];
+      const p=pts[i];
+      const b=pts[(i+1)%pts.length];
+      if(_satzDistPontoSegmento(p,a,b)<tol){ pts.splice(i,1); mudou=true; guarda++; break; }
+    }
+  }
+  if(pts.length<3) return ring;
+  return pts.concat([[pts[0][0], pts[0][1]]]);
+}
+
+// aplica a limpeza de anéis em Polygon/MultiPolygon
+function _satzRemoverVerticesRedundantes(feat){
+  if(!feat || !feat.geometry) return feat;
+  const g=feat.geometry, props=feat.properties||{};
+  try{
+    if(g.type==='Polygon'){
+      const anéis=g.coordinates.map(r=>_satzLimparAnel(r));
+      return { type:'Feature', properties:props, geometry:{ type:'Polygon', coordinates:anéis } };
+    }
+    if(g.type==='MultiPolygon'){
+      const partes=g.coordinates.map(p=>p.map(r=>_satzLimparAnel(r)));
+      return { type:'Feature', properties:props, geometry:{ type:'MultiPolygon', coordinates:partes } };
+    }
+  }catch(e){ console.warn('[satZonas] limpeza de vértices falhou, mantendo geometria original:', e); }
   return feat;
 }
 
