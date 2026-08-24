@@ -866,7 +866,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="sec" id="sec-sat-zonas">
   <!-- Zonas de manejo — desenho manual sobre a imagem de satélite (Fase 1) -->
   <div class="sec-label"><span class="txt"><span class="sec-num"></span>Zonas de manejo</span></div>
-  <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:#fff;font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer">✏️ Criar/Editar</button>
+  <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">✏️ Criar/Editar</button>
   <div id="satz-ref-aviso" class="satz-ref-aviso" style="display:none;">
     <span>Contorno tracejado = perímetro cadastrado, só referência.</span>
     <button type="button" onclick="satZonasReferenciaDispensar()">Ocultar</button>
@@ -930,6 +930,20 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       Clique em <b>Criar/Editar</b> para ativar. Depois, cada clique no mapa adiciona um ponto. A numeração segue a zona onde caiu ou é sequencial se estiver fora de qualquer zona.
     </div>
 
+    <!-- Toggles de exibição dos pontos: ficam na seção principal (e não no
+         rodapé) pra seguirem o mesmo padrão dos toggles de Zonas de Manejo.
+         Só aparecem quando existe pelo menos um ponto. -->
+    <div id="pontos-vis-box" style="display:none;margin-bottom:10px;">
+      <div class="invert-row" id="pontos-mostrar-row" style="margin-top:0;">
+        <span class="label">Mostrar pontos de coleta</span>
+        <div class="toggle on" id="pontos-mostrar-toggle" onclick="pontosMostrarToggle()"></div>
+      </div>
+      <div class="invert-row" id="pontos-rot-row" style="margin-top:6px;">
+        <span class="label">Mostrar rótulos dos pontos</span>
+        <div class="toggle on" id="pontos-rot-toggle" onclick="pontosLegendaToggle()"></div>
+      </div>
+    </div>
+
     <!-- FASE 6: botão único (verde grande, no lugar do antigo "Ocultar rótulos") -->
     <button type="button" id="btn-pontos-gerar" onclick="pontosGerarAcao()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;margin-bottom:10px;">✏️ Criar/Editar</button>
 
@@ -939,12 +953,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
 
     <!-- FASE 6/9: rodapé — botões "Limpar" e "Confirmar" só aparecem com pontos -->
     <div id="pontos-rodape" style="display:none;margin-top:10px;">
-      <!-- FASE 6: toggle "Mostrar rótulos" no padrão .invert-row (só se há pontos) -->
-      <div class="invert-row" id="pontos-rot-row" style="margin-top:0;">
-        <span class="label">Mostrar rótulos dos pontos</span>
-        <div class="toggle on" id="pontos-rot-toggle" onclick="pontosLegendaToggle()"></div>
-      </div>
-      <button type="button" onclick="pontosLimparTodos()" style="width:100%;margin-top:8px;padding:8px;border:1.5px solid #e0c8c4;border-radius:8px;background:#fff;font-weight:700;font-size:11.5px;color:var(--danger);cursor:pointer;">🗑️ Limpar todos</button>
+      <button type="button" onclick="pontosLimparTodos()" style="width:100%;margin-top:0;padding:8px;border:1.5px solid #e0c8c4;border-radius:8px;background:#fff;font-weight:700;font-size:11.5px;color:var(--danger);cursor:pointer;">🗑️ Limpar todos</button>
       <!-- FASE 9: botão "Confirmar/Salvar Pontos" (verde, igual "Salvar zonas oficiais") -->
       <button type="button" id="btn-pontos-confirmar" onclick="pontosConfirmarSalvar()" style="width:100%;margin-top:8px;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;">✓ Confirmar Pontos</button>
     </div>
@@ -4013,7 +4022,7 @@ function _polyHa(geom){ if(!geom) return 0; let m2=0; const polys=geom.type==='P
 function _areaHaFromRows(fields, rows, zoneKeyRaw){
   if(!fields || !rows || !rows.length) return NaN;
   let col=null;
-  for(const c of fields){ const kn=String(c).toLowerCase().replace(/[^a-z0-9]/g,''); if(/^(areaha|areha|hectares?|ha|supha)$/.test(kn) || /hectare/.test(kn)){ col=c; break; } }
+  for(const c of fields){ if(_isAreaCol(c)){ col=c; break; } }
   if(!col) return NaN;
   const zoneF=_pickZoneField(fields)||fields[0];
   for(const r of rows){ if(_zkey(r[zoneF])===_zkey(zoneKeyRaw)){ const v=recNum(r[col]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
@@ -4024,7 +4033,7 @@ function _areaHaFromGeo(features, zoneKeyRaw){
   if(!features || !features.length) return NaN;
   for(const f of features){ const p=f.properties||{}; const jg=S.joinGeo||_zoneField(p);
     if(_zkey(p[jg])!==_zkey(zoneKeyRaw)) continue;
-    for(const k of Object.keys(p)){ const kn=String(k).toLowerCase().replace(/[^a-z0-9]/g,''); if(/^(areaha|areha|hectares?|ha|supha)$/.test(kn)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
+    for(const k of Object.keys(p)){ if(_isAreaCol(k)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
   }
   return NaN;
 }
@@ -4037,7 +4046,7 @@ function zoneHa(feature){
     if(isNaN(a)) a=_areaHaFromRows(S.csvFields, S.csvData, zk);
     if(!isNaN(a)) return a;
   }catch(e){}
-  for(const k of Object.keys(p)){ const kn=String(k).toLowerCase().replace(/[^a-z0-9]/g,''); if(/^(areaha|areha|hectares?|ha|supha)$/.test(kn)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
+  for(const k of Object.keys(p)){ if(_isAreaCol(k)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000) return v; } }
   try{ const a=_areaHaFromGeo(S.geoData&&S.geoData.features, zk); if(!isNaN(a)) return a; }catch(e){}
   return 0; // sem "Area (ha)" para esta zona → não inventa área (sem geodésico)
 }
@@ -6374,7 +6383,7 @@ function satOverlayToggle(){
 // Estado guardado em S.pontos = { itens:[], modoManual:false, mostrarLabels:true,
 //                                  layer, labelLayer, clickHandler }
 // ═════════════════════════════════════════════════════════════════════════
-S.pontos = { itens:[], modoManual:false, mostrarLabels:true, layer:null, labelLayer:null, clickHandler:null, seq:0, modo:'auto', salvoConfirmado:false, _painelAberto:true };
+S.pontos = { itens:[], modoManual:false, mostrarLabels:true, mostrarPontos:true, layer:null, labelLayer:null, clickHandler:null, seq:0, modo:'auto', salvoConfirmado:false, _painelAberto:true };
 
 function _pontosCorLegivel(){ return '#e0392b'; } // vermelho vibrante em cima do satélite
 
@@ -6575,8 +6584,11 @@ async function pontosGerar(){
     ordenados.forEach((c,i)=>{
       S.pontos.seq++;
       totalGerados++;
+      // "igual ao da zona": o ponto recebe EXATAMENTE o nome da zona, sem
+      // sufixo. Todos os pontos da zona 5 se chamam "5". A distinção entre
+      // eles no campo é a posição, não o rótulo.
       const nome = (modoNum==='zona')
-        ? (zona.nome + '-' + (i+1))
+        ? String(zona.nome)
         : String(seqGlobal++);
       _pontosAdicionar(c[0], c[1], nome, zona.nome, false);
     });
@@ -6682,6 +6694,22 @@ async function pontosGerarAcao(){
   // "Criar/Editar" é também o caminho de volta pro painel de coordenadas
   // depois que o consultor confirmou os pontos e a lista foi fechada.
   S.pontos._painelAberto = true;
+
+  // OPÇÃO A: no modo AUTOMÁTICO, se JÁ existem pontos, este botão EDITA —
+  // abre o painel com a lista e não dispara o gerador. Antes ele caía direto
+  // no pontosGerar(), que abria o modal "Substituir os N pontos?" — ou seja,
+  // quem só queria ajustar um ponto era empurrado pra recriar tudo.
+  // Pra regerar do zero, o caminho é "Limpar todos" e depois Criar/Editar.
+  // No modo MANUAL o botão continua ligando/desligando o clique no mapa,
+  // senão não haveria como acrescentar pontos a um conjunto já existente.
+  if(S.pontos.modo!=='manual' && S.pontos.itens.length){
+    try{ _pontosRenderLista(); }catch(e){}
+    try{ _pontosRedesenhar(); }catch(e){}
+    const st=document.getElementById('pontos-status');
+    if(st) st.textContent=S.pontos.itens.length+' ponto(s) abertos para edição. Para gerar de novo, use "Limpar todos".';
+    return;
+  }
+
   if(S.pontos.modo==='manual'){
     _pontosAtivarModoManualExecutar();
   } else {
@@ -6709,10 +6737,12 @@ function _pontosAtivarModoManualExecutar(){
     if(btnG) btnG.textContent='✕ Sair do modo manual';
     S.pontos.clickHandler=function(e){
       const zonaNome = _pontosZonaEm(e.latlng.lng, e.latlng.lat);
+      // Segue a mesma regra escolhida nos radios: "igual ao da zona" dá ao
+      // ponto o nome da zona SEM sufixo; "sequencial" numera 1,2,3…
+      const modoNum = (document.querySelector('input[name="pontos-num"]:checked')||{}).value || 'zona';
       let nome;
-      if(zonaNome){
-        const jaNaZona = S.pontos.itens.filter(p=>p.zona===zonaNome).length;
-        nome = zonaNome+'-'+(jaNaZona+1);
+      if(zonaNome && modoNum==='zona'){
+        nome = String(zonaNome);
       } else {
         S.pontos.seq++;
         nome = String(S.pontos.seq);
@@ -6774,14 +6804,30 @@ function pontosLegendaToggle(){
   _pontosRedesenhar();
 }
 
-// FASES 6/9: mostra ou oculta o rodapé (rótulos + limpar + confirmar) conforme
-// haja pontos. Se não há pontos: rodapé sumiu. Se há: rodapé aparece.
+// Toggle: mostrar/ocultar os PONTOS no mapa (os marcadores em si).
+// Independente do toggle de rótulos: dá pra ver os pontos sem rótulo, mas
+// com os pontos ocultos o rótulo também some (não há o que rotular).
+function pontosMostrarToggle(){
+  S.pontos.mostrarPontos = (S.pontos.mostrarPontos===false) ? true : false;
+  const tgl=document.getElementById('pontos-mostrar-toggle');
+  if(tgl) tgl.classList.toggle('on', S.pontos.mostrarPontos!==false);
+  _pontosRedesenhar();
+}
+
+// FASES 6/9: mostra ou oculta o rodapé (limpar + confirmar) conforme haja
+// pontos. Se não há pontos: rodapé sumiu. Se há: rodapé aparece.
 function _pontosAtualizarRodape(){
   const rod=document.getElementById('pontos-rodape');
   // só aparece se há pontos E o painel de coordenadas está aberto
   if(rod) rod.style.display = (S.pontos.itens.length && S.pontos._painelAberto!==false) ? '' : 'none';
+  // Os toggles de exibição seguem outra regra: bastam existir pontos no mapa
+  // (continuam úteis mesmo com o painel de coordenadas fechado).
+  const vis=document.getElementById('pontos-vis-box');
+  if(vis) vis.style.display = S.pontos.itens.length ? '' : 'none';
   const tgl=document.getElementById('pontos-rot-toggle');
   if(tgl) tgl.classList.toggle('on', S.pontos.mostrarLabels);
+  const tglP=document.getElementById('pontos-mostrar-toggle');
+  if(tglP) tglP.classList.toggle('on', S.pontos.mostrarPontos!==false);
 }
 
 // Redesenha a camada de pontos no mapa (marker + label opcional)
@@ -6790,6 +6836,10 @@ function _pontosRedesenhar(){
   if(S.pontos.labelLayer){ try{ S.map.removeLayer(S.pontos.labelLayer); }catch(e){} S.pontos.labelLayer=null; }
   if(!S.pontos.itens.length) return;
   if(!S.map) return;
+  // Toggle "Mostrar pontos de coleta" desligado: as camadas já foram
+  // removidas acima e nada é redesenhado. Os pontos continuam em
+  // S.pontos.itens (lista, exportação e salvamento seguem funcionando).
+  if(S.pontos.mostrarPontos===false) return;
 
   // FIX 2: garante que S.pontos.selecionadoId existe (id do ponto atualmente selecionado, ou null)
   if(!('selecionadoId' in S.pontos)) S.pontos.selecionadoId = null;
@@ -7140,21 +7190,33 @@ async function exportarArquivosColeta(){
     const nomeBase = 'Arquivos para amostragem de solo - '+limpo(cliente)+' - '+limpo(fazenda)+' - '+limpo(talhao);
 
     // Monta GeoJSON das zonas (FeatureCollection de Polygon)
+    // Colunas do .dbf: ZG (identificador da zona) e "Area (ha)" com 2 casas.
+    // A antiga coluna "nome" era cópia idêntica de ZG e foi removida.
     const zonasGeoJSON = {
       type:'FeatureCollection',
       features: zonas.map(z=>({
         type:'Feature',
         properties:{
-          ZG:      z.nome,
-          nome:    z.nome,
-          area_ha: +(_polyHa ? _polyHa(z.geometry).toFixed(2) : 0)
+          ZG:          z.nome,
+          'Area (ha)': +( _polyHa ? _polyHa(z.geometry).toFixed(2) : 0 )
         },
         geometry: z.geometry
       }))
     };
 
-    // Monta GeoJSON dos pontos
-    const pontosGeoJSON = _pontosParaGeoJSON();
+    // Monta GeoJSON dos pontos.
+    // No shapefile de pontos vai só a identificação da zona, na coluna "ID"
+    // (id_ponto/lat/lng saem: lat e lng já estão na própria geometria e o
+    // id_ponto era redundante com a numeração da zona).
+    const pontosGeoJSONcompleto = _pontosParaGeoJSON();
+    const pontosGeoJSON = {
+      type:'FeatureCollection',
+      features: pontosGeoJSONcompleto.features.map(f=>({
+        type:'Feature',
+        properties:{ ID: (f.properties && (f.properties.zona || f.properties.id_ponto)) || '' },
+        geometry: f.geometry
+      }))
+    };
 
     // shp-write gera um ZIP com os arquivos .shp/.shx/.dbf/.prj de CADA
     // geometria. Retorna base64 por padrão; algumas versões suportam
@@ -7179,6 +7241,10 @@ async function exportarArquivosColeta(){
       throw new Error('Saída shp-write em formato inesperado: '+(typeof saida));
     }
 
+    // Extensões que realmente compõem um shapefile. Qualquer outro arquivo
+    // que a biblioteca gere (ex: um .txt de metadados) fica de fora do ZIP.
+    const EXT_SHP = ['shp','shx','dbf','prj','cpg'];
+
     // FIX 4: aguarda a Promise antes de passar pra JSZip.loadAsync
     if(zonasGeoJSON.features.length){
       let saidaZonas;
@@ -7187,8 +7253,10 @@ async function exportarArquivosColeta(){
       const zonasZip = await JSZip.loadAsync(_normalizarSaidaShpwrite(saidaZonas));
       // Renomeia os arquivos dentro pra ficarem organizados
       await Promise.all(Object.keys(zonasZip.files).map(async fname=>{
+        if(zonasZip.files[fname].dir) return;
+        const ext = (fname.split('.').pop()||'').toLowerCase();
+        if(EXT_SHP.indexOf(ext)===-1) return;
         const conteudo = await zonasZip.files[fname].async('uint8array');
-        const ext = fname.split('.').pop();
         zipFinal.file('zonas_de_manejo.'+ext, conteudo);
       }));
     }
@@ -7199,39 +7267,20 @@ async function exportarArquivosColeta(){
       catch(e){ saidaPontos = await shpwrite.zip(pontosGeoJSON); }
       const pontosZip = await JSZip.loadAsync(_normalizarSaidaShpwrite(saidaPontos));
       await Promise.all(Object.keys(pontosZip.files).map(async fname=>{
+        if(pontosZip.files[fname].dir) return;
+        const ext = (fname.split('.').pop()||'').toLowerCase();
+        if(EXT_SHP.indexOf(ext)===-1) return;
         const conteudo = await pontosZip.files[fname].async('uint8array');
-        const ext = fname.split('.').pop();
         zipFinal.file('pontos_de_coleta.'+ext, conteudo);
       }));
-    } else {
-      // Sem pontos: adiciona um README dentro do zip avisando
-      zipFinal.file('LEIA-ME.txt',
-        'Este pacote contém APENAS as zonas de manejo em shapefile.\n'
-        + 'Não havia pontos de coleta criados no momento da exportação.\n\n'
-        + 'Para gerar pontos automaticamente, use a seção "Pontos de Coleta"\n'
-        + 'na aba Satélite e clique em "Gerar automático".\n');
     }
+    // (Antes, quando não havia pontos, era gravado um "LEIA-ME.txt" dentro do
+    // ZIP. O pacote agora sai só com os arquivos do shapefile.)
 
-    // Adiciona um README com metadados úteis
-    const infoTxt =
-      'ARQUIVOS PARA AMOSTRAGEM DE SOLO\n'
-      + '════════════════════════════════════════\n\n'
-      + 'Cliente : '+cliente+'\n'
-      + 'Fazenda : '+fazenda+'\n'
-      + 'Talhão  : '+talhao+'\n'
-      + 'Gerado  : '+new Date().toLocaleString('pt-BR')+'\n\n'
-      + '── ARQUIVOS INCLUSOS ──\n'
-      + 'zonas_de_manejo.shp/.shx/.dbf/.prj  → '+zonasGeoJSON.features.length+' zona(s)\n'
-      + (pontosGeoJSON.features.length
-          ? 'pontos_de_coleta.shp/.shx/.dbf/.prj → '+pontosGeoJSON.features.length+' ponto(s)\n'
-          : '(sem pontos de coleta neste pacote)\n')
-      + '\n── SISTEMA DE COORDENADAS ──\n'
-      + 'WGS84 / EPSG:4326 (Lat/Lng geográfico)\n\n'
-      + '── USO EM CAMPO ──\n'
-      + 'Importe os shapefiles no seu aparelho GPS ou aplicativo de coleta\n'
-      + '(Trimble, TopCon, QField, Locus GIS, etc). Ambos estão em WGS84\n'
-      + 'e podem ser reprojetados pra UTM local no software receptor.\n';
-    zipFinal.file('INFORMAÇÕES.txt', infoTxt);
+    // O ZIP sai apenas com os arquivos do shapefile (.shp/.shx/.dbf/.prj).
+    // O antigo "INFORMAÇÕES.txt" foi removido a pedido: os aparelhos de campo
+    // ignoram o arquivo e ele só atrapalhava na importação.
+    // Coordenadas: WGS84 / EPSG:4326, gravadas no .prj de cada shapefile.
 
     // Gera o blob final e dispara download
     const blob = await zipFinal.generateAsync({ type:'blob' });
@@ -7490,7 +7539,14 @@ function satZonasIniciar(){
   // FIX 6: mostra o painel de edição (toolbar + lista + salvar)
   const wrap=document.getElementById('satz-modo-edicao'); if(wrap) wrap.style.display='';
   const btn=document.getElementById('btn-satz-alternar');
-  if(btn){ btn.textContent='✕ Sair do modo de edição'; btn.style.background='var(--accent3)'; }
+  // Em edição o botão vira "sair": fundo claro com borda, pra contrastar com
+  // o verde sólido do estado normal (padrão dos demais botões do layout).
+  if(btn){
+    btn.textContent='✕ Sair do modo de edição';
+    btn.style.background='var(--accent3)';
+    btn.style.color='var(--accent2)';
+    btn.style.border='1.5px solid var(--leaf)';
+  }
   document.getElementById('satz-toolbar').classList.add('ativo');
   const dica=document.getElementById('satz-dica-editar'); if(dica) dica.style.display=S.satZonas.itens.length?'block':'none';
 
@@ -7598,7 +7654,13 @@ function satZonasParar(){
   // FIX 6: oculta o painel de edição (só o botão "Criar/Editar" fica visível)
   const wrapZ=document.getElementById('satz-modo-edicao'); if(wrapZ) wrapZ.style.display='none';
   const btn=document.getElementById('btn-satz-alternar');
-  if(btn){ btn.textContent='✏️ Criar/Editar'; btn.style.background='#fff'; }
+  // Volta ao verde sólido, igual aos demais botões principais do layout.
+  if(btn){
+    btn.textContent='✏️ Criar/Editar';
+    btn.style.background='var(--leaf)';
+    btn.style.color='#fff';
+    btn.style.border='none';
+  }
   document.getElementById('satz-toolbar').classList.remove('ativo');
   const dica=document.getElementById('satz-dica-editar'); if(dica) dica.style.display='none';
   // FIX (rótulos duplicados): as camadas de EDIÇÃO (polígonos coloridos +
@@ -9747,7 +9809,38 @@ async function _buildRaster(url,fitBounds){
   }catch(e){ return null; }
 }
 // detecta se uma coluna representa área em hectares (deve ser excluída dos seletores de nutriente/taxa)
-function _isAreaCol(f){ const kn=String(f).toLowerCase().replace(/[^a-z0-9]/g,''); return /^(areaha|areha|hectares?|ha|supha)$/.test(kn)||/hectare/.test(kn); }
+// Reconhece a coluna de ÁREA (ha) de um shapefile/planilha, seja qual for a
+// grafia usada por quem gerou o arquivo. Serve tanto ao Relatório Padrão
+// quanto ao Relatório B — os dois chegam aqui por zoneHa().
+//
+// Dois problemas que esta versão resolve:
+//  1. ACENTO: a normalização antiga fazia toLowerCase() e depois removia tudo
+//     que não fosse [a-z0-9]. O "á" não é [a-z], então era APAGADO:
+//     "área" virava "rea" e nunca casava. Agora os acentos são convertidos
+//     (NFD + remoção de diacríticos) ANTES da limpeza: "área" -> "area".
+//  2. "area" PURO: a lista antiga exigia areaha/areha/hectares/ha/supha, então
+//     uma coluna chamada só "AREA" (comum em shapefile exportado do QGIS)
+//     não era reconhecida.
+//
+// Cobre, entre outras: Area (ha), area, área, Area, Área, AREA, ÁREA,
+// area_ha, área_ha, Área_ha, Area_ha, AREA_HA, ÁREA_HA, Área (ha),
+// AREA (HA), ha, hectare(s), Sup (ha), superficie.
+function _normColArea(f){
+  return String(f==null?'':f)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')  // á->a, ê->e, ç->c…
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g,'');
+}
+function _isAreaCol(f){
+  const kn=_normColArea(f);
+  if(!kn) return false;
+  if(/^(area|areas|areaha|areaha2|areha|area2|ha|hectare|hectares|supha|sup|superficie|superficieha)$/.test(kn)) return true;
+  if(/hectare/.test(kn)) return true;
+  // "areaha", "areatotalha", "areahectares", "areamha"… qualquer coisa que
+  // comece com "area" e termine com "ha"/"hectare(s)"
+  if(/^area.*(ha|hectares?)$/.test(kn)) return true;
+  return false;
+}
 
 // normaliza valor de zona: extrai só dígitos e remove zeros à esquerda
 // "ZG 01" → "1" | "ZONA 02" → "2" | "ID 015" → "15" | 01 → "1"
