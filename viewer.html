@@ -6431,7 +6431,66 @@ function _pontosCandidatosAleatorios(polyFeature, n){
   return out;
 }
 
-// K-Means simples pra achar K centroides (portado do plugin, sem numpy).
+// distância aproximada em METROS entre dois [lng,lat]. Corrige a distorção
+// longitude/latitude (na nossa faixa, 1° lng ≈ cos(lat)·111 km, 1° lat ≈
+// 110.5 km). Comparar distâncias direto em graus, como o K-Means antigo
+// fazia, achatava os clusters no sentido leste-oeste.
+function _distM2(a, b){
+  const latRef=((a[1]+b[1])/2)*Math.PI/180;
+  const kx=111320*Math.cos(latRef), ky=110540;
+  const dx=(a[0]-b[0])*kx, dy=(a[1]-b[1])*ky;
+  return dx*dx+dy*dy; // metros² (evita sqrt; só comparação)
+}
+
+// Amostragem por PONTO MAIS DISTANTE (farthest-point / Poisson-disk).
+// Substitui o K-Means para a amostragem de solo. O K-Means minimiza a
+// variância dentro de cada cluster e por isso PUXA os pontos pro centro de
+// massa dos candidatos — resultado: pontos aglomerados e áreas descobertas.
+// Aqui fazemos o oposto: cada novo ponto é o candidato que está MAIS LONGE
+// do conjunto já escolhido, o que espalha os pontos e cobre a zona inteira
+// (melhor representatividade espacial). O primeiro ponto sai perto do
+// centróide da zona pra não começar num canto.
+function _pontosFarthest(candidatos, k, seedCentro){
+  if(candidatos.length<=k) return candidatos.slice();
+  const escolhidos=[];
+  // 1º ponto: o candidato mais próximo do centro da zona (evita começar na borda)
+  let i0=0;
+  if(seedCentro){
+    let dmin=Infinity;
+    for(let i=0;i<candidatos.length;i++){
+      const d=_distM2(candidatos[i], seedCentro);
+      if(d<dmin){ dmin=d; i0=i; }
+    }
+  } else {
+    i0=Math.floor(Math.random()*candidatos.length);
+  }
+  escolhidos.push(candidatos[i0]);
+
+  // distância de cada candidato ao ponto escolhido MAIS PRÓXIMO (mantida incremental)
+  const distMaisProx=new Array(candidatos.length);
+  for(let i=0;i<candidatos.length;i++) distMaisProx[i]=_distM2(candidatos[i], candidatos[i0]);
+
+  while(escolhidos.length<k){
+    // pega o candidato cujo vizinho escolhido mais próximo é o mais distante possível
+    let melhor=-1, melhorD=-1;
+    for(let i=0;i<candidatos.length;i++){
+      if(distMaisProx[i]>melhorD){ melhorD=distMaisProx[i]; melhor=i; }
+    }
+    if(melhor<0) break;
+    const novo=candidatos[melhor];
+    escolhidos.push(novo);
+    distMaisProx[melhor]=-1; // já escolhido, tira da disputa
+    // atualiza a distância-ao-mais-próximo com o ponto recém-adicionado
+    for(let i=0;i<candidatos.length;i++){
+      if(distMaisProx[i]<0) continue;
+      const d=_distM2(candidatos[i], novo);
+      if(d<distMaisProx[i]) distMaisProx[i]=d;
+    }
+  }
+  return escolhidos;
+}
+
+// K-Means mantido por compatibilidade (não é mais usado na amostragem).
 function _pontosKMeans(pontos, k, maxIter){
   maxIter = maxIter || 100;
   if(pontos.length<=k) return pontos.slice(); // menos pontos que clusters: retorna os próprios
@@ -6564,17 +6623,32 @@ async function pontosGerar(){
       poliBuf = turf.feature(zona.geometry);
     }
 
-    // Gera candidatos aleatórios (10x mais que o desejado → K-Means seleciona melhores)
-    const candidatos = _pontosCandidatosAleatorios(poliBuf, nPorZona*10);
+    // Gera muitos candidatos aleatórios dentro da zona; a amostragem
+    // farthest-point escolhe entre eles os N mais espalhados. Quanto maior o
+    // pool, mais uniforme a cobertura — 40x o alvo dá boa margem sem pesar.
+    const poolAlvo = Math.min(Math.max(nPorZona*40, 400), 4000);
+    const candidatos = _pontosCandidatosAleatorios(poliBuf, poolAlvo);
     if(candidatos.length < nPorZona){
       zonasComProblema.push(zona.nome);
       // ainda tenta gerar com o que tem
     }
     if(!candidatos.length) continue;
 
-    // K-Means para achar N centroides bem distribuídos
+    // Semente = centróide da zona (1º ponto sai perto do centro, não num canto)
+    let centro=null;
+    try{ const c=turf.centroid(poliBuf); if(c&&c.geometry) centro=c.geometry.coordinates; }catch(e){}
+    if(!centro){ // fallback: média dos candidatos
+      let sx=0,sy=0; candidatos.forEach(p=>{sx+=p[0];sy+=p[1];});
+      centro=[sx/candidatos.length, sy/candidatos.length];
+    }
+
+    // Amostragem por ponto mais distante → cobertura espacial homogênea.
+    // (Testamos adicionar uma relaxação de Lloyd depois disto para regularizar
+    // o espaçamento, mas ela puxa os pontos de volta pro centro e REDUZ a
+    // distância mínima entre eles — reintroduzindo a aglomeração que estamos
+    // justamente evitando. Então o farthest-point puro fica como resultado.)
     const k = Math.min(nPorZona, candidatos.length);
-    let centroides = _pontosKMeans(candidatos, k);
+    let centroides = _pontosFarthest(candidatos, k, centro);
 
     // Aplica espaçamento mínimo (se pedido)
     if(espaco>0){
