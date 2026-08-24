@@ -3898,11 +3898,15 @@ function toggleSidebar(){
 // monta o tooltip com as informações do shape da zona
 function infoZonaColeta(props){
   props=props||{};
-  const ent=Object.entries(props).slice(0,12);
+  // Só entram colunas COM valor. Campos vazios (ex.: uma coluna "ID" em
+  // branco que veio no shapefile) não viram linha "ID —" no tooltip.
+  const ent=Object.entries(props)
+    .filter(([k,v])=> v!=null && String(v).trim()!=='')
+    .slice(0,12);
   if(!ent.length) return '<div class="tt-head">Zona de manejo</div>';
   const linhas=ent.map(([k,v])=>{
     let val=v; if(typeof val==='number') val=Math.round(val*1000)/1000;
-    return '<div style="display:flex;justify-content:space-between;gap:14px"><span style="color:#667">'+k+'</span><strong>'+(val==null||val===''?'—':val)+'</strong></div>';
+    return '<div style="display:flex;justify-content:space-between;gap:14px"><span style="color:#667">'+k+'</span><strong>'+val+'</strong></div>';
   }).join('');
   return '<div class="tt-head">Zona de manejo</div>'+linhas;
 }
@@ -8416,11 +8420,21 @@ async function satZonasSalvarOficial(){
     // pode não fazer isso no lado do banco — este update garante que cliente.html,
     // fazenda.html e o dashboard (app.html) mostrem os valores corretos.
     try{
+      // Total = soma das áreas das zonas. Preferimos a coluna de área do
+      // shapefile (Area/AREA/area_ha/…) quando existe e é válida, porque é o
+      // número que o agrônomo vê no atributo; só caímos para o cálculo
+      // geodésico (turf.area) quando a zona não traz área no atributo.
       let totalHa = 0;
-      if(typeof turf!=='undefined'){
-        for(const f of geojson.features){
-          try{ totalHa += turf.area(f)/10000; }catch(e){}
+      for(const f of geojson.features){
+        let ha = NaN;
+        const p = (f && f.properties) || {};
+        for(const k of Object.keys(p)){
+          if(_isAreaCol(k)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000){ ha=v; break; } }
         }
+        if(isNaN(ha) && typeof turf!=='undefined'){
+          try{ ha = turf.area(f)/10000; }catch(e){ ha = 0; }
+        }
+        if(!isNaN(ha) && ha>0) totalHa += ha;
       }
       // Só atualiza se conseguiu resolver o talhão via link
       if(S.linkData && S.linkData.talhao_id){
@@ -10475,6 +10489,39 @@ async function loadFromToken(token, params){
     document.getElementById('ls-text').textContent='Carregando zonas…';
     const geoBuf=await fetchBuf(data.geojson_url);
     applyGeoData(JSON.parse(decodeBuffer(geoBuf)), (data.talhao||'zonas'));
+
+    // Total de hectares do talhão: alguns talhões foram criados no banco com
+    // hectares=0 (o shapefile foi anexado sem recalcular o total). Como as
+    // zonas já estão carregadas aqui, dá pra recompor o total e corrigir na
+    // fonte. Preferimos a coluna de área do shapefile; senão, cálculo
+    // geodésico. Só grava no banco em modo consultor e só quando o valor
+    // atual está claramente errado (zerado ou fora por mais de 1%).
+    try{
+      const feats=(S.geoData&&S.geoData.features)||[];
+      if(feats.length){
+        let totalHa=0;
+        for(const f of feats){
+          let ha=NaN; const p=(f&&f.properties)||{};
+          for(const k of Object.keys(p)){
+            if(_isAreaCol(k)){ const v=recNum(p[k]); if(!isNaN(v)&&v>0&&v<100000){ ha=v; break; } }
+          }
+          if(isNaN(ha) && typeof turf!=='undefined'){ try{ ha=turf.area(f)/10000; }catch(e){ ha=0; } }
+          if(!isNaN(ha)&&ha>0) totalHa+=ha;
+        }
+        totalHa=Math.round(totalHa*100)/100;
+        if(totalHa>0){
+          // atualiza o valor em memória (usado pelo cabeçalho/relatórios)
+          S.linkData.hectares=totalHa;
+          const atual=+(data.hectares||0);
+          const divergente = !(atual>0) || Math.abs(atual-totalHa)/totalHa > 0.01;
+          if(S.consultorMode && divergente && S.linkData && S.linkData.talhao_id){
+            try{
+              await sb.from('talhoes').update({ hectares: totalHa, zonas: feats.length }).eq('id', S.linkData.talhao_id);
+            }catch(e){ console.warn('[hectares] correção do total falhou (não crítico):', e); }
+          }
+        }
+      }
+    }catch(e){ console.warn('[hectares] recálculo no carregamento falhou:', e); }
 
     document.getElementById('ls-text').textContent='Carregando análises…';
     if(data.planilha_url){
