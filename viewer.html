@@ -3385,12 +3385,31 @@ async function generatePDF(nutrients){
   };
 
   // helper: parse unit from nutrient column name like "M.O mg/dm³" or "P (mg/dm³)"
+  // FIX: o NOME do nutriente sai SEMPRE exatamente como está na planilha.
+  // A unidade só é separada quando é uma unidade de verdade (lista branca).
+  // Antes, a última palavra era assumida como unidade e minusculizada,
+  // quebrando "pH CaCl2" -> "pH cacl2" e "H + Al" -> "H + al".
   function parseNutUnit(n){
-    const s=String(n||''); const m=s.match(/[\(\[]([^)\]]+)[\)\]]\s*$/) || s.match(/\s+([a-zA-Zµ%°\.]+\s*\/?\s*[a-zA-Z0-9³²]*)\s*$/);
-    if(!m) return {name:s.trim(), unit:''};
-    const unit=m[1].trim().toLowerCase();
-    const name=s.slice(0,s.length-m[0].length).trim();
-    return {name:name||s.trim(), unit};
+    const s=String(n||'').trim();
+    if(!s) return {name:'', unit:''};
+
+    // 1) unidade explícita entre parênteses/colchetes no final: "P (mg/dm³)"
+    let m=s.match(/[\(\[]\s*([^)\]]+?)\s*[\)\]]\s*$/);
+    if(m){
+      const name=s.slice(0,s.length-m[0].length).trim();
+      return { name: name || s, unit: m[1].trim() };
+    }
+
+    // 2) unidade solta no final — só se casar com unidade conhecida
+    const UNIDADE=/\s+((?:mg|µg|ug|g|dag|kg|t|cmolc?|mmolc?|meq|ppm|%|mS|dS|mmho)\s*(?:\/\s*(?:dm|cm|kg|ha|L|l|m|100g)\s*[³3²2]?)?)\s*$/;
+    m=s.match(UNIDADE);
+    if(m){
+      const name=s.slice(0,s.length-m[0].length).trim();
+      if(name) return { name, unit: m[1].replace(/\s+/g,'').trim() };
+    }
+
+    // 3) sem unidade → nome exatamente como veio da planilha
+    return { name: s, unit: '' };
   }
 
   // compute combined stats (primary + extras) for current nutrient/depth
