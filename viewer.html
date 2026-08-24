@@ -7167,6 +7167,45 @@ function _pontosParaGeoJSON(){
   };
 }
 
+// Caminho INVERSO de _pontosParaGeoJSON: reconstrói S.pontos.itens a partir
+// de um GeoJSON de pontos já salvos (shapefile da coleta / arquivo importado).
+// É o que faltava para a aba Satélite "lembrar" dos pontos ao reabrir o
+// estudo — sem isso, S.pontos.itens ficava vazio, os pontos não apareciam no
+// mapa da Satélite e o "Criar/Editar" gerava tudo de novo.
+function _pontosCarregarDeGeoJSON(gj){
+  if(!gj || !Array.isArray(gj.features) || !gj.features.length) return 0;
+  const itens=[];
+  let maxSeq=0;
+  for(const f of gj.features){
+    if(!f || !f.geometry) continue;
+    // aceita Point (coordinates [lng,lat]); ignora o resto
+    let lng, lat;
+    if(f.geometry.type==='Point' && Array.isArray(f.geometry.coordinates)){
+      lng=+f.geometry.coordinates[0]; lat=+f.geometry.coordinates[1];
+    }
+    // fallback: propriedades lat/lng explícitas
+    const pr=f.properties||{};
+    if(!isFinite(lng) || !isFinite(lat)){
+      lng=+(pr.lng!=null?pr.lng:pr.longitude);
+      lat=+(pr.lat!=null?pr.lat:pr.latitude);
+    }
+    if(!isFinite(lng) || !isFinite(lat)) continue;
+    // nome do ponto: id_ponto (formato nosso) ou ID/nome/zona (shapefiles variados)
+    const nome=String(pr.id_ponto!=null?pr.id_ponto:(pr.ID!=null?pr.ID:(pr.nome!=null?pr.nome:(pr.zona!=null?pr.zona:(itens.length+1)))));
+    const zona=(pr.zona!=null&&pr.zona!=='')?String(pr.zona):(pr.ID!=null?String(pr.ID):null);
+    itens.push({
+      id:'p'+(Date.now())+'_'+Math.random().toString(36).slice(2,6),
+      lng, lat, nome, zona
+    });
+    const n=parseInt(nome,10); if(!isNaN(n)&&n>maxSeq) maxSeq=n;
+  }
+  if(!itens.length) return 0;
+  S.pontos.itens=itens;
+  S.pontos.seq=Math.max(S.pontos.seq||0, maxSeq);
+  return itens.length;
+}
+
+
 // Sincroniza os pontos gerados com a aba Coleta de Solo (bidirecional-ish:
 // ao gerar pontos aqui, eles aparecem lá; edições futuras da aba Coleta
 // permanecem lá — não sobrescrevemos coleta com pontos vazios daqui).
@@ -9200,10 +9239,16 @@ async function carregarColeta(){
       let gj=await _coletaParse(S.coleta.pontos);
       S.coletaGeo.pontos=gj;
       S.coletaLayers.pontos=criarCamadaPontos(gj);
+      // Repovoa os pontos da aba Satélite a partir do shapefile salvo, para
+      // que ao reabrir o estudo eles apareçam lá também (e "Criar/Editar"
+      // edite em vez de recriar). Só popula se ainda não há pontos em memória
+      // — se o consultor acabou de gerar pontos nesta sessão, respeita-os.
+      try{ if(!S.pontos.itens.length){ _pontosCarregarDeGeoJSON(gj); } }catch(e){ console.warn('[pontos] repovoar da coleta falhou:',e); }
     } else if(S.geoDataPoints && S.geoDataPoints.features && S.geoDataPoints.features.length){
       // sem shapefile de pontos próprio → usa os pontos que vieram junto no arquivo de zonas
       S.coletaGeo.pontos=S.geoDataPoints;
       S.coletaLayers.pontos=criarCamadaPontos(S.geoDataPoints);
+      try{ if(!S.pontos.itens.length){ _pontosCarregarDeGeoJSON(S.geoDataPoints); } }catch(e){}
     }
     if(S.coletaLayers.pontos && S.cltCfg.showPontos!==false) S.coletaLayers.pontos.addTo(S.map);
     if(S.coletaLayers.zonas) S.coletaLayers.zonas.addTo(S.map);
@@ -10603,6 +10648,24 @@ async function loadFromToken(token, params){
     const temColeta = !!(data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url);
     S.coleta = { zonas:data.coleta_zonas_url||'', pontos:data.coleta_pontos_url||'', raster:data.coleta_raster_url||'' };
     S.coletaMeta = { cliente:(data.cliente||'cliente'), fazenda:(data.fazenda||'fazenda'), talhao:(data.talhao||'talhao') };
+
+    // Repovoa os pontos de coleta na aba Satélite JÁ NO BOOT (não espera a aba
+    // Coleta ser aberta). Sem isto, ao reabrir um estudo que já tem pontos
+    // salvos, a aba Satélite mostrava "Nenhum ponto criado" e o "Criar/Editar"
+    // recriava tudo. Busca o shapefile salvo, converte pra itens e desenha.
+    try{
+      if(data.coleta_pontos_url && !S.pontos.itens.length){
+        const gjP=await _coletaParse(data.coleta_pontos_url);
+        const n=_pontosCarregarDeGeoJSON(gjP);
+        if(n>0){
+          S.pontos._painelAberto=false;   // não abre a lista sozinha; pontos ficam no mapa
+          try{ _pontosRedesenhar(); }catch(e){}
+          try{ _pontosAtualizarRodape(); }catch(e){}
+          try{ _pontosRenderLista(); }catch(e){}
+        }
+      }
+    }catch(e){ console.warn('[pontos] repovoar no boot falhou (não crítico):', e); }
+
     // recomendação: detecta se há planilha de recomendação para este talhão (vinda do get_link_data)
     const temRec = !!data.recomendacao_url;
     if(data.recomendacao_url && S.rec) S.rec.url = data.recomendacao_url;
