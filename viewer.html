@@ -10652,16 +10652,17 @@ async function loadFromToken(token, params){
     // Repovoa os pontos de coleta na aba Satélite JÁ NO BOOT (não espera a aba
     // Coleta ser aberta). Sem isto, ao reabrir um estudo que já tem pontos
     // salvos, a aba Satélite mostrava "Nenhum ponto criado" e o "Criar/Editar"
-    // recriava tudo. Busca o shapefile salvo, converte pra itens e desenha.
+    // recriava tudo.
+    // IMPORTANTE: aqui só CARREGAMOS os dados (S.pontos.itens) — NÃO desenhamos
+    // no mapa. O mapa é compartilhado por todas as abas; desenhar agora faria
+    // os pontos vazarem pra aba Nutrientes (que é a ativa no boot). Quem
+    // desenha é setMapMode('satelite') ao entrar na aba Satélite.
     try{
       if(data.coleta_pontos_url && !S.pontos.itens.length){
         const gjP=await _coletaParse(data.coleta_pontos_url);
         const n=_pontosCarregarDeGeoJSON(gjP);
         if(n>0){
-          S.pontos._painelAberto=false;   // não abre a lista sozinha; pontos ficam no mapa
-          try{ _pontosRedesenhar(); }catch(e){}
-          try{ _pontosAtualizarRodape(); }catch(e){}
-          try{ _pontosRenderLista(); }catch(e){}
+          S.pontos._painelAberto=false;   // lista fica fechada; abre via "Criar/Editar"
         }
       }
     }catch(e){ console.warn('[pontos] repovoar no boot falhou (não crítico):', e); }
