@@ -2081,7 +2081,7 @@ function applyGeoData(geojson, fileName){
   setStatus('geo',`${S.geoData.features.length} zonas`);
   document.getElementById('uz-geo').classList.add('loaded');
   document.getElementById('fn-geo').textContent=fileName;
-  const gjSel=document.getElementById('sel-gjf');gjSel.innerHTML=S.geoFields.map(f=>`<option value="${f}">${f}</option>`).join('');S.joinGeo=_pickZoneField(S.geoFields)||S.geoFields[0]||null;
+  const gjSel=document.getElementById('sel-gjf');gjSel.innerHTML=S.geoFields.map(f=>`<option value="${f}">${f}</option>`).join('');S.joinGeo=_pickZoneField(S.geoFields, _amostraProps(S.geoData&&S.geoData.features,8))||S.geoFields[0]||null;
 }
 
 document.getElementById('f-geo').addEventListener('change',function(e){
@@ -6122,7 +6122,7 @@ function _satZonasDesenhar(){
   if(S.satZonas && S.satZonas.ativo) return;
   if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return;
   const fields=S.geoFields||Object.keys(S.geoData.features[0].properties||{});
-  const campoZona=_pickZoneField(fields);
+  const campoZona=_pickZoneField(fields, _amostraProps(S.geoData.features,8));
   const campoArea=fields.find(_isAreaCol);
 
   S.sat.zonasLayer=L.geoJSON(S.geoData,{
@@ -6399,7 +6399,7 @@ function _pontosZonasFonte(){
   }
   if(S.geoData && S.geoData.features && S.geoData.features.length){
     const fields=S.geoFields||Object.keys(S.geoData.features[0].properties||{});
-    const campoZona=_pickZoneField(fields);
+    const campoZona=_pickZoneField(fields, _amostraProps(S.geoData.features,8));
     return S.geoData.features
       .filter(f=>f.geometry && (f.geometry.type==='Polygon' || f.geometry.type==='MultiPolygon'))
       .map((f,i)=>({
@@ -7489,7 +7489,7 @@ function _satZonasProximoNumero(){
 function _satZonasCarregarDeGeoData(){
   if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return;
   const fields=S.geoFields||Object.keys(S.geoData.features[0].properties||{});
-  const campoZona=_pickZoneField(fields);
+  const campoZona=_pickZoneField(fields, _amostraProps(S.geoData.features,8));
   S.geoData.features.forEach(f=>{
     const g=f.geometry; if(!g) return;
     const nomeBase = campoZona ? String((f.properties||{})[campoZona]??'').trim() : '';
@@ -9873,17 +9873,42 @@ function _detectZoneCol(fields, rows, geoProps){
   }
   return best.score>=0.6?best:null; // mínimo 60% de match
 }
-function _pickZoneField(fields){
+// amostra até N propriedades de uma lista de features (pra decidir qual
+// coluna está preenchida ao escolher o campo de zona).
+function _amostraProps(features, n){
+  if(!features || !features.length) return null;
+  const lim=Math.min(n||8, features.length);
+  const out=[];
+  for(let i=0;i<lim;i++){ if(features[i] && features[i].properties) out.push(features[i].properties); }
+  return out.length?out:null;
+}
+function _pickZoneField(fields, sampleRows){
   // heurística por NOME (preferência); se nada casar, retorna null e o chamador usa a 1ª coluna
   if(!fields||!fields.length) return null;
   const norm=s=>String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
-  const exato=['zona','zone','zg','zi','muestra','amostra','identificacao','id'];  // match exato, nessa prioridade
-  for(const p of exato){ const f=fields.find(x=>norm(x)===p); if(f) return f; }
-  const contem=['zona','zone','identificacao','manejo'];             // depois "contém" (só nomes longos, seguros)
-  for(const p of contem){ const f=fields.find(x=>norm(x).includes(p)); if(f) return f; }
+
+  // Uma coluna candidata só serve se, havendo amostras, ela não estiver
+  // toda vazia. Isso evita o caso do shapefile com uma coluna "ID" presente
+  // mas em branco ser escolhida como zona (e então o casamento por zona
+  // falhar e a área nunca ser encontrada). Sem amostras, aceita qualquer uma.
+  const temValor=(campo)=>{
+    if(!sampleRows || !sampleRows.length) return true;
+    return sampleRows.some(r=>{ const v=r&&r[campo]; return v!=null && String(v).trim()!==''; });
+  };
+  const achar=(pred)=>{ const f=fields.find(x=>pred(norm(x)) && temValor(x)); return f||null; };
+
+  // match exato, nessa prioridade. "grid" entra no topo: é o nome usado por
+  // vários shapefiles de zona (ex.: exportados de grades de amostragem).
+  // "id" fica por ÚLTIMO — é genérico e costuma ser um contador, não a zona.
+  const exato=['zona','zone','grid','zg','zi','muestra','amostra','talhao','identificacao','id'];
+  for(const p of exato){ const f=achar(n=>n===p); if(f) return f; }
+  const contem=['zona','zone','grid','identificacao','manejo'];   // depois "contém" (só nomes longos, seguros)
+  for(const p of contem){ const f=achar(n=>n.includes(p)); if(f) return f; }
+  // Último recurso: se ninguém casou por nome mas há uma única coluna
+  // preenchida que não é área, usa ela (melhor que devolver null e cair na 1ª).
   return null;
 }
-function _zoneField(props){ const fs=Object.keys(props||{}); return _pickZoneField(fs)||fs[0]; }
+function _zoneField(props){ const fs=Object.keys(props||{}); return _pickZoneField(fs, props?[props]:null)||fs[0]; }
 function _emptyZonesLayer(geo){
   const lay=L.geoJSON(geo,{ style:{color:'#333',weight:1.1,fillColor:'#cfd3cb',fillOpacity:0.2},
     onEachFeature:(f,l)=>{ const zf=_zoneField(f.properties); const k=String((f.properties||{})[zf]??'').trim();
