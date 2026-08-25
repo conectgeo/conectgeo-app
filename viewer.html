@@ -5336,12 +5336,66 @@ function _ringArea(r){ let a=0; for(let i=0;i<r.length-1;i++){ a+=r[i][0]*r[i+1]
 function _closeRing(r){ const f=r[0], l=r[r.length-1]; return (f[0]===l[0]&&f[1]===l[1])?r:r.concat([f]); }
 function _orient(r, wantCW){ const cw=_ringArea(r)<0; return (cw!==wantCW)?r.slice().reverse():r; }
 function _polysOf(g){ if(g.type==='Polygon') return [g.coordinates]; if(g.type==='MultiPolygon') return g.coordinates; return []; }
-function _shpRecord(geom){
+// Converte um valor de coordenada para número, tratando como INVÁLIDO (NaN)
+// tudo que não seja um número finito de verdade. Isto existe porque o operador
+// unário `+` do JavaScript converte `null`, `undefined` e `''` para ZERO — então
+// um vértice com coordenada faltando virava silenciosamente lon/lat 0 (Golfo da
+// Guiné) e o shapefile saía "válido" com a geometria errada. Texto ('abc') virava
+// NaN e era gravado como float64 no .shp, corrompendo o arquivo. Nos dois casos
+// o monitor aplicaria insumo em cima de uma zona incorreta sem nenhum aviso.
+function _coordNum(v){
+  if(typeof v === 'number') return Number.isFinite(v) ? v : NaN;
+  if(typeof v === 'string' && v.trim() !== ''){ const n = Number(v); return Number.isFinite(n) ? n : NaN; }
+  return NaN;
+}
+// Feições descartadas por coordenada inválida na exportação corrente.
+// A exportação NÃO pode falhar em silêncio: o consultor precisa saber que uma
+// zona ficou de fora, senão aplica a prescrição achando que está completa.
+let _shpDescartes = [];
+// zonas que entraram no arquivo mas ficaram SEM dose (campo vazio no .dbf)
+let _shpSemDose = [];
+function _shpResetDescartes(){ _shpDescartes = []; _shpSemDose = []; }
+function _shpRecord(geom, rotulo){
   const polys=_polysOf(geom); if(!polys.length) return null;
   const parts=[], points=[]; let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
-  polys.forEach(poly=>{ poly.forEach((ring,ri)=>{ let r=_orient(_closeRing(ring), ri===0); parts.push(points.length);
-    r.forEach(p=>{ const x=+p[0], y=+p[1]; points.push([x,y]); if(x<xmin)xmin=x; if(x>xmax)xmax=x; if(y<ymin)ymin=y; if(y>ymax)ymax=y; }); }); });
-  if(!points.length) return null;
+  let invalido=false, motivo='';
+  const falha=m=>{ invalido=true; if(!motivo) motivo=m; };
+  polys.forEach(poly=>{ if(invalido) return;
+    if(!Array.isArray(poly) || !poly.length){ falha('polígono sem anéis'); return; }
+    poly.forEach((ring,ri)=>{ if(invalido) return;
+      // ── anel vazio ou com menos de 3 vértices ──
+      // _closeRing/_ringArea acessam r[0] direto e lançariam exceção num anel
+      // vazio, abortando a exportação INTEIRA (todos os insumos). Um anel com
+      // 1 ou 2 vértices não descreve polígono: gera figura degenerada.
+      // Anel EXTERNO degenerado invalida a zona; anel INTERNO degenerado é só
+      // ignorado, porque um buraco de área zero não altera a geometria.
+      if(!Array.isArray(ring) || ring.length<3){
+        if(ri===0) falha('anel externo vazio ou com menos de 3 vértices');
+        return;
+      }
+      if(ring.some(p=>!p || typeof p.length!=='number' || p.length<2)){ falha('vértice malformado'); return; }
+      const conv=[];
+      for(const p of ring){
+        const x=_coordNum(p[0]), y=_coordNum(p[1]);
+        if(!Number.isFinite(x) || !Number.isFinite(y)){ falha('coordenada inválida'); return; }
+        // ── domínio geográfico ──
+        // O .prj declara WGS84. Se a geometria vier projetada (UTM, ex.: 500000,
+        // 7250000), o arquivo sai "válido" mas o monitor aplica a milhares de km
+        // do talhão. Barrar aqui é a única defesa contra esse erro de CRS.
+        if(x<-180 || x>180 || y<-90 || y>90){ falha('coordenada fora do domínio WGS84 ('+x+', '+y+') — geometria pode estar projetada'); return; }
+        conv.push([x,y]);
+      }
+      const r=_orient(_closeRing(conv), ri===0);
+      if(r.length<4){ if(ri===0) falha('anel externo degenerado'); return; }
+      if(_ringArea(r)===0){ if(ri===0) falha('anel externo com área zero (vértices colineares ou repetidos)'); return; }
+      parts.push(points.length);
+      r.forEach(p=>{ const x=p[0], y=p[1]; points.push([x,y]);
+        if(x<xmin)xmin=x; if(x>xmax)xmax=x; if(y<ymin)ymin=y; if(y>ymax)ymax=y; });
+    }); });
+  // Uma zona com geometria inválida é descartada INTEIRA. Remover só o vértice
+  // ruim deformaria o polígono — outra forma de aplicar no lugar errado.
+  if(invalido){ _shpDescartes.push((rotulo || 'zona sem identificação')+' — '+motivo); return null; }
+  if(!points.length || !parts.length) return null;
   return {parts, points, bbox:[xmin,ymin,xmax,ymax]};
 }
 function _buildShp(records){
@@ -5390,22 +5444,61 @@ function _buildDbf(fieldName, values){
 function _shpRecordsFromAlvo(alvo, insumoCol){
   const fator=recFatorColuna(insumoCol);
   const zoneF=alvo.zoneF || _pickZoneField(alvo.rows && alvo.rows.length ? Object.keys(alvo.rows[0]) : [])||null;
-  const joined={}; (alvo.rows||[]).forEach(r=>{ joined[String(r[zoneF]??'').trim()]=r; });
+  // Junção em DOIS níveis, igual ao que o mapa/rótulos/PDF já fazem:
+  // 1) chave exata; 2) chave normalizada por _zkey ("01"="1", "1,5"="1.5",
+  //    texto sem acento/caixa).
+  // Antes a exportação usava SÓ a chave exata, enquanto todo o resto do sistema
+  // usa _zkey. Isso criava a pior divergência possível: o consultor via a dose
+  // no mapa e no PDF, mas o shapefile saía com o campo VAZIO — o monitor então
+  // aplicaria zero (ou recusaria o arquivo) exatamente nas zonas em que a tela
+  // dizia que havia recomendação. Basta o shapefile trazer "01" e a planilha
+  // "1" para isso acontecer com a prescrição inteira.
+  // A chave exata continua tendo prioridade, para não fundir duas zonas que
+  // sejam de fato distintas.
+  const joined={}, joinedZ={};
+  (alvo.rows||[]).forEach(r=>{ const kk=String(r[zoneF]??'').trim(); joined[kk]=r; joinedZ[_zkey(kk)]=r; });
   const geo=alvo.geo; if(!geo || !geo.features || !geo.features.length) return {records:[],values:[]};
   const joinGeo=alvo.joinGeo||_zoneField(geo.features[0].properties);
   const records=[], values=[];
   geo.features.forEach(f=>{ if(!f.geometry||(f.geometry.type!=='Polygon'&&f.geometry.type!=='MultiPolygon')) return;
-    const rec=_shpRecord(f.geometry); if(!rec) return;
-    const k=String(f.properties[joinGeo]??'').trim(); const row=joined[k];
+    // a chave da zona é calculada ANTES para poder identificar a zona no aviso
+    // de descarte, caso a geometria tenha coordenada inválida
+    const k=String(f.properties[joinGeo]??'').trim();
+    const rot=(alvo.nome? alvo.nome+' / ' : '')+'zona '+(k||'?');
+    const rec=_shpRecord(f.geometry, rot); if(!rec) return;
+    const row=joined[k]||joinedZ[_zkey(k)];
     let dval=row?recNum(row[insumoCol]):NaN; if(!isNaN(dval)) dval*=fator;
+    // zona que entra no arquivo SEM dose: o campo fica vazio no .dbf e o
+    // comportamento no monitor é imprevisível (uns leem 0, outros recusam).
+    // Registrado para avisar o consultor ao final da exportação.
+    if(isNaN(dval)) _shpSemDose.push(rot);
     records.push(rec); values.push(isNaN(dval)?null:dval); });
   return {records, values};
 }
 // monta o {shp,shx,dbf,prj} a partir de records/values já extraídos (1 talhão ou vários fundidos)
 function _shpFromRecords(insumoCol, records, values){
   if(!records.length) return null;
+  // ── conferência de integridade antes de gerar os bytes ──
+  // No shapefile a ligação geometria↔atributo é POSICIONAL: a feição N do .shp
+  // corresponde ao registro N do .dbf. Se as listas divergirem, cada zona recebe
+  // a dose da zona seguinte — erro grave e silencioso. Aqui elas são preenchidas
+  // juntas, então divergir significa defeito de código; falhar alto é melhor do
+  // que exportar uma prescrição deslocada.
+  if(records.length !== values.length){
+    throw new Error('inconsistência interna em "'+insumoCol+'": '+records.length+' geometrias × '+values.length+' doses');
+  }
   const {shp,shx}=_buildShp(records);
+  // .shx tem cabeçalho de 100 bytes + 8 bytes por feição
+  const nShx=(shx.length-100)/8;
+  if(nShx!==records.length){
+    throw new Error('índice .shx inconsistente em "'+insumoCol+'": '+nShx+' entradas para '+records.length+' geometrias');
+  }
   const dbf=_buildDbf(_dbfField(insumoCol), values);
+  // nº de registros declarado no cabeçalho do .dbf (uint32 little-endian, offset 4)
+  const nDbf=new DataView(dbf.buffer, dbf.byteOffset, dbf.byteLength).getUint32(4, true);
+  if(nDbf!==records.length){
+    throw new Error('.dbf inconsistente em "'+insumoCol+'": '+nDbf+' registros para '+records.length+' geometrias');
+  }
   return {shp,shx,dbf,prj:PRJ_WGS84};
 }
 // alvo único (talhão primário) — mantido para compatibilidade
@@ -5557,6 +5650,7 @@ async function doRecExport(){
   const unif = !!(S.recExp && S.recExp.unificado) && alvos.length>1;
   const goBtn=document.getElementById('rec-exp-go'); goBtn.disabled=true; const txt0=goBtn.textContent; goBtn.textContent='Gerando…';
   try{
+    _shpResetDescartes();
     const zip=new JSZip();
     let ok=0;
 
@@ -5623,6 +5717,20 @@ async function doRecExport(){
       ? 'Exportação concluída ('+sel.length+' insumo'+(sel.length>1?'s':'')+' · '+alvos.length+' talhões'+(unif?' fundidos':' em pastas separadas')+')'
       : 'Exportação concluída ('+ok+' insumo'+(ok>1?'s':'')+')';
     toast(okMsg,'ok');
+    // Aviso de zonas que ficaram DE FORA por coordenada inválida. Sem isto o
+    // consultor levaria para o campo uma prescrição incompleta sem saber.
+    if(_shpDescartes.length){
+      const uniq=Array.from(new Set(_shpDescartes));
+      const lista=uniq.slice(0,3).join(', ')+(uniq.length>3?' e mais '+(uniq.length-3):'');
+      setTimeout(()=>toast('Atenção: '+uniq.length+' zona'+(uniq.length>1?'s':'')+' fora do arquivo por coordenada inválida ('+lista+'). Confira o shapefile de origem.','wrn'), 600);
+      console.warn('[export] zonas descartadas por coordenada inválida:', uniq);
+    }
+    if(_shpSemDose.length){
+      const u2=Array.from(new Set(_shpSemDose));
+      const l2=u2.slice(0,3).join(', ')+(u2.length>3?' e mais '+(u2.length-3):'');
+      setTimeout(()=>toast(u2.length+' zona'+(u2.length>1?'s':'')+' exportada'+(u2.length>1?'s':'')+' sem dose ('+l2+'). Verifique se o identificador da zona bate entre o shapefile e a planilha.','wrn'), _shpDescartes.length?1400:600);
+      console.warn('[export] zonas sem dose (campo vazio no dbf):', u2);
+    }
   }catch(e){ toast('Erro na exportação: '+e.message,'err'); }
   goBtn.disabled=false; goBtn.textContent=txt0;
 }
@@ -7436,6 +7544,109 @@ function _pontosSincronizarColeta(){
 
 
 // ═════════════════════════════════════════════════════════════════════════
+// EXPORT-FIX 2..6 — helpers de saneamento do shapefile
+//  (2) winding: shapefile exige anel externo HORÁRIO e ilhas ANTI-HORÁRIAS
+//  (3) .cpg: declara a codificação do .dbf (sem ele, acento vira lixo)
+//  (4) sanitização dura de nomes (arquivo/pasta)
+//  (5) geometria: descarta feição nula/NaN/anel degenerado (evita "fantasma")
+//  (6) .prj: garante WGS84 gravado mesmo se a lib não emitir (evita CRS null)
+// ═════════════════════════════════════════════════════════════════════════
+const PRJ_WGS84_TXT = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+
+// (4) nome seguro pra arquivo/pasta em Windows, macOS e Linux
+function _shpNomeSeguro(s, fallback){
+  let t = String(s==null?'':s);
+  try{ t = t.normalize('NFD').replace(/[\u0300-\u036f]/g,''); }catch(e){}
+  t = t.replace(/[\u0000-\u001f\u007f]/g,'')      // controle
+       .replace(/[\\\/:*?"<>|]/g,'_')             // proibidos
+       .replace(/\s+/g,' ')
+       .trim()
+       .replace(/[. ]+$/,'');                     // ponto/espaço final
+  if(!t) t = fallback || 'sem_nome';
+  return t.slice(0,120);
+}
+
+// (5) número finito ou null
+function _shpNumFinito(v){ const n=Number(v); return isFinite(n)?n:null; }
+
+// (2) área assinada do anel
+function _shpAreaAnel(ring){
+  let a=0;
+  for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    a += (ring[j][0]*ring[i][1]) - (ring[i][0]*ring[j][1]);
+  }
+  return a/2;
+}
+
+// (5) limpa um anel: coords finitas, sem repetição seguida, fechado, >=4 vértices
+function _shpLimparAnel(ring){
+  if(!Array.isArray(ring)) return null;
+  const out=[];
+  for(const p of ring){
+    if(!Array.isArray(p) || p.length<2) continue;
+    const x=_shpNumFinito(p[0]), y=_shpNumFinito(p[1]);
+    if(x===null || y===null) continue;
+    if(x<-180||x>180||y<-90||y>90) continue;      // fora do WGS84 → descarta
+    const last=out[out.length-1];
+    if(last && last[0]===x && last[1]===y) continue;
+    out.push([x,y]);
+  }
+  if(out.length<3) return null;
+  const a=out[0], b=out[out.length-1];
+  if(a[0]!==b[0]||a[1]!==b[1]) out.push([a[0],a[1]]);
+  if(out.length<4) return null;
+  if(Math.abs(_shpAreaAnel(out))<1e-14) return null; // área ~0 → fantasma
+  return out;
+}
+
+// (2)+(5) polígono saneado com winding correto (externo CW, ilhas CCW)
+function _shpLimparPoligono(rings){
+  if(!Array.isArray(rings)) return null;
+  const limpos=[];
+  for(let i=0;i<rings.length;i++){
+    const r=_shpLimparAnel(rings[i]);
+    if(!r) continue;
+    const area=_shpAreaAnel(r);
+    const querHorario = (limpos.length===0);          // primeiro anel = externo
+    // área assinada > 0 = anti-horário; shapefile quer externo horário
+    if(querHorario ? (area>0) : (area<0)) r.reverse();
+    limpos.push(r);
+  }
+  return limpos.length ? limpos : null;
+}
+
+// (5) devolve geometria válida pra shapefile ou null
+function _shpGeomSanear(geom){
+  if(!geom || !geom.type) return null;
+  const t=geom.type;
+  if(t==='Point'){
+    const c=geom.coordinates;
+    if(!Array.isArray(c)) return null;
+    const x=_shpNumFinito(c[0]), y=_shpNumFinito(c[1]);
+    if(x===null||y===null) return null;
+    if(x<-180||x>180||y<-90||y>90) return null;
+    return { type:'Point', coordinates:[x,y] };
+  }
+  if(t==='Polygon'){
+    const r=_shpLimparPoligono(geom.coordinates);
+    return r ? { type:'Polygon', coordinates:r } : null;
+  }
+  if(t==='MultiPolygon'){
+    const partes=[];
+    for(const poly of (geom.coordinates||[])){
+      const r=_shpLimparPoligono(poly);
+      if(r) partes.push(r);
+    }
+    if(!partes.length) return null;
+    return partes.length===1
+      ? { type:'Polygon', coordinates:partes[0] }
+      : { type:'MultiPolygon', coordinates:partes };
+  }
+  return null; // LineString/GeometryCollection não entram nesses shapefiles
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════
 // EXPORTAR — Arquivos de Coleta (ZIP com shapefile de zonas + pontos)
 // Formato aceito por praticamente todos os aparelhos de coleta usados no
 // Brasil (Trimble, TopCon, GPS de campo etc). Nome do ZIP inclui cliente,
@@ -7470,9 +7681,14 @@ async function exportarArquivosColeta(){
     const cliente = String((S.linkData && S.linkData.cliente) || 'Cliente').trim();
     const fazenda = String((S.linkData && (S.linkData.fazenda || S.linkData.faz)) || S.fazendaAtual || 'Fazenda').trim();
     const talhao  = String((S.linkData && (S.linkData.talhao || S.linkData.tal)) || S.talhaoAtual || 'Talhão').trim();
-    // Sanitiza (remove caracteres inválidos pra nome de arquivo)
-    const limpo = s => String(s).replace(/[\\\/:*?"<>|]/g, '_').replace(/\s+/g,' ').trim();
-    const nomeBase = 'Arquivos para amostragem de solo - '+limpo(cliente)+' - '+limpo(fazenda)+' - '+limpo(talhao);
+    // (4) Sanitização dura: sem acento, sem controle, sem caractere proibido,
+    // sem ponto/espaço no fim (Windows recusa) e sem componente vazio.
+    const nomeBase = _shpNomeSeguro(
+      'Arquivos para amostragem de solo - '+_shpNomeSeguro(cliente,'Cliente')
+        +' - '+_shpNomeSeguro(fazenda,'Fazenda')
+        +' - '+_shpNomeSeguro(talhao,'Talhao'),
+      'Arquivos para amostragem de solo'
+    );
 
     // Monta GeoJSON das zonas (FeatureCollection de Polygon)
     // Colunas do .dbf: ZG (identificador da zona, NUMÉRICO) e "Area (ha)"
@@ -7481,32 +7697,55 @@ async function exportarArquivosColeta(){
     // dbf, não texto (C). Se o nome da zona não for numérico (raro), cai para
     // string pra não perder o identificador.
     const _numOuTxt = (v)=>{ const n=Number(v); return (v!=null && v!=='' && isFinite(n)) ? n : v; };
-    const zonasGeoJSON = {
-      type:'FeatureCollection',
-      features: zonas.map(z=>({
+    // (2)+(5) sanea geometria e corrige winding antes de gerar o shapefile
+    let descartadasZonas = 0;
+    const zonasFeats = [];
+    zonas.forEach(z=>{
+      const g = _shpGeomSanear(z && z.geometry);
+      if(!g){ descartadasZonas++; return; }
+      let ha = 0;
+      try{ ha = _polyHa ? Number(_polyHa(z.geometry)) : 0; }catch(e){ ha = 0; }
+      if(!isFinite(ha)) ha = 0;
+      zonasFeats.push({
         type:'Feature',
         properties:{
           ZG:          _numOuTxt(z.nome),
           // 2 casas: arredonda pra centésimo e mantém como Number.
-          'Area (ha)': Math.round((_polyHa ? _polyHa(z.geometry) : 0) * 100) / 100
+          'Area (ha)': Math.round(ha*100)/100
         },
-        geometry: z.geometry
-      }))
-    };
+        geometry: g
+      });
+    });
+    if(descartadasZonas) console.warn('[exportar] zonas com geometria inválida descartadas:', descartadasZonas);
+    const zonasGeoJSON = { type:'FeatureCollection', features: zonasFeats };
+
 
     // Monta GeoJSON dos pontos.
     // No shapefile de pontos vai só a identificação da zona, na coluna "ID"
     // (NUMÉRICA). id_ponto/lat/lng saem: lat/lng já estão na geometria e o
     // id_ponto era redundante com a numeração da zona.
     const pontosGeoJSONcompleto = _pontosParaGeoJSON();
-    const pontosGeoJSON = {
-      type:'FeatureCollection',
-      features: pontosGeoJSONcompleto.features.map(f=>({
+    // (5) descarta pontos sem coordenada válida (NaN/null/fora do WGS84)
+    let descartadosPontos = 0;
+    const pontosFeats = [];
+    (pontosGeoJSONcompleto.features||[]).forEach(f=>{
+      const g = _shpGeomSanear(f && f.geometry);
+      if(!g){ descartadosPontos++; return; }
+      pontosFeats.push({
         type:'Feature',
         properties:{ ID: _numOuTxt((f.properties && (f.properties.zona || f.properties.id_ponto)) || '') },
-        geometry: f.geometry
-      }))
-    };
+        geometry: g
+      });
+    });
+    if(descartadosPontos) console.warn('[exportar] pontos com coordenada inválida descartados:', descartadosPontos);
+    const pontosGeoJSON = { type:'FeatureCollection', features: pontosFeats };
+
+    // (6) guarda: sem nada válido, não gera ZIP vazio/corrompido
+    if(!zonasGeoJSON.features.length && !pontosGeoJSON.features.length){
+      if(status) status.textContent='Nada válido para exportar (geometrias inválidas).';
+      toast('Nada válido para exportar — geometrias inválidas.','err');
+      return;
+    }
 
     // shp-write gera um ZIP com os arquivos .shp/.shx/.dbf/.prj de CADA
     // geometria. Retorna base64 por padrão; algumas versões suportam
@@ -7590,46 +7829,52 @@ async function exportarArquivosColeta(){
       }
     }
 
-    // FIX 4: aguarda a Promise antes de passar pra JSZip.loadAsync
+    // Empacota um shapefile gerado pelo shp-write dentro do ZIP final, com
+    // nome fixo, corrigindo decimais do .dbf e garantindo .prj (6) e .cpg (3).
+    async function _empacotar(geojson, base, decimais){
+      let saida;
+      try{ saida = await shpwrite.zip(geojson, { outputType:'arraybuffer' }); }
+      catch(e){ saida = await shpwrite.zip(geojson); } // fallback: base64
+      const zin = await JSZip.loadAsync(_normalizarSaidaShpwrite(saida));
+      const vistos = {};
+      await Promise.all(Object.keys(zin.files).map(async fname=>{
+        if(zin.files[fname].dir) return;
+        const ext = (fname.split('.').pop()||'').toLowerCase();
+        if(EXT_SHP.indexOf(ext)===-1) return;
+        let conteudo = await zin.files[fname].async('uint8array');
+        if(ext==='dbf') conteudo = _corrigirDecimaisDbf(conteudo, decimais);
+        // (6) .prj vazio/estranho é substituído pelo WGS84 canônico
+        if(ext==='prj' && conteudo.length < 30) return;
+        vistos[ext] = true;
+        zipFinal.file(base+'.'+ext, conteudo);
+      }));
+      // (6) sem .prj → QGIS/aparelho abre com CRS nulo. Grava o WGS84 sempre.
+      if(!vistos['prj']) zipFinal.file(base+'.prj', PRJ_WGS84_TXT);
+      // (3) .cpg declara a codificação do .dbf (evita acento corrompido)
+      if(!vistos['cpg']) zipFinal.file(base+'.cpg', 'UTF-8');
+      // (6) trinca obrigatória: sem shp/shx/dbf o arquivo é inutilizável
+      const faltando = ['shp','shx','dbf'].filter(e=>!vistos[e]);
+      if(faltando.length) throw new Error('shapefile incompleto ('+base+'): faltou .'+faltando.join(', .'));
+      return true;
+    }
+
     if(zonasGeoJSON.features.length){
-      let saidaZonas;
-      try{ saidaZonas = await shpwrite.zip(zonasGeoJSON, { outputType:'arraybuffer' }); }
-      catch(e){ saidaZonas = await shpwrite.zip(zonasGeoJSON); } // fallback: retorna base64
-      const zonasZip = await JSZip.loadAsync(_normalizarSaidaShpwrite(saidaZonas));
-      // Renomeia os arquivos dentro pra ficarem organizados
-      await Promise.all(Object.keys(zonasZip.files).map(async fname=>{
-        if(zonasZip.files[fname].dir) return;
-        const ext = (fname.split('.').pop()||'').toLowerCase();
-        if(EXT_SHP.indexOf(ext)===-1) return;
-        let conteudo = await zonasZip.files[fname].async('uint8array');
-        // ZG inteiro (0 casas), Area (ha) com 2 casas
-        if(ext==='dbf') conteudo = _corrigirDecimaisDbf(conteudo, { 'ZG':0, 'Area (ha)':2 });
-        zipFinal.file('zonas_de_manejo.'+ext, conteudo);
-      }));
+      // ZG inteiro (0 casas), Area (ha) com 2 casas
+      await _empacotar(zonasGeoJSON, 'zonas_de_manejo', { 'ZG':0, 'Area (ha)':2 });
     }
-
     if(pontosGeoJSON.features.length){
-      let saidaPontos;
-      try{ saidaPontos = await shpwrite.zip(pontosGeoJSON, { outputType:'arraybuffer' }); }
-      catch(e){ saidaPontos = await shpwrite.zip(pontosGeoJSON); }
-      const pontosZip = await JSZip.loadAsync(_normalizarSaidaShpwrite(saidaPontos));
-      await Promise.all(Object.keys(pontosZip.files).map(async fname=>{
-        if(pontosZip.files[fname].dir) return;
-        const ext = (fname.split('.').pop()||'').toLowerCase();
-        if(EXT_SHP.indexOf(ext)===-1) return;
-        let conteudo = await pontosZip.files[fname].async('uint8array');
-        // ID inteiro (0 casas decimais)
-        if(ext==='dbf') conteudo = _corrigirDecimaisDbf(conteudo, { 'ID':0 });
-        zipFinal.file('pontos_de_coleta.'+ext, conteudo);
-      }));
+      // ID inteiro (0 casas decimais)
+      await _empacotar(pontosGeoJSON, 'pontos_de_coleta', { 'ID':0 });
     }
-    // (Antes, quando não havia pontos, era gravado um "LEIA-ME.txt" dentro do
-    // ZIP. O pacote agora sai só com os arquivos do shapefile.)
 
-    // O ZIP sai apenas com os arquivos do shapefile (.shp/.shx/.dbf/.prj).
-    // O antigo "INFORMAÇÕES.txt" foi removido a pedido: os aparelhos de campo
-    // ignoram o arquivo e ele só atrapalhava na importação.
+    // O ZIP sai apenas com os arquivos do shapefile (.shp/.shx/.dbf/.prj/.cpg).
     // Coordenadas: WGS84 / EPSG:4326, gravadas no .prj de cada shapefile.
+
+    // (6) guarda final: ZIP não pode sair vazio
+    if(!Object.keys(zipFinal.files).length){
+      throw new Error('nenhum arquivo foi gerado');
+    }
+
 
     // Gera o blob final e dispara download
     const blob = await zipFinal.generateAsync({ type:'blob' });
@@ -7644,7 +7889,10 @@ async function exportarArquivosColeta(){
     const partesGeradas = [];
     if(zonasGeoJSON.features.length) partesGeradas.push(zonasGeoJSON.features.length+' zona(s)');
     if(pontosGeoJSON.features.length) partesGeradas.push(pontosGeoJSON.features.length+' ponto(s)');
-    if(status) status.textContent='✓ Exportado: '+partesGeradas.join(' + ');
+    const desc = [];
+    if(descartadasZonas) desc.push(descartadasZonas+' zona(s) inválida(s)');
+    if(descartadosPontos) desc.push(descartadosPontos+' ponto(s) inválido(s)');
+    if(status) status.textContent='✓ Exportado: '+partesGeradas.join(' + ')+(desc.length?' — descartado: '+desc.join(', '):'');
     toast('ZIP baixado: '+nomeBase.slice(0,60)+'…','ok');
   }catch(e){
     console.error('[exportar] erro:', e);
