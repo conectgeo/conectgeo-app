@@ -8798,11 +8798,37 @@ async function satZonasSalvarOficial(){
         toast(fora+' ponto(s) de coleta agora estão fora das zonas — revise antes de exportar.', 'wrn');
       }
 
-      // As outras abas têm CACHE próprio das zonas. A aba Coleta guarda
-      // S.coletaGeo.zonas/S.coletaLayers.zonas e usa S.coletaLoaded pra pular
-      // o recarregamento. Sem invalidar isso, uma zona excluída aqui continua
-      // desenhada lá (o "bug da zona fantasma" entre abas). Como o mapa é
-      // compartilhado, também removemos as camadas antigas do mapa agora.
+      // ── Invalidação de CACHE das outras abas ──
+      // Cada aba guarda sua própria cópia das zonas. Sem limpar todas, a aba
+      // continua desenhando as zonas antigas mesmo depois de salvar aqui.
+
+      // 1) NUTRIENTES: S.layer é uma camada Leaflet montada a partir do
+      //    S.geoData ANTIGO. Ao voltar pra aba, o setMapMode só faz
+      //    S.layer.addTo(map) — reexibindo a camada velha. Destruímos aqui
+      //    para que renderMap() a reconstrua do S.geoData novo.
+      try{
+        if(S.layer){ try{ S.map.removeLayer(S.layer); }catch(e){} S.layer=null; }
+        if(S.layer2 && S.compare && S.compare.map2){ try{ S.compare.map2.removeLayer(S.layer2); }catch(e){} S.layer2=null; }
+        try{ clearLabels(); }catch(e){}
+      }catch(e){ console.warn('[satZonas] invalidar cache de Nutrientes falhou:', e); }
+
+      // 2) RECOMENDAÇÃO: S.rec.geo é carregado uma única vez (_loadRecGeo tem
+      //    "if(S.rec.geo) return") e recGeo() dá preferência a ele sobre o
+      //    S.geoData. Zerando, a aba volta a usar as zonas novas.
+      try{
+        if(S.rec){
+          if(S.rec.layer){ try{ S.map.removeLayer(S.rec.layer); }catch(e){} S.rec.layer=null; }
+          S.rec.geo=null;
+          if(typeof clearRecLabels==='function') clearRecLabels();
+        }
+      }catch(e){ console.warn('[satZonas] invalidar cache da Recomendação falhou:', e); }
+
+      // 3) COLETA DE SOLO: guarda S.coletaGeo.zonas/S.coletaLayers.zonas e usa
+      //    S.coletaLoaded pra pular o recarregamento. Além disso, ela lê de um
+      //    ARQUIVO PRÓPRIO (S.coleta.zonas) com preferência sobre o S.geoData —
+      //    então limpamos essa URL em memória para que a aba passe a usar as
+      //    zonas que acabaram de virar oficiais (é o que o aviso de confirmação
+      //    promete: valem para Nutrientes, Coleta de Solo e Recomendações).
       try{
         if(S.coletaLayers){
           Object.values(S.coletaLayers).forEach(l=>{ try{ if(l && S.map && S.map.hasLayer(l)) S.map.removeLayer(l); }catch(e){} });
@@ -8814,7 +8840,8 @@ async function satZonasSalvarOficial(){
           S.coletaZonaLabels=[];
         }
         if(S.coletaGeo) S.coletaGeo.zonas=null;
-        S.coletaLoaded=false;   // força carregarColeta() a reconstruir da fonte nova
+        if(S.coleta) S.coleta.zonas='';   // passa a cair no fallback S.geoData
+        S.coletaLoaded=false;             // força carregarColeta() a reconstruir
       }catch(e){ console.warn('[satZonas] invalidar cache da Coleta falhou:', e); }
 
       // Re-sincroniza pontos com aba Coleta (caso pontos existam)
@@ -8824,9 +8851,15 @@ async function satZonasSalvarOficial(){
         try{ _pontosRenderLista(); }catch(e){}
       }
 
-      // Se estiver em outras abas que dependem de S.geoData, força re-render
-      try{ if(typeof renderNutrientes==='function' && S.mapMode==='nutrientes') renderNutrientes(); }catch(e){}
-      try{ if(typeof renderColeta==='function' && S.mapMode==='coleta') renderColeta(); }catch(e){}
+      // Se o consultor estiver com OUTRA aba aberta (raro, mas possível em
+      // multi-talhão), reconstrói ela agora. Antes aqui havia chamadas a
+      // renderNutrientes()/renderColeta(), que NÃO EXISTEM no arquivo — os
+      // typeof deixavam o erro silencioso e nada era redesenhado.
+      try{
+        if(S.mapMode==='nutrientes'){ renderMap(); }
+        else if(S.mapMode==='coleta'){ carregarColeta().then(()=>{ if(S.mapMode==='coleta') renderZonaLabels(); }); }
+        else if(S.mapMode==='recomendacao'){ loadRecData().then(()=>renderRecomendacao()); }
+      }catch(e){ console.warn('[satZonas] re-render da aba ativa falhou:', e); }
     }catch(reErr){
       console.warn('[satZonas] atualização in-place falhou, caindo para reload:', reErr);
       // Fallback: só recarrega se a atualização in-place quebrou por algum motivo
@@ -9329,7 +9362,13 @@ function setMapMode(mode){
     S.coletaZonaLabels.forEach(l=>S.map.removeLayer(l));
     document.getElementById('mleg-left').style.display='';
     document.body.classList.remove('mode-coleta');
-    if(S.layer) S.layer.addTo(S.map);
+    // Se S.layer foi invalidado (ex.: zonas editadas/salvas na aba Satélite),
+    // reconstrói do S.geoData atual em vez de só readicionar a camada velha.
+    // renderMap() já delega a renderZonasVazias() quando não há planilha.
+    if(!S.layer && S.geoData && S.geoData.features && S.geoData.features.length){
+      try{ renderMap(); }catch(e){ console.warn('[nutrientes] render após invalidação falhou:', e); }
+    }
+    else if(S.layer) S.layer.addTo(S.map);
     if(S.colorCol) applyActiveDepth();
   }else{
     // satélite: some com QUALQUER camada de outro modo — nutrientes, coleta e
