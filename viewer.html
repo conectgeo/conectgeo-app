@@ -1356,6 +1356,10 @@ const S = {
   manualDepth:null,         // user-entered depth when no column
   activeDepth:null,
   joinGeo:null, joinCsv:null, colorCol:null,
+  // true depois que o consultor salva zonas na aba Satélite: faz Coleta e
+  // Recomendação ignorarem seus arquivos de zona próprios (desatualizados) e
+  // usarem as zonas oficiais novas. Vale para a sessão.
+  zonasOficiaisNovas:false,
   pal:'rdylgn', invert:false, classes:4, opacity:0.8, showLabels:true, labelScale:0.8, pdfMode:false, lang:'pt', uploadMode:false,
   logoChoice:null, customLogo:null, consultorLogo:null,
   userTouchedPal:false,
@@ -4077,6 +4081,11 @@ function _isPoly(f){ return !!(f && f.geometry && /Polygon/i.test(f.geometry.typ
 function recGeo(){ return (S.rec && S.rec.geo && S.rec.geo.features && S.rec.geo.features.length) ? S.rec.geo : S.geoData; }
 async function _loadRecGeo(){
   if(S.rec.geo) return;
+  // Zonas oficiais recém-salvas na aba Satélite valem também aqui. Sem esta
+  // guarda, zerar S.rec.geo apenas fazia rebaixar o MESMO arquivo antigo de
+  // recomendacao_zonas_url e o cache voltava idêntico — a aba continuava
+  // mostrando as zonas velhas. Com S.rec.geo nulo, recGeo() cai no S.geoData.
+  if(S.zonasOficiaisNovas) return;
   try{
     let gu=(S.linkData && S.linkData.recomendacao_zonas_url)||null;
     if(!gu && sb && S.tokenAtual){ const { data:gz }=await sb.rpc('get_recomendacao_zonas_url',{p_token:S.tokenAtual}); if(gz && gz.recomendacao_zonas_url) gu=gz.recomendacao_zonas_url; }
@@ -8799,8 +8808,15 @@ async function satZonasSalvarOficial(){
       }
 
       // ── Invalidação de CACHE das outras abas ──
-      // Cada aba guarda sua própria cópia das zonas. Sem limpar todas, a aba
-      // continua desenhando as zonas antigas mesmo depois de salvar aqui.
+      // Cada aba guarda sua própria cópia das zonas E tem sua própria FONTE
+      // (arquivo separado no banco). Limpar só o cache não basta: o carregador
+      // rebusca o mesmo arquivo antigo. Por isso marcamos a flag abaixo, que
+      // faz Coleta e Recomendação ignorarem seus arquivos próprios e usarem as
+      // zonas que acabaram de virar oficiais — que é o que o aviso de
+      // confirmação promete ("usadas em Nutrientes, Coleta de Solo e
+      // Recomendações"). A flag vale para a sessão; ela resiste a releituras do
+      // banco (recarregarColetaInPlace) que antes restauravam a URL antiga.
+      S.zonasOficiaisNovas = true;
 
       // 1) NUTRIENTES: S.layer é uma camada Leaflet montada a partir do
       //    S.geoData ANTIGO. Ao voltar pra aba, o setMapMode só faz
@@ -8812,9 +8828,10 @@ async function satZonasSalvarOficial(){
         try{ clearLabels(); }catch(e){}
       }catch(e){ console.warn('[satZonas] invalidar cache de Nutrientes falhou:', e); }
 
-      // 2) RECOMENDAÇÃO: S.rec.geo é carregado uma única vez (_loadRecGeo tem
-      //    "if(S.rec.geo) return") e recGeo() dá preferência a ele sobre o
-      //    S.geoData. Zerando, a aba volta a usar as zonas novas.
+      // 2) RECOMENDAÇÃO: só zerar S.rec.geo não resolvia — _loadRecGeo()
+      //    rebuscava o MESMO arquivo de recomendacao_zonas_url e o cache
+      //    voltava igual. Com a flag ligada, _loadRecGeo() nem carrega, e
+      //    recGeo() cai no S.geoData novo.
       try{
         if(S.rec){
           if(S.rec.layer){ try{ S.map.removeLayer(S.rec.layer); }catch(e){} S.rec.layer=null; }
@@ -8823,12 +8840,9 @@ async function satZonasSalvarOficial(){
         }
       }catch(e){ console.warn('[satZonas] invalidar cache da Recomendação falhou:', e); }
 
-      // 3) COLETA DE SOLO: guarda S.coletaGeo.zonas/S.coletaLayers.zonas e usa
-      //    S.coletaLoaded pra pular o recarregamento. Além disso, ela lê de um
-      //    ARQUIVO PRÓPRIO (S.coleta.zonas) com preferência sobre o S.geoData —
-      //    então limpamos essa URL em memória para que a aba passe a usar as
-      //    zonas que acabaram de virar oficiais (é o que o aviso de confirmação
-      //    promete: valem para Nutrientes, Coleta de Solo e Recomendações).
+      // 3) COLETA DE SOLO: idem — limpar S.coleta.zonas em memória não bastava,
+      //    porque recarregarColetaInPlace() relê get_link_data e restaura a URL
+      //    antiga. A flag faz carregarColeta() pular o arquivo próprio.
       try{
         if(S.coletaLayers){
           Object.values(S.coletaLayers).forEach(l=>{ try{ if(l && S.map && S.map.hasLayer(l)) S.map.removeLayer(l); }catch(e){} });
@@ -8840,7 +8854,6 @@ async function satZonasSalvarOficial(){
           S.coletaZonaLabels=[];
         }
         if(S.coletaGeo) S.coletaGeo.zonas=null;
-        if(S.coleta) S.coleta.zonas='';   // passa a cair no fallback S.geoData
         S.coletaLoaded=false;             // força carregarColeta() a reconstruir
       }catch(e){ console.warn('[satZonas] invalidar cache da Coleta falhou:', e); }
 
@@ -9530,10 +9543,14 @@ async function carregarColeta(){
     document.getElementById('ls-text').textContent='Carregando mapa de coleta…';
     // (o raster da coleta é carregado por último, sem travar — ver fim desta função)
     let gjZonas=null;
-    if(S.coleta.zonas){
+    // S.zonasOficiaisNovas: o consultor acabou de salvar zonas na aba Satélite.
+    // Elas passam a valer aqui também, então ignoramos o shapefile próprio da
+    // coleta (que ficou desatualizado) e usamos as zonas oficiais novas.
+    if(S.coleta.zonas && !S.zonasOficiaisNovas){
       gjZonas=await _coletaParse(S.coleta.zonas);
     } else if(S.geoData && S.geoData.features && S.geoData.features.length){
-      // sem shapefile de coleta próprio → usa o MESMO shapefile do Mapa de Nutrientes
+      // sem shapefile de coleta próprio (ou zonas oficiais recém-substituídas)
+      // → usa o MESMO shapefile do Mapa de Nutrientes
       gjZonas=S.geoData;
     }
     if(gjZonas){
