@@ -1317,7 +1317,11 @@ function autoPalette(colName){
   const cargaAlNa = /(al|na)\s*(\+|³|²|3\+?|\+3?|³\+?|\+³?|2)/.test(naS) || /(al|na)\s*(\+|3|2)/.test(na);
   // Al ou Na seguido de unidade (mg/dm³, cmolc, meq...). Exige fronteira antes de al/na
   // para NÃO casar "resiNA MG" (P-resina) como se fosse Sódio.
-  const unidAlNa  = /(^|[^a-z])(al|na)\s*(mg|cmol|meq|mmol|mol)/.test(na);
+  // O [^a-z]{0,4} no meio cobre separadores entre o elemento e a unidade —
+  // notadamente o PARÊNTESE de "Al (cmolc/dm³)", que antes impedia o
+  // casamento e fazia a coluna cair sem regra (rampa não invertida, com
+  // alumínio zero pintado de vermelho).
+  const unidAlNa  = /(^|[^a-z])(al|na)[^a-z]{0,4}(mg|cmol|meq|mmol|mol)/.test(na);
   // Alumínio / Sódio por extenso, e termos de acidez (H+Al, Hidrogênio, saturações, teores)
   const termosAcidez = /(alumin|sodio|hidrogenio|h\+al|teoral|teorh|indsaturh|saturh|saturacaoal|saturacaona|saturdeal|saturdena)/.test(na);
   // Saturação por ALUMÍNIO abreviada: "Sat. Al", "Sat Al", "Sat. de Al", "Satur. Al", "m Al".
@@ -1325,7 +1329,12 @@ function autoPalette(colName){
   const naAlpha = na.replace(/[^a-z0-9]/g,'');
   const satAl = /^(m|sat|satur|saturacao)(de)?(al|aluminio)$/.test(naAlpha)
              || /sat(ur(acao)?)?(de)?al(uminio)?($|[^a-z])/.test(naAlpha);
-  const isAl = cargaAlNa || unidAlNa || termosAcidez || satAl || /^al([\+%]|$)/.test(naS) || /^na([\+%]|$)/.test(naS);
+  // "Al" / "Na" como nome próprio da coluna, seguido de qualquer coisa que
+  // NÃO seja letra (parêntese, espaço, +, %, ³, fim). O [^a-z] é o que faz
+  // "Al (cmolc/dm³)" casar; antes só aceitava +, % ou fim de string.
+  // Não pega "Alumínio"/"Alcalinidade" (vem letra depois) — o primeiro já é
+  // tratado por termosAcidez, o segundo corretamente fica de fora.
+  const isAl = cargaAlNa || unidAlNa || termosAcidez || satAl || /^al([^a-z]|$)/.test(naS) || /^na([^a-z]|$)/.test(naS);
   // Saturação por alumínio (m, m%, m³)
   const isSatM =
        ns==='m' || ns==='m%' || /^m[³²]/.test(ns)
