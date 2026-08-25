@@ -3411,11 +3411,34 @@ async function generatePDF(nutrients){
 
   // helper: parse unit from nutrient column name like "M.O mg/dm³" or "P (mg/dm³)"
   function parseNutUnit(n){
-    const s=String(n||''); const m=s.match(/[\(\[]([^)\]]+)[\)\]]\s*$/) || s.match(/\s+([a-zA-Zµ%°\.]+\s*\/?\s*[a-zA-Z0-9³²]*)\s*$/);
-    if(!m) return {name:s.trim(), unit:''};
-    const unit=m[1].trim().toLowerCase();
-    const name=s.slice(0,s.length-m[0].length).trim();
-    return {name:name||s.trim(), unit};
+    const s=String(n||'');
+    // Só é "unidade" um token que PAREÇA unidade de medida: contém barra (mg/dm³),
+    // %, grau, ou é um símbolo conhecido (cmolc, meq, mmol, mg, g, kg, ppm, etc.).
+    // Sem isso, a última palavra de nomes como "pH CaCl2", "pH H2O", "H + Al" ou
+    // "S. Bases" era capturada como unidade E rebaixada para minúsculas — o que
+    // deixava o cabeçalho do PDF fora de sincronia com o nome da planilha
+    // ("pH CaCl2" virava "pH cacl2"). A caixa do NOME nunca deve ser alterada.
+    const pareceUnidade = u => {
+      const t=String(u||'').trim();
+      if(!t) return false;
+      if(/[\/%°]/.test(t)) return true;                       // mg/dm³, %, °
+      if(/(cmol|mmol|mol|meq|µs|ms|ppm|mg|dm|cm|kg|mval)/i.test(t)) return true; // símbolos de medida
+      return false;
+    };
+    // 1) sufixo entre parênteses/colchetes: aceita como unidade só se parecer medida
+    const mp=s.match(/[\(\[]([^)\]]+)[\)\]]\s*$/);
+    if(mp && pareceUnidade(mp[1])){
+      const name=s.slice(0,s.length-mp[0].length).trim();
+      return {name:name||s.trim(), unit:mp[1].trim().toLowerCase()};
+    }
+    // 2) sufixo solto sem parênteses (ex.: "Ca cmolc/dm³"): idem, só se for medida
+    const mu=s.match(/\s+([a-zA-Zµ%°\.]+\s*\/?\s*[a-zA-Z0-9³²]*)\s*$/);
+    if(mu && pareceUnidade(mu[1])){
+      const name=s.slice(0,s.length-mu[0].length).trim();
+      return {name:name||s.trim(), unit:mu[1].trim().toLowerCase()};
+    }
+    // Nenhuma unidade real: o nome é o texto inteiro, com a caixa preservada.
+    return {name:s.trim(), unit:''};
   }
 
   // compute combined stats (primary + extras) for current nutrient/depth
