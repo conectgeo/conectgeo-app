@@ -5309,31 +5309,61 @@ function _expDir(raiz, modelo, ins){
   let dir=raiz; modelo.subs.forEach(s=>{ dir=dir.folder(s); });
   return dir;
 }
+// Reserva nomes normalizados sem permitir que JSZip sobrescreva silenciosamente
+// outro insumo na mesma pasta. O primeiro mantém o nome; os seguintes recebem
+// _2, _3... de forma determinística na ordem selecionada.
+function _expNomeUnico(usados, escopo, desejado){
+  const chave=String(escopo||'raiz')+'|'+String(desejado||'campo');
+  const n=(usados[chave]||0)+1; usados[chave]=n;
+  return n===1 ? desejado : desejado+'_'+n;
+}
 const PRJ_WGS84='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]';
 // nome de arquivo padronizado: "Parte - Parte - ...". Preserva acentos e espaços;
 // remove apenas caracteres inválidos em nomes de arquivo; ignora partes vazias ou '—'.
 function _nomeArquivo(){
-  const limpa=s=>String(s==null?'':s).replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim();
-  return Array.prototype.slice.call(arguments).map(limpa).filter(s=>s && s!=='—').join(' - ') || 'arquivo';
+  const reservados=/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+  const limpa=s=>{
+    let t=String(s==null?'':s).replace(/[\u0000-\u001f\u007f]/g,'').replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim().replace(/[. ]+$/,'');
+    if(reservados.test(t)) t='arquivo_'+t;
+    return t;
+  };
+  const nome=Array.prototype.slice.call(arguments).map(limpa).filter(s=>s && s!=='—').join(' - ') || 'arquivo';
+  return nome.slice(0,180).replace(/[. ]+$/,'') || 'arquivo';
 }
 function _normNome(t){
   if(t==null) return '';
   const nf=String(t).normalize('NFKD').replace(/[\u0300-\u036f]/g,'');
   const low=nf.toLowerCase().replace(/\s+/g,'_');
   const ok='abcdefghijklmnopqrstuvwxyz0123456789_-';
-  return low.split('').filter(c=>ok.includes(c)).join('') || 'campo';
+  let s=low.split('').filter(c=>ok.includes(c)).join('') || 'campo';
+  s=s.replace(/^[. ]+|[. ]+$/g,'').slice(0,80) || 'campo';
+  if(/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(s)) s='campo_'+s;
+  return s;
+}
+function _shpHashCurto(s){
+  let h=2166136261;
+  for(const ch of String(s==null?'':s)){ h^=ch.codePointAt(0); h=Math.imul(h,16777619); }
+  return (h>>>0).toString(36).toUpperCase().padStart(3,'0').slice(-3);
 }
 function _dbfField(insumo){
   const nf=String(insumo==null?'':insumo).normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
     .toUpperCase().replace(/[^A-Z0-9_]/g,'_')   // só A-Z, 0-9 e _
     .replace(/_+/g,'_');                          // colapsa __ repetidos
   let s=nf.replace(/^_+/,'').replace(/_+$/,'');    // tira _ das pontas
-  if(!s) return 'DOSE';                            // vazio/nulo → nome padrão
+  if(!s) return 'DOSE_'+_shpHashCurto(insumo).slice(-5); // evita que nomes não latinos virem todos DOSE
   if(!/^[A-Z]/.test(s)) s='F_'+s;                  // deve começar com letra
-  return s.substring(0,10) || 'DOSE';              // limite do formato: 10 chars
+  // O DBF limita o campo a 10 bytes. Um corte simples fazia nomes diferentes
+  // (SUPERFOSFATO SIMPLES/TRIPLO) virarem o mesmo SUPERFOSFA. O sufixo estável
+  // mantém o nome dentro do formato e distingue a origem operacionalmente.
+  return s.length>10 ? s.substring(0,7)+_shpHashCurto(insumo) : s;
 }
 function _ringArea(r){ let a=0; for(let i=0;i<r.length-1;i++){ a+=r[i][0]*r[i+1][1]-r[i+1][0]*r[i][1]; } return a/2; }
-function _closeRing(r){ const f=r[0], l=r[r.length-1]; return (f[0]===l[0]&&f[1]===l[1])?r:r.concat([f]); }
+function _closeRing(r){
+  if(!Array.isArray(r)||!r.length) return null;
+  const f=r[0], l=r[r.length-1];
+  if(!Array.isArray(f)||!Array.isArray(l)||f.length<2||l.length<2) return null;
+  return (f[0]===l[0]&&f[1]===l[1])?r:r.concat([[f[0],f[1]]]);
+}
 function _orient(r, wantCW){ const cw=_ringArea(r)<0; return (cw!==wantCW)?r.slice().reverse():r; }
 function _polysOf(g){ if(g.type==='Polygon') return [g.coordinates]; if(g.type==='MultiPolygon') return g.coordinates; return []; }
 // Converte um valor de coordenada para número, tratando como INVÁLIDO (NaN)
@@ -5385,7 +5415,9 @@ function _shpRecord(geom, rotulo){
         if(x<-180 || x>180 || y<-90 || y>90){ falha('coordenada fora do domínio WGS84 ('+x+', '+y+') — geometria pode estar projetada'); return; }
         conv.push([x,y]);
       }
-      const r=_orient(_closeRing(conv), ri===0);
+      const fechado=_closeRing(conv);
+      if(!fechado){ if(ri===0) falha('anel externo vazio ou malformado'); return; }
+      const r=_orient(fechado, ri===0);
       if(r.length<4){ if(ri===0) falha('anel externo degenerado'); return; }
       if(_ringArea(r)===0){ if(ri===0) falha('anel externo com área zero (vértices colineares ou repetidos)'); return; }
       parts.push(points.length);
@@ -5430,6 +5462,7 @@ function _buildDbf(fieldName, values){
   const headerSize=32+32+1, recSize=1+FL, total=headerSize+n*recSize+1;
   const buf=new Uint8Array(total), dv=new DataView(buf.buffer);
   buf[0]=0x03; const d=new Date(); buf[1]=d.getFullYear()-1900; buf[2]=d.getMonth()+1; buf[3]=d.getDate();
+  buf[29]=0x57; // LDID ANSI/Windows-1252; campos são ASCII e o .cpg explicita UTF-8
   dv.setUint32(4,n,true); dv.setUint16(8,headerSize,true); dv.setUint16(10,recSize,true);
   for(let i=0;i<fname.length&&i<11;i++) buf[32+i]=fname.charCodeAt(i);
   buf[32+11]='N'.charCodeAt(0); buf[32+16]=FL; buf[32+17]=FD;
@@ -5653,16 +5686,17 @@ async function doRecExport(){
     _shpResetDescartes();
     const zip=new JSZip();
     let ok=0;
+    const nomesUsados={};
 
     if(alvos.length<=1){
       // ── comportamento original: 1 talhão, 1 shapefile por insumo, sem pasta de talhão ──
       const talhao=_normNome(alvos[0]?alvos[0].nome:((S.linkData&&S.linkData.talhao)||'talhao'));
       sel.forEach(col=>{
         const sf=_shapefileInsumo(col); if(!sf) return;
-        const ins=_normNome(col);
+        const ins=_expNomeUnico(nomesUsados,'unico',_normNome(col));
         const dir=_expDir(zip, modelo, ins);
         const base=ins+'_'+talhao;
-        dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
+        dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj); dir.file(base+'.cpg','UTF-8');
         ok++;
       });
 
@@ -5676,10 +5710,10 @@ async function doRecExport(){
           records=records.concat(r.records); values=values.concat(r.values);
         });
         const sf=_shpFromRecords(col, records, values); if(!sf) return;
-        const ins=_normNome(col);
+        const ins=_expNomeUnico(nomesUsados,'unificado',_normNome(col));
         const dir=_expDir(zip, modelo, ins);
         const base=ins+'_unificado';
-        dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
+        dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj); dir.file(base+'.cpg','UTF-8');
         ok++;
       });
 
@@ -5692,10 +5726,10 @@ async function doRecExport(){
           if(!alvo.geo) return;
           const {records,values}=_shpRecordsFromAlvo(alvo, col);
           const sf=_shpFromRecords(col, records, values); if(!sf) return;
-          const ins=_normNome(col);
+          const ins=_expNomeUnico(nomesUsados,'talhao:'+talhao,_normNome(col));
           const dir=_expDir(talDir, modelo, ins);
           const base=ins+'_'+talhao;
-          dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj);
+          dir.file(base+'.shp', sf.shp); dir.file(base+'.shx', sf.shx); dir.file(base+'.dbf', sf.dbf); dir.file(base+'.prj', sf.prj); dir.file(base+'.cpg','UTF-8');
           ok++;
         });
       });
@@ -10375,9 +10409,16 @@ function _dbfFieldGeneric(name){
   return s.substring(0,10)||'FIELD';
 }
 function _buildShpPoints(coords){
-  const n=coords.length; if(!n) return null;
+  // Nunca permita que null/'' virem zero ou que NaN seja serializado no SHP.
+  // Pontos inválidos são eliminados antes desta função; esta guarda final falha
+  // explicitamente se algum chamador futuro tentar furar a validação.
+  const validos=coords.map(c=>Array.isArray(c)?[_coordNum(c[0]),_coordNum(c[1])]:[NaN,NaN]);
+  if(validos.some(c=>!Number.isFinite(c[0])||!Number.isFinite(c[1])||c[0]<-180||c[0]>180||c[1]<-90||c[1]>90)){
+    throw new Error('coordenada de ponto inválida ou fora do domínio WGS84');
+  }
+  const n=validos.length; if(!n) return null;
   let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
-  coords.forEach(c=>{ const x=+c[0],y=+c[1]; if(x<xmin)xmin=x; if(x>xmax)xmax=x; if(y<ymin)ymin=y; if(y>ymax)ymax=y; });
+  validos.forEach(c=>{ const x=c[0],y=c[1]; if(x<xmin)xmin=x; if(x>xmax)xmax=x; if(y<ymin)ymin=y; if(y>ymax)ymax=y; });
   const recContent=20; // shape(4) + x(8) + y(8)
   const shpLen=100 + n*(8+recContent);
   const shxLen=100 + n*8;
@@ -10387,8 +10428,8 @@ function _buildShpPoints(coords){
     dv.setFloat64(68,0,true);dv.setFloat64(76,0,true);dv.setFloat64(84,0,true);dv.setFloat64(92,0,true); };
   hdr(shp,shpLen); hdr(shx,shxLen);
   let off=100, sx=100;
-  coords.forEach((c,i)=>{ shp.setInt32(off,i+1,false); shp.setInt32(off+4,recContent/2,false);
-    let p=off+8; shp.setInt32(p,1,true); p+=4; shp.setFloat64(p,+c[0],true); p+=8; shp.setFloat64(p,+c[1],true); p+=8;
+  validos.forEach((c,i)=>{ shp.setInt32(off,i+1,false); shp.setInt32(off+4,recContent/2,false);
+    let p=off+8; shp.setInt32(p,1,true); p+=4; shp.setFloat64(p,c[0],true); p+=8; shp.setFloat64(p,c[1],true); p+=8;
     shx.setInt32(sx,off/2,false); shx.setInt32(sx+4,recContent/2,false); sx+=8; off+=8+recContent; });
   return {shp:new Uint8Array(shp.buffer), shx:new Uint8Array(shx.buffer)};
 }
@@ -10400,6 +10441,7 @@ function _buildDbfMulti(rows, fields){
   const n=rows.length, total=headerSize+n*recSize+1;
   const buf=new Uint8Array(total), dv=new DataView(buf.buffer);
   buf[0]=0x03; const d=new Date(); buf[1]=d.getFullYear()-1900; buf[2]=d.getMonth()+1; buf[3]=d.getDate();
+  buf[29]=0x57;
   dv.setUint32(4,n,true); dv.setUint16(8,headerSize,true); dv.setUint16(10,recSize,true);
   fields.forEach((f,fi)=>{ const o=32+32*fi;
     for(let i=0;i<f.name.length&&i<10;i++) buf[o+i]=f.name.charCodeAt(i)&0x7F;
@@ -10438,7 +10480,12 @@ function _geojsonToShp(geo, kind){
     const pts=[], rows=[];
     feats.forEach(f=>{ const g=f.geometry; if(!isPt(g)) return;
       const cs=g.type==='Point'?[g.coordinates]:g.coordinates;
-      cs.forEach(c=>{ pts.push([+c[0],+c[1]]); const row={}; fieldList.forEach(fd=>row[fd.name]=(f.properties||{})[fd.srcKey]); rows.push(row); });
+      cs.forEach(c=>{
+        if(!Array.isArray(c)) return;
+        const x=_coordNum(c[0]), y=_coordNum(c[1]);
+        if(!Number.isFinite(x)||!Number.isFinite(y)||x<-180||x>180||y<-90||y>90) return;
+        pts.push([x,y]); const row={}; fieldList.forEach(fd=>row[fd.name]=(f.properties||{})[fd.srcKey]); rows.push(row);
+      });
     });
     if(!pts.length) return null;
     const {shp,shx}=_buildShpPoints(pts);
