@@ -8770,6 +8770,33 @@ async function satZonasSalvarOficial(){
       }
     }catch(e){ console.warn('[satZonas] recálculo de hectares falhou:', e); }
 
+    // ── PERSISTÊNCIA nas outras abas ──
+    // Coleta e Recomendação leem de ARQUIVOS PRÓPRIOS no banco. Sem atualizar
+    // essas URLs, a mudança feita aqui só vale enquanto a página não recarrega
+    // — e como este fluxo pode cair num location.reload() (fallback abaixo), na
+    // prática elas continuavam mostrando as zonas antigas mesmo com todos os
+    // caches de memória invalidados. Agora apontamos o arquivo de zonas dessas
+    // abas para o MESMO geojson que acabou de virar oficial, que é o que o
+    // aviso de confirmação promete ("usadas em Nutrientes, Coleta de Solo e
+    // Recomendações"). _coletaParse aceita .geojson além de .zip, então a URL
+    // serve direto, sem conversão.
+    try{
+      const rc=await sb.rpc('atualizar_coleta', { p_token:S.tokenAtual, p_zonas_url:url });
+      if(rc && rc.error) console.warn('[satZonas] atualizar_coleta falhou:', rc.error.message);
+      else if(S.coleta) S.coleta.zonas=url;
+    }catch(e){ console.warn('[satZonas] atualizar_coleta lançou:', e); }
+
+    // A recomendação tem zonas próprias (recomendacao_zonas_url), mas o RPC
+    // atualizar_recomendacao conhecido só grava a PLANILHA (p_url). Tentamos o
+    // parâmetro de zonas por simetria com atualizar_coleta; se a função não
+    // aceitar esse parâmetro, o erro é capturado e a aba continua coberta pela
+    // flag de sessão + fallback de recGeo() para S.geoData.
+    try{
+      const rr=await sb.rpc('atualizar_recomendacao', { p_token:S.tokenAtual, p_zonas_url:url });
+      if(rr && rr.error) console.warn('[satZonas] atualizar_recomendacao(p_zonas_url) não aceito:', rr.error.message);
+      else if(S.linkData) S.linkData.recomendacao_zonas_url=url;
+    }catch(e){ console.warn('[satZonas] atualizar_recomendacao(p_zonas_url) lançou:', e); }
+
     // ═════════════════════════════════════════════════════════════════════
     // FIX: NÃO recarregar a página (perde pontos de coleta + estado local).
     // Atualiza a "fonte oficial" (S.geoData) in-place — as outras abas
@@ -8817,6 +8844,13 @@ async function satZonasSalvarOficial(){
       // Recomendações"). A flag vale para a sessão; ela resiste a releituras do
       // banco (recarregarColetaInPlace) que antes restauravam a URL antiga.
       S.zonasOficiaisNovas = true;
+      // Guarda o marcador para sobreviver a um reload da página (o fluxo tem um
+      // fallback com location.reload(), e o consultor também pode recarregar na
+      // mão). Sem isto, após o reload a Recomendação voltava a ler o arquivo de
+      // zonas antigo dela e o bug reaparecia. Fica preso ao token do talhão.
+      try{
+        sessionStorage.setItem('cg_zonas_novas', JSON.stringify({ token:S.tokenAtual, url:url }));
+      }catch(e){}
 
       // 1) NUTRIENTES: S.layer é uma camada Leaflet montada a partir do
       //    S.geoData ANTIGO. Ao voltar pra aba, o setMapMode só faz
@@ -11008,6 +11042,24 @@ async function loadFromToken(token, params){
     // ── MAPA DE COLETA DE SOLO (Onda 2) ──
     const temColeta = !!(data.coleta_raster_url || data.coleta_pontos_url || data.coleta_zonas_url);
     S.coleta = { zonas:data.coleta_zonas_url||'', pontos:data.coleta_pontos_url||'', raster:data.coleta_raster_url||'' };
+
+    // Zonas foram substituídas na aba Satélite nesta sessão? Então elas valem
+    // para Coleta e Recomendação também, mesmo depois de um reload — essas
+    // abas têm arquivos de zona próprios que podem não ter sido atualizados no
+    // banco. O marcador é preso ao token, então não vaza para outro talhão.
+    try{
+      const _zn=JSON.parse(sessionStorage.getItem('cg_zonas_novas')||'null');
+      if(_zn && _zn.token && _zn.token===S.tokenAtual){
+        S.zonasOficiaisNovas=true;
+        if(_zn.url){
+          // aponta as fontes próprias para o geojson oficial novo
+          S.coleta.zonas=_zn.url;
+          data.recomendacao_zonas_url=_zn.url;
+        }
+      } else if(_zn){
+        sessionStorage.removeItem('cg_zonas_novas'); // outro talhão: descarta
+      }
+    }catch(e){}
     S.coletaMeta = { cliente:(data.cliente||'cliente'), fazenda:(data.fazenda||'fazenda'), talhao:(data.talhao||'talhao') };
 
     // Repovoa os pontos de coleta na aba Satélite JÁ NO BOOT (não espera a aba
