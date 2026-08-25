@@ -2182,7 +2182,10 @@ function applyCsvData(rows, fields, fileName, idealRow, decimais){
   if(S._idealRow) _aplicaIdeaisModeloB(S._idealRow);
   document.getElementById('sec-depth').style.display='';
   renderDepthGrid();
-  S.joinCsv = _pickZoneField(fields)||fields[0];
+  // Passa uma amostra das linhas: sem ela, _pickZoneField não consegue
+  // descartar colunas constantes (ex.: "Talhão" = "PIVO 02" em todas as
+  // linhas), que não identificam zona nenhuma.
+  S.joinCsv = _pickZoneField(fields, (rows||[]).slice(0,50))||fields[0];
 }
 
 // Relatório B: a linha de níveis ideais veio vazia? Confirma com o consultor.
@@ -7345,6 +7348,9 @@ function _pontosCarregarDeGeoJSON(gj){
   if(!itens.length) return 0;
   S.pontos.itens=itens;
   S.pontos.seq=Math.max(S.pontos.seq||0, maxSeq);
+  // Esses pontos vieram da própria Coleta (shapefile salvo) — se depois forem
+  // limpos por aqui, a Coleta precisa refletir o esvaziamento também.
+  S.pontos._sincronizouColeta=true;
   return itens.length;
 }
 
@@ -7354,9 +7360,25 @@ function _pontosCarregarDeGeoJSON(gj){
 // permanecem lá — não sobrescrevemos coleta com pontos vazios daqui).
 function _pontosSincronizarColeta(){
   if(!S.pontos.itens.length){
-    // Sem pontos criados aqui: não faz nada. Não apaga o que veio da aba
-    // Coleta de Solo (o consultor pode ter carregado pontos por outro
-    // caminho, tipo shapefile importado direto).
+    // Lista vazia: só limpa a aba Coleta se ELA já tinha recebido pontos
+    // daqui antes (S.pontos._sincronizouColeta). Sem essa flag, não mexe —
+    // preserva pontos vindos de outro caminho (shapefile importado direto
+    // na Coleta, sem passar pelo gerador da Satélite).
+    if(S.pontos._sincronizouColeta){
+      const vazio={type:'FeatureCollection',features:[]};
+      S.geoDataPoints=vazio;
+      if(S.coletaGeo) S.coletaGeo.pontos=vazio;
+      // remove a camada do mapa se estiver desenhada (aba Coleta pode estar
+      // aberta agora ou ser reaberta depois — refreshPontos cobre os dois)
+      try{
+        if(S.coletaLayers && S.coletaLayers.pontos){
+          if(S.map && S.map.hasLayer(S.coletaLayers.pontos)) S.map.removeLayer(S.coletaLayers.pontos);
+          S.coletaLayers.pontos=null;
+        }
+        if(typeof refreshPontos==='function') refreshPontos();
+      }catch(e){}
+      S.pontos._sincronizouColeta=false;
+    }
     return;
   }
   const gj = _pontosParaGeoJSON();
@@ -7365,6 +7387,10 @@ function _pontosSincronizarColeta(){
   // próprio) ou de S.coletaGeo.pontos.
   S.geoDataPoints = gj;
   if(S.coletaGeo) S.coletaGeo.pontos = gj;
+  S.pontos._sincronizouColeta=true;
+  // Se a aba Coleta já tinha uma camada desenhada, atualiza pra refletir os
+  // pontos novos/editados imediatamente (sem esperar reabrir a aba).
+  try{ if(typeof refreshPontos==='function') refreshPontos(); }catch(e){}
 }
 
 
@@ -8763,6 +8789,25 @@ async function satZonasSalvarOficial(){
         toast(fora+' ponto(s) de coleta agora estão fora das zonas — revise antes de exportar.', 'wrn');
       }
 
+      // As outras abas têm CACHE próprio das zonas. A aba Coleta guarda
+      // S.coletaGeo.zonas/S.coletaLayers.zonas e usa S.coletaLoaded pra pular
+      // o recarregamento. Sem invalidar isso, uma zona excluída aqui continua
+      // desenhada lá (o "bug da zona fantasma" entre abas). Como o mapa é
+      // compartilhado, também removemos as camadas antigas do mapa agora.
+      try{
+        if(S.coletaLayers){
+          Object.values(S.coletaLayers).forEach(l=>{ try{ if(l && S.map && S.map.hasLayer(l)) S.map.removeLayer(l); }catch(e){} });
+          // preserva o raster (imagem de fundo não depende das zonas)
+          S.coletaLayers={ raster:S.coletaLayers.raster||null, pontos:null, zonas:null };
+        }
+        if(S.coletaZonaLabels){
+          S.coletaZonaLabels.forEach(l=>{ try{ S.map.removeLayer(l); }catch(e){} });
+          S.coletaZonaLabels=[];
+        }
+        if(S.coletaGeo) S.coletaGeo.zonas=null;
+        S.coletaLoaded=false;   // força carregarColeta() a reconstruir da fonte nova
+      }catch(e){ console.warn('[satZonas] invalidar cache da Coleta falhou:', e); }
+
       // Re-sincroniza pontos com aba Coleta (caso pontos existam)
       if(S.pontos && S.pontos.itens && S.pontos.itens.length){
         try{ _pontosSincronizarColeta(); }catch(e){}
@@ -9144,8 +9189,23 @@ function setMapMode(mode){
     }catch(e){ console.warn('[sat] não consegui trocar basemap:', e); }
 
     _satZonasDesenhar();
-    if(S.satZonas.grupo && !S.map.hasLayer(S.satZonas.grupo)) S.satZonas.grupo.addTo(S.map);
-    if(S.satZonas.labelGrupo && !S.map.hasLayer(S.satZonas.labelGrupo)) S.satZonas.labelGrupo.addTo(S.map);
+    // FIX (rótulos duplicados + zonas coloridas ao voltar pra aba):
+    // os grupos S.satZonas.grupo/labelGrupo são as camadas do MODO DE EDIÇÃO
+    // (polígonos coloridos + rótulo com área em 2 casas). Eles só podem voltar
+    // ao mapa se a edição ainda estiver ativa. Antes eram readicionados sempre,
+    // então, depois de finalizar a edição, ao sair e voltar pra Satélite o mapa
+    // ficava com a sobreposição oficial (contorno preto) E as camadas de edição
+    // por cima — cada zona com dois rótulos (ex: "7 6.30 ha" e "7 6.3 ha") e
+    // preenchimento colorido. Os itens seguem em S.satZonas.itens, então
+    // reentrar na edição restaura tudo normalmente.
+    if(S.satZonas && S.satZonas.ativo){
+      if(S.satZonas.grupo && !S.map.hasLayer(S.satZonas.grupo)) S.satZonas.grupo.addTo(S.map);
+      if(S.satZonas.labelGrupo && !S.map.hasLayer(S.satZonas.labelGrupo)) S.satZonas.labelGrupo.addTo(S.map);
+    } else {
+      // edição desligada: garante que nenhum resíduo dela fique no mapa
+      if(S.satZonas && S.satZonas.grupo){ try{ S.map.removeLayer(S.satZonas.grupo); }catch(e){} }
+      if(S.satZonas && S.satZonas.labelGrupo){ try{ S.map.removeLayer(S.satZonas.labelGrupo); }catch(e){} }
+    }
 
     // BUG FIX: O CSS body.mode-sat esconde várias seções (#sec-depth, #sec-viz,
     // #sec-app, etc), o que muda o layout do container do mapa. Sem
@@ -10193,17 +10253,46 @@ function _pickZoneField(fields, sampleRows){
     if(!sampleRows || !sampleRows.length) return true;
     return sampleRows.some(r=>{ const v=r&&r[campo]; return v!=null && String(v).trim()!==''; });
   };
-  const achar=(pred)=>{ const f=fields.find(x=>pred(norm(x)) && temValor(x)); return f||null; };
+
+  // Uma coluna de zona precisa VARIAR entre as linhas. Se, havendo várias
+  // amostras, a coluna tem um único valor repetido, ela não identifica zona —
+  // é um rótulo fixo do arquivo. Caso clássico: planilha de nutrientes com
+  // "Id" (1..13, a zona real) e "Talhão" ("PIVO 02" em toda linha); sem esta
+  // checagem "Talhão" era escolhido, o mapa virava 1 zona só e o "Id" sobrava
+  // na lista de nutrientes. Só vale quando há mais de uma amostra — talhão de
+  // zona única legitimamente tem valor constante.
+  const varia=(campo)=>{
+    if(!sampleRows || sampleRows.length<2) return true;
+    const vistos=new Set();
+    for(const r of sampleRows){
+      const v=r&&r[campo];
+      if(v==null || String(v).trim()==='') continue;
+      vistos.add(String(v).trim());
+      if(vistos.size>1) return true;
+    }
+    return vistos.size>1;
+  };
+
+  const achar=(pred, exigirVaria)=>{
+    const f=fields.find(x=>pred(norm(x)) && temValor(x) && (!exigirVaria || varia(x)));
+    return f||null;
+  };
 
   // match exato, nessa prioridade. "grid" entra no topo: é o nome usado por
   // vários shapefiles de zona (ex.: exportados de grades de amostragem).
-  // "id" fica por ÚLTIMO — é genérico e costuma ser um contador, não a zona.
-  const exato=['zona','zone','grid','zg','zi','muestra','amostra','talhao','identificacao','id'];
-  for(const p of exato){ const f=achar(n=>n===p); if(f) return f; }
-  const contem=['zona','zone','grid','identificacao','manejo'];   // depois "contém" (só nomes longos, seguros)
-  for(const p of contem){ const f=achar(n=>n.includes(p)); if(f) return f; }
-  // Último recurso: se ninguém casou por nome mas há uma única coluna
-  // preenchida que não é área, usa ela (melhor que devolver null e cair na 1ª).
+  // "id" é genérico, mas ainda assim identifica a zona com mais frequência do
+  // que "talhao" (que costuma ser o nome do talhão, constante no arquivo),
+  // por isso vem antes dele.
+  const exato=['zona','zone','grid','zg','zi','muestra','amostra','identificacao','id','talhao'];
+  const contem=['zona','zone','grid','identificacao','manejo'];
+
+  // 1ª passada: exige que a coluna varie entre as linhas (zona de verdade).
+  for(const p of exato){ const f=achar(n=>n===p, true); if(f) return f; }
+  for(const p of contem){ const f=achar(n=>n.includes(p), true); if(f) return f; }
+  // 2ª passada (fallback): aceita coluna constante — cobre arquivo de zona
+  // única, em que qualquer candidata é trivialmente constante.
+  for(const p of exato){ const f=achar(n=>n===p, false); if(f) return f; }
+  for(const p of contem){ const f=achar(n=>n.includes(p), false); if(f) return f; }
   return null;
 }
 function _zoneField(props){ const fs=Object.keys(props||{}); return _pickZoneField(fs, props?[props]:null)||fs[0]; }
