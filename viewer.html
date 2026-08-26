@@ -5317,7 +5317,7 @@ function _expNomeUnico(usados, escopo, desejado){
   const n=(usados[chave]||0)+1; usados[chave]=n;
   return n===1 ? desejado : desejado+'_'+n;
 }
-const PRJ_WGS84='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["Degree",0.017453292519943295]]';
+const PRJ_WGS84='GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433],AUTHORITY["EPSG","4326"]]';
 // nome de arquivo padronizado: "Parte - Parte - ...". Preserva acentos e espaços;
 // remove apenas caracteres inválidos em nomes de arquivo; ignora partes vazias ou '—'.
 function _nomeArquivo(){
@@ -7973,7 +7973,7 @@ function _pontosSincronizarColeta(){
 //  (5) geometria: descarta feição nula/NaN/anel degenerado (evita "fantasma")
 //  (6) .prj: garante WGS84 gravado mesmo se a lib não emitir (evita CRS null)
 // ═════════════════════════════════════════════════════════════════════════
-const PRJ_WGS84_TXT = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]';
+const PRJ_WGS84_TXT = 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433],AUTHORITY["EPSG","4326"]]';
 
 // (4) nome seguro pra arquivo/pasta em Windows, macOS e Linux
 function _shpNomeSeguro(s, fallback){
@@ -8278,8 +8278,11 @@ async function exportarArquivosColeta(){
         if(EXT_SHP.indexOf(ext)===-1) return;
         let conteudo = await zin.files[fname].async('uint8array');
         if(ext==='dbf') conteudo = _corrigirDecimaisDbf(conteudo, decimais);
-        // (6) .prj vazio/estranho é substituído pelo WGS84 canônico
-        if(ext==='prj' && conteudo.length < 30) return;
+        // (6) o .prj da lib vem em WKT estilo ESRI com numeros inteiros
+        // (SPHEROID 6378137, PRIMEM 0) e sem AUTHORITY["EPSG","4326"].
+        // Monitores com parser simples ignoram esse .prj e caem no datum da
+        // maquina (SAD69 desloca ~74 m no Parana). Sempre reescreve o nosso.
+        if(ext==='prj') return;
         vistos[ext] = true;
         zipFinal.file(base+'.'+ext, conteudo);
       }));
