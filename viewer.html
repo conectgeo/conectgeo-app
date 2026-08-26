@@ -1807,7 +1807,7 @@ function initMap(){
   // e amplia o azulejo do 17: leve perda de nitidez, mas imagem de verdade.
   // Se em alguma região o satélite ficar borrado demais, este é o número a ajustar.
   S.baseLayers = {
-    mapa: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OpenStreetMap © CartoDB',subdomains:'abcd',maxZoom:20,crossOrigin:true}),
+    mapa: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19,maxNativeZoom:19,crossOrigin:true}),
     satelite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri, Maxar, Earthstar Geographics',maxZoom:20,maxNativeZoom:17,crossOrigin:true})
   };
   S.baseLayers.mapa.addTo(S.map);
@@ -5384,11 +5384,185 @@ function _coordNum(v){
 let _shpDescartes = [];
 // zonas que entraram no arquivo mas ficaram SEM dose (campo vazio no .dbf)
 let _shpSemDose = [];
-function _shpResetDescartes(){ _shpDescartes = []; _shpSemDose = []; }
+// zonas cuja geometria precisou ser reparada (equivalente ao "Corrigir geometrias" do QGIS)
+let _shpReparos = [];
+// reparos topológicos que atingiram o limite de segurança do algoritmo
+let _shpReparosCriticos = [];
+// zonas em que a área gravada divergiu materialmente da área de entrada
+let _shpAreaAlerta = [];
+function _shpResetDescartes(){ _shpDescartes = []; _shpSemDose = []; _shpReparos = []; _shpReparosCriticos = []; _shpAreaAlerta = []; }
+
+// ══════════ CORREÇÃO DE GEOMETRIA (equivalente ao "Corrigir geometrias" do QGIS) ══════════
+// O QGIS/ArcGIS toleram e corrigem em silêncio anéis com vértices repetidos,
+// espinhos (ida-e-volta de largura zero) e auto-interseções. Os monitores das
+// máquinas NÃO: eles leem o anel literalmente e, num anel que se cruza, metade
+// da zona é interpretada como "dentro" e metade como "fora" — daí a aplicação
+// sair com dose em meia zona. Por isso a geometria passa por este saneamento
+// ANTES de virar bytes no .shp.
+// Tolerância LINEAR em coordenadas WGS84 (~0,11 mm na latitude).
+// Nunca comparar diretamente com produto vetorial: ele está em graus².
+const _GEOEPS = 1e-9;
+function _gOpenRing(r){
+  const a=r.slice();
+  while(a.length>1 && Math.abs(a[0][0]-a[a.length-1][0])<=_GEOEPS && Math.abs(a[0][1]-a[a.length-1][1])<=_GEOEPS) a.pop();
+  return a;
+}
+function _gDedup(r){
+  const out=[];
+  for(const p of r){ const q=out[out.length-1]; if(!q || Math.abs(q[0]-p[0])>_GEOEPS || Math.abs(q[1]-p[1])>_GEOEPS) out.push(p); }
+  return out;
+}
+function _gCross(a,b,c){ return (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]); }
+// Remove somente vértices realmente colineares e espinhos de largura zero.
+// A distância perpendicular é normalizada pelo comprimento do segmento, portanto
+// volta a ser medida em graus. A versão anterior comparava graus² com _GEOEPS e
+// podia apagar curvas/células legítimas de geometrias densas derivadas de raster.
+function _gDespike(r){
+  let a=_gDedup(r), mudou=true, guard=0;
+  while(mudou && a.length>3 && guard++<50){
+    mudou=false; const out=[];
+    for(let i=0;i<a.length;i++){
+      const p=a[(i-1+a.length)%a.length], c=a[i], n=a[(i+1)%a.length];
+      const pnX=n[0]-p[0], pnY=n[1]-p[1];
+      const pnLen=Math.hypot(pnX,pnY);
+      const retorno=Math.hypot(n[0]-p[0],n[1]-p[1])<=_GEOEPS;
+      // A-B-A: ida e volta ao mesmo ponto, espinho inequívoco de largura zero.
+      if(retorno){ mudou=true; continue; }
+      // |cross|/|P-N| é a distância perpendicular de C à reta P-N (graus).
+      // Só removemos quando essa distância linear é submilimétrica.
+      const distPerp=pnLen>0 ? Math.abs(_gCross(p,c,n))/pnLen : Infinity;
+      if(distPerp<=_GEOEPS){ mudou=true; continue; }
+      out.push(c);
+    }
+    if(mudou) a=_gDedup(out);
+  }
+  return a;
+}
+function _gRingArea(r){ let s=0; for(let i=0;i<r.length;i++){ const a=r[i], b=r[(i+1)%r.length]; s+=a[0]*b[1]-b[0]*a[1]; } return s/2; }
+// interseção própria de dois segmentos (ignora toque nas extremidades)
+function _gSegInt(p1,p2,p3,p4){
+  const d1=_gCross(p3,p4,p1), d2=_gCross(p3,p4,p2), d3=_gCross(p1,p2,p3), d4=_gCross(p1,p2,p4);
+  if(((d1>0&&d2<0)||(d1<0&&d2>0)) && ((d3>0&&d4<0)||(d3<0&&d4>0))){
+    const t=d3/(d3-d4);
+    return [p3[0]+t*(p4[0]-p3[0]), p3[1]+t*(p4[1]-p3[1])];
+  }
+  return null;
+}
+// ── auto-interseção: decomposição em TODAS as componentes ──
+// A versão anterior escolhia o laço de MAIOR área e jogava fora o resto — uma
+// heurística que, em geometria complexa, podia apagar um pedaço legítimo da
+// zona. Agora o anel é cortado no cruzamento e AMBOS os laços seguem em frente
+// (recursivamente), virando partes do mesmo polígono. É o que o "Corrigir
+// geometrias" do QGIS faz: nada de área é descartado silenciosamente.
+function _gPontoEmAnel(pt, anel){
+  // ray casting; usado só para decidir aninhamento entre componentes
+  let dentro=false;
+  for(let i=0,j=anel.length-1;i<anel.length;j=i++){
+    const xi=anel[i][0], yi=anel[i][1], xj=anel[j][0], yj=anel[j][1];
+    if(((yi>pt[1])!==(yj>pt[1])) && (pt[0] < (xj-xi)*(pt[1]-yi)/((yj-yi)||1e-18)+xi)) dentro=!dentro;
+  }
+  return dentro;
+}
+// Marca como BURACO toda componente cujo aninhamento é ímpar. Sem isto, um laço
+// que na prática era um vazio interno virava parte sólida e a zona saía com
+// área maior do que a real (dose aplicada onde não deveria).
+function _gMarcarBuracos(comps){
+  for(const c of comps){
+    let prof=0;
+    for(const o of comps){ if(o===c) continue; if(_gPontoEmAnel(c[0], o)) prof++; }
+    try{ Object.defineProperty(c,'__hole',{value:(prof%2)===1, writable:true, configurable:true, enumerable:false}); }
+    catch(e){ c.__hole=(prof%2)===1; }
+  }
+  return comps;
+}
+// ── auto-interseção: decomposição em TODAS as componentes ──
+// Trata dois casos, ambos capazes de fazer o monitor aplicar meia zona:
+//  (a) cruzamento próprio de dois segmentos;
+//  (b) TOQUE em vértice repetido (figura-8 "pinçada") — que a detecção por
+//      produto vetorial estrito nunca enxerga, porque não há troca de sinal.
+// Nenhuma componente é descartada: quando o limite de iterações estoura, o que
+// restou na pilha é preservado e o anel é marcado como suspeito.
+function _gSplitSelfInt(r, orc){
+  const out=[]; const pilha=[r.slice()]; let guard=0;
+  orc = orc || {estourou:false};
+  while(pilha.length){
+    if(guard++>400){
+      orc.estourou=true;
+      // preserva o que sobrou na pilha em vez de perder área em silêncio
+      pilha.forEach(p=>{ if(p.length>=3 && Math.abs(_gRingArea(p))>0) out.push(p); });
+      break;
+    }
+    const a=pilha.pop(); const n=a.length;
+    if(n<3) continue;
+    // (b) vértice repetido: corta o laço no próprio ponto de toque
+    let toque=null; const vis=new Map();
+    for(let i=0;i<n;i++){
+      const k=a[i][0]+'|'+a[i][1];
+      if(vis.has(k)){ toque={i:vis.get(k), j:i}; break; }
+      vis.set(k,i);
+    }
+    if(toque){
+      const cA=a.slice(toque.i, toque.j);
+      const cB=a.slice(0,toque.i).concat(a.slice(toque.j));
+      if(cA.length>=3) pilha.push(cA);
+      if(cB.length>=3) pilha.push(cB);
+      if(cA.length<3 && cB.length<3 && Math.abs(_gRingArea(a))>0) out.push(a);
+      continue;
+    }
+    // (a) cruzamento próprio
+    let achou=null;
+    for(let i=0;i<n && !achou;i++){
+      for(let j=i+2;j<n;j++){
+        if(i===0 && j===n-1) continue;            // segmentos adjacentes no fechamento
+        const x=_gSegInt(a[i],a[(i+1)%n],a[j],a[(j+1)%n]);
+        if(x){ achou={i,j,x}; break; }
+      }
+    }
+    if(!achou){ if(Math.abs(_gRingArea(a))>0) out.push(a); continue; }
+    const {i,j,x}=achou;
+    const cMiolo=_gDedup([x].concat(a.slice(i+1,j+1)));
+    const cResto=_gDedup(a.slice(0,i+1).concat([x]).concat(a.slice(j+1)));
+    // as duas componentes voltam para a pilha: nenhuma é descartada
+    if(cMiolo.length>=3) pilha.push(cMiolo);
+    if(cResto.length>=3) pilha.push(cResto);
+  }
+  // maior componente primeiro (o "corpo" da zona fica sendo a parte 0)
+  out.sort((p,q)=>Math.abs(_gRingArea(q))-Math.abs(_gRingArea(p)));
+  return out;
+}
+// corrige UM anel; devolve LISTA de anéis (>1 quando havia auto-interseção)
+function _gCorrigirAnel(r){
+  const orig=_gOpenRing(r);
+  let a=_gDespike(_gDedup(orig));
+  if(a.length<3) return {rings:[], reparado:true};
+  const orc={estourou:false};
+  const comps=_gSplitSelfInt(a, orc);
+  const rings=comps.filter(c=>c.length>=3 && Math.abs(_gRingArea(c))>0);
+  if(!rings.length) return {rings:[], reparado:true, suspeito:true};
+  _gMarcarBuracos(rings);
+  // "reparado" precisa comparar GEOMETRIA, não referência de objeto: a
+  // decomposição sempre devolve cópias, então comparar por identidade marcava
+  // todo anel como reparado e transformava o aviso em ruído.
+  const igual = rings.length===1 && rings[0].length===a.length
+    && rings[0].every((p,k)=>p[0]===a[k][0] && p[1]===a[k][1]);
+  const reparado = !igual || a.length!==orig.length;
+  // Guarda de área: no bowtie a área ABSOLUTA das partes é legitimamente MAIOR
+  // que a do anel original (que cancela lóbulos de sinais opostos). Perda, não.
+  const areaIni=Math.abs(_gRingArea(a));
+  const areaFim=rings.reduce((s,c)=>s+Math.abs(_gRingArea(c)),0);
+  const suspeito = orc.estourou || (areaIni>0 && areaFim < areaIni*0.9);
+  return {rings, reparado, suspeito, critico:orc.estourou};
+}
+
+
 function _shpRecord(geom, rotulo){
   const polys=_polysOf(geom); if(!polys.length) return null;
   const parts=[], points=[]; let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
   let invalido=false, motivo='';
+  // áreas de referência para a reconciliação pós-escrita (item 3):
+  //   areaOrigemM2  = área da geometria de ENTRADA (antes de qualquer reparo)
+  //   areaEsperadaM2= área dos anéis que serão de fato gravados
+  let areaEsperadaM2=0, areaOrigemM2=0;
   const falha=m=>{ invalido=true; if(!motivo) motivo=m; };
   polys.forEach(poly=>{ if(invalido) return;
     if(!Array.isArray(poly) || !poly.length){ falha('polígono sem anéis'); return; }
@@ -5415,20 +5589,39 @@ function _shpRecord(geom, rotulo){
         if(x<-180 || x>180 || y<-90 || y>90){ falha('coordenada fora do domínio WGS84 ('+x+', '+y+') — geometria pode estar projetada'); return; }
         conv.push([x,y]);
       }
-      const fechado=_closeRing(conv);
-      if(!fechado){ if(ri===0) falha('anel externo vazio ou malformado'); return; }
-      const r=_orient(fechado, ri===0);
-      if(r.length<4){ if(ri===0) falha('anel externo degenerado'); return; }
-      if(_ringArea(r)===0){ if(ri===0) falha('anel externo com área zero (vértices colineares ou repetidos)'); return; }
-      parts.push(points.length);
-      r.forEach(p=>{ const x=p[0], y=p[1]; points.push([x,y]);
-        if(x<xmin)xmin=x; if(x>xmax)xmax=x; if(y<ymin)ymin=y; if(y>ymax)ymax=y; });
+      // área da geometria de entrada (anel 0 soma, buracos subtraem)
+      areaOrigemM2 += (ri===0?1:-1)*_ringAreaM2(conv);
+      // ── correção de geometria antes de gravar (equivalente ao QGIS) ──
+      const cor=_gCorrigirAnel(conv);
+      if(cor.critico) _shpReparosCriticos.push((rotulo||'zona sem identificação')+' — limite de segurança do reparo de auto-interseção atingido; revisão no QGIS obrigatória');
+      if(cor.suspeito) _shpReparos.push((rotulo||'zona sem identificação')+' — auto-interseção resolvida de forma incerta (confira no QGIS)');
+      else if(cor.reparado) _shpReparos.push((rotulo||'zona sem identificação')+' — geometria corrigida (vértices repetidos, espinhos ou cruzamento de anel)');
+      if(!cor.rings || !cor.rings.length){ if(ri===0) falha('anel externo degenerado após correção'); return; }
+      // cada componente vira uma PART do registro: nada de área é perdido
+      let gravou=0;
+      for(const anel of cor.rings){
+        const fechado=_closeRing(anel);
+        if(!fechado) continue;
+        // anel externo → horário; buraco (aninhamento ímpar) → anti-horário.
+        // Componente aninhada dentro de um anel externo é vazio, não área nova.
+        const ehBuraco = (ri===0) ? !!anel.__hole : !anel.__hole;
+        const r=_orient(fechado, !ehBuraco);
+        if(r.length<4) continue;
+        if(_ringArea(r)===0) continue;
+        areaEsperadaM2 += (ehBuraco?-1:1)*_ringAreaM2(r);
+        parts.push(points.length);
+        r.forEach(p=>{ const x=p[0], y=p[1]; points.push([x,y]);
+          if(x<xmin)xmin=x; if(x>xmax)xmax=x; if(y<ymin)ymin=y; if(y>ymax)ymax=y; });
+        gravou++;
+      }
+      if(!gravou && ri===0){ falha('anel externo degenerado após correção'); return; }
+
     }); });
   // Uma zona com geometria inválida é descartada INTEIRA. Remover só o vértice
   // ruim deformaria o polígono — outra forma de aplicar no lugar errado.
   if(invalido){ _shpDescartes.push((rotulo || 'zona sem identificação')+' — '+motivo); return null; }
   if(!points.length || !parts.length) return null;
-  return {parts, points, bbox:[xmin,ymin,xmax,ymax]};
+  return {parts, points, bbox:[xmin,ymin,xmax,ymax], areaEsperadaM2, areaOrigemM2, rotulo:(rotulo||'zona sem identificação')};
 }
 function _buildShp(records){
   let contentBytes=0; const meta=[]; let gx0=Infinity,gy0=Infinity,gx1=-Infinity,gy1=-Infinity;
@@ -5498,17 +5691,137 @@ function _shpRecordsFromAlvo(alvo, insumoCol){
     // de descarte, caso a geometria tenha coordenada inválida
     const k=String(f.properties[joinGeo]??'').trim();
     const rot=(alvo.nome? alvo.nome+' / ' : '')+'zona '+(k||'?');
-    const rec=_shpRecord(f.geometry, rot); if(!rec) return;
+    // ── multipolígono explodido em feições simples ──
+    // Vários monitores leem apenas a PRIMEIRA parte de um registro multipart:
+    // a zona aparecia inteira no QGIS, mas na máquina só um pedaço recebia dose.
+    // Cada parte vira uma feição própria, todas com a mesma dose no .dbf.
+    const partes = (f.geometry.type==='MultiPolygon')
+      ? f.geometry.coordinates.map(c=>({type:'Polygon', coordinates:c}))
+      : [f.geometry];
+    const recs = partes.map(g=>_shpRecord(g, rot)).filter(Boolean);
+    if(!recs.length) return;
     const row=joined[k]||joinedZ[_zkey(k)];
     let dval=row?recNum(row[insumoCol]):NaN; if(!isNaN(dval)) dval*=fator;
     // zona que entra no arquivo SEM dose: o campo fica vazio no .dbf e o
     // comportamento no monitor é imprevisível (uns leem 0, outros recusam).
     // Registrado para avisar o consultor ao final da exportação.
     if(isNaN(dval)) _shpSemDose.push(rot);
-    records.push(rec); values.push(isNaN(dval)?null:dval); });
+    recs.forEach(rec=>{ records.push(rec); values.push(isNaN(dval)?null:dval); }); });
+
   return {records, values};
 }
 // monta o {shp,shx,dbf,prj} a partir de records/values já extraídos (1 talhão ou vários fundidos)
+// ═══ verificação final: relê os BYTES gerados como se fosse outro programa ═══
+// Tudo acima valida a ENTRADA. Isto valida a SAÍDA: percorre o .shp registro a
+// registro, confere cada offset do .shx, o fileLength dos cabeçalhos, os
+// índices de parts[] e se cada coordenada gravada continua finita. É a mesma
+// leitura que o monitor da máquina faria. Devolve string de erro ou null.
+function _validarShapefileGerado(shp, shx, dbf, nEsperado){
+  try{
+    const dv=new DataView(shp.buffer, shp.byteOffset, shp.byteLength);
+    const dx=new DataView(shx.buffer, shx.byteOffset, shx.byteLength);
+    if(shp.length<100) return '.shp menor que o cabeçalho';
+    if(dv.getInt32(0,false)!==9994) return 'file code do .shp inválido';
+    if(dx.getInt32(0,false)!==9994) return 'file code do .shx inválido';
+    if(dv.getInt32(24,false)*2 !== shp.length) return 'fileLength do .shp ('+(dv.getInt32(24,false)*2)+') difere do tamanho real ('+shp.length+')';
+    if(dx.getInt32(24,false)*2 !== shx.length) return 'fileLength do .shx difere do tamanho real';
+    if((shx.length-100)%8) return '.shx com tamanho não múltiplo de 8';
+    const nIdx=(shx.length-100)/8;
+    if(nEsperado!=null && nIdx!==nEsperado) return '.shx tem '+nIdx+' entradas para '+nEsperado+' geometrias';
+    let off=100, i=0;
+    while(off<shp.length){
+      if(off+8>shp.length) return 'registro '+(i+1)+' truncado no cabeçalho';
+      const num=dv.getInt32(off,false), cl=dv.getInt32(off+4,false)*2;
+      if(num!==i+1) return 'numeração fora de ordem no registro '+(i+1)+' (achado '+num+')';
+      if(cl<=0 || off+8+cl>shp.length) return 'registro '+num+' com tamanho inválido';
+      // o .shx precisa apontar exatamente para este registro
+      if(i>=nIdx) return '.shx não tem entrada para o registro '+num;
+      if(dx.getInt32(100+i*8,false)*2 !== off) return 'offset do .shx no registro '+num+' não bate com o .shp';
+      if(dx.getInt32(100+i*8+4,false)*2 !== cl) return 'tamanho do .shx no registro '+num+' não bate com o .shp';
+      let p=off+8;
+      if(dv.getInt32(p,true)!==5) return 'registro '+num+' não é polígono';
+      p+=4;
+      for(let b=0;b<4;b++){ if(!Number.isFinite(dv.getFloat64(p,true))) return 'bbox inválido no registro '+num; p+=8; }
+      const nParts=dv.getInt32(p,true); p+=4;
+      const nPts=dv.getInt32(p,true); p+=4;
+      if(nParts<1 || nPts<4) return 'registro '+num+' com '+nParts+' partes e '+nPts+' pontos';
+      if(8+cl < 44+4*nParts+16*nPts) return 'registro '+num+' menor que o conteúdo declarado';
+      const parts=[];
+      for(let k=0;k<nParts;k++){ const v=dv.getInt32(p,true); p+=4;
+        if(v<0 || v>=nPts) return 'índice de parte fora do intervalo no registro '+num;
+        if(k>0 && v<=parts[k-1]) return 'índices de parts[] não crescentes no registro '+num;
+        parts.push(v); }
+      const pts=[];
+      for(let k=0;k<nPts;k++){ const x=dv.getFloat64(p,true), y=dv.getFloat64(p+8,true); p+=16;
+        if(!Number.isFinite(x)||!Number.isFinite(y)) return 'coordenada não finita gravada no registro '+num;
+        if(x<-180||x>180||y<-90||y>90) return 'coordenada fora do domínio WGS84 gravada no registro '+num;
+        pts.push([x,y]); }
+      // cada parte precisa estar fechada e ter ao menos 4 pontos
+      for(let k=0;k<nParts;k++){
+        const ini=parts[k], fim=(k+1<nParts?parts[k+1]:nPts);
+        if(fim-ini<4) return 'parte '+(k+1)+' do registro '+num+' com menos de 4 pontos';
+        const a=pts[ini], b=pts[fim-1];
+        if(a[0]!==b[0] || a[1]!==b[1]) return 'parte '+(k+1)+' do registro '+num+' não está fechada';
+      }
+      off+=8+cl; i++;
+    }
+    if(i!==nIdx) return '.shp tem '+i+' registros e o .shx '+nIdx;
+    // .dbf: cabeçalho coerente e tamanho exato
+    const dd=new DataView(dbf.buffer, dbf.byteOffset, dbf.byteLength);
+    const nRec=dd.getUint32(4,true), hs=dd.getUint16(8,true), rs=dd.getUint16(10,true);
+    if(nRec!==i) return '.dbf com '+nRec+' registros para '+i+' geometrias';
+    if(hs+nRec*rs+1 !== dbf.length) return '.dbf com tamanho inconsistente';
+    if(dbf[hs-1]!==0x0D) return 'terminador do cabeçalho .dbf ausente';
+    if(dbf[dbf.length-1]!==0x1A) return 'marcador de fim do .dbf ausente';
+    return null;
+  }catch(e){ return 'falha ao reler os bytes ('+e.message+')'; }
+}
+// ═══ reconciliação de área e de nº de partes (entrada × bytes gravados) ═══
+// Relê o .shp já montado e recalcula a área de cada feição em m². Compara com:
+//  (a) a área que o escritor pretendia gravar → divergência aqui é DEFEITO de
+//      escrita binária e aborta a exportação;
+//  (b) a área da geometria ORIGINAL (antes do "corrigir geometrias") → uma
+//      divergência material significa que o reparo mudou a prescrição e o
+//      consultor precisa confirmar antes de baixar.
+function _reconciliarAreas(shp, records, insumoCol){
+  const dv=new DataView(shp.buffer, shp.byteOffset, shp.byteLength);
+  let off=100, i=0;
+  while(off<shp.length && i<records.length){
+    const cl=dv.getInt32(off+4,false)*2;
+    let p=off+8+4+32;
+    const nParts=dv.getInt32(p,true); p+=4;
+    const nPts=dv.getInt32(p,true); p+=4;
+    const parts=[]; for(let k=0;k<nParts;k++){ parts.push(dv.getInt32(p,true)); p+=4; }
+    const pts=[]; for(let k=0;k<nPts;k++){ pts.push([dv.getFloat64(p,true), dv.getFloat64(p+8,true)]); p+=16; }
+    let areaLida=0;
+    for(let k=0;k<nParts;k++){
+      const anel=pts.slice(parts[k], (k+1<nParts?parts[k+1]:nPts));
+      // no shapefile o anel externo é horário (_ringArea < 0) e o buraco é anti-horário
+      areaLida += (_ringArea(anel)<0 ? 1 : -1)*_ringAreaM2(anel);
+    }
+    const rec=records[i];
+    if(nParts!==rec.parts.length){
+      throw new Error('shapefile de "'+insumoCol+'" reprovado: registro '+(i+1)+' gravado com '+nParts+' partes em vez de '+rec.parts.length);
+    }
+    const esp=rec.areaEsperadaM2||0;
+    const tolEsc=Math.max(1, Math.abs(esp)*0.005);       // 0,5% ou 1 m²
+    if(Math.abs(areaLida-esp)>tolEsc){
+      throw new Error('shapefile de "'+insumoCol+'" reprovado: área gravada do registro '+(i+1)+' ('+areaLida.toFixed(1)+' m²) difere da prevista ('+esp.toFixed(1)+' m²)');
+    }
+    const orig=rec.areaOrigemM2||0;
+    if(orig<=0 && areaLida>1){
+      // anel de entrada com área líquida nula: bowtie perfeito, lóbulos que se
+      // anulam. O reparo criou área real onde a origem não tinha — sempre
+      // material para a prescrição.
+      _shpAreaAlerta.push(rec.rotulo+' — geometria de origem se anulava (auto-interseção); após o reparo passou a ter '+(areaLida/10000).toFixed(3)+' ha');
+    } else if(orig>0 && Math.abs(areaLida-orig) > Math.max(5, orig*0.01)){
+      const dif=((areaLida-orig)/orig*100);
+      _shpAreaAlerta.push(rec.rotulo+' — área mudou '+(dif>0?'+':'')+dif.toFixed(1)+'% no reparo ('+(orig/10000).toFixed(3)+' ha → '+(areaLida/10000).toFixed(3)+' ha)');
+    }
+    off+=8+cl; i++;
+  }
+  if(i!==records.length) throw new Error('shapefile de "'+insumoCol+'" reprovado: '+i+' registros relidos para '+records.length+' geometrias');
+}
 function _shpFromRecords(insumoCol, records, values){
   if(!records.length) return null;
   // ── conferência de integridade antes de gerar os bytes ──
@@ -5532,7 +5845,13 @@ function _shpFromRecords(insumoCol, records, values){
   if(nDbf!==records.length){
     throw new Error('.dbf inconsistente em "'+insumoCol+'": '+nDbf+' registros para '+records.length+' geometrias');
   }
+  // ── validação independente dos bytes já montados ──
+  const erro=_validarShapefileGerado(shp, shx, dbf, records.length);
+  if(erro) throw new Error('shapefile de "'+insumoCol+'" reprovado na verificação final: '+erro);
+  // ── reconciliação de área/partes (entrada × bytes) ──
+  _reconciliarAreas(shp, records, insumoCol);
   return {shp,shx,dbf,prj:PRJ_WGS84};
+
 }
 // alvo único (talhão primário) — mantido para compatibilidade
 function _shapefileInsumo(insumoCol){
@@ -5736,6 +6055,62 @@ async function doRecExport(){
     }
 
     if(!ok){ toast('Nada para exportar','wrn'); goBtn.disabled=false; goBtn.textContent=txt0; return; }
+    // ── trava: zonas sem dose não saem em silêncio ──
+    // Campo numérico vazio no .dbf é lido como ZERO por boa parte dos monitores:
+    // a máquina passaria sem aplicar exatamente onde deveria. O aviso só depois
+    // do download não impede o consultor de mandar o arquivo incompleto, então a
+    // decisão é pedida ANTES de gerar o zip.
+    // ── trava: limite de segurança do reparo topológico ──
+    // Se o decompositor atingiu o limite de iterações, a geometria não pode ser
+    // considerada totalmente saneada com segurança. A exportação não bloqueia
+    // automaticamente, mas exige confirmação explícita antes de gerar o ZIP.
+    if(_shpReparosCriticos.length){
+      const uCR=Array.from(new Set(_shpReparosCriticos));
+      const lCR=uCR.slice(0,8).join('\n• ')+(uCR.length>8?'\n• e mais '+(uCR.length-8):'');
+      const segueCR=await cgConfirm(
+        uCR.length+' zona'+(uCR.length>1?'s':'')+' atingiu o limite de segurança do reparo geométrico:\n\n• '+lCR+
+        '\n\nA geometria pode não estar totalmente saneada. Confira no QGIS antes de enviar ao monitor.',
+        {titulo:'Reparo geométrico incompleto', tipo:'warn', okLabel:'Exportar mesmo assim', okDanger:true}
+      );
+      if(!segueCR){ toast('Exportação cancelada — corrija a geometria no QGIS','wrn'); goBtn.disabled=false; goBtn.textContent=txt0; return; }
+    }
+    // ── trava: zonas DESCARTADAS por geometria/coordenada inválida ──
+    // Antes isto era só um toast DEPOIS do download: o arquivo já estava no
+    // disco (e muitas vezes já no e-mail do cliente) quando o aviso sumia da
+    // tela. Uma prescrição com zona faltando é pior que uma exportação
+    // cancelada, então a decisão passa a ser pedida ANTES de gerar o zip.
+    if(_shpDescartes.length){
+      const uDS=Array.from(new Set(_shpDescartes));
+      const lDS=uDS.slice(0,8).join('\n• ')+(uDS.length>8?'\n• e mais '+(uDS.length-8):'');
+      const segueDS=await cgConfirm(
+        uDS.length+' zona'+(uDS.length>1?'s':'')+' NÃO entrará'+(uDS.length>1?'o':'')+' no arquivo:\n\n• '+lDS+
+        '\n\nA prescrição sairá incompleta: a máquina não vai aplicar nessas zonas.\nCorrija o shapefile de origem (geometria/CRS) ou continue por sua conta.',
+        {titulo:'Zonas descartadas por geometria inválida', tipo:'warn', okLabel:'Exportar incompleto', okDanger:true}
+      );
+      if(!segueDS){ toast('Exportação cancelada — corrija as geometrias e tente novamente','wrn'); goBtn.disabled=false; goBtn.textContent=txt0; return; }
+    }
+    // ── trava: reparo alterou materialmente a área de alguma zona ──
+    if(_shpAreaAlerta.length){
+      const uAR=Array.from(new Set(_shpAreaAlerta));
+      const lAR=uAR.slice(0,8).join('\n• ')+(uAR.length>8?'\n• e mais '+(uAR.length-8):'');
+      const segueAR=await cgConfirm(
+        'A correção automática de geometria mudou a área de '+uAR.length+' zona'+(uAR.length>1?'s':'')+':\n\n• '+lAR+
+        '\n\nIsso altera a quantidade total de insumo aplicada.\nConfira no QGIS antes de enviar ao cliente.',
+        {titulo:'Área alterada pelo reparo', tipo:'warn', okLabel:'Exportar assim mesmo', okDanger:true}
+      );
+      if(!segueAR){ toast('Exportação cancelada — confira as geometrias no QGIS','wrn'); goBtn.disabled=false; goBtn.textContent=txt0; return; }
+    }
+    if(_shpSemDose.length){
+      const uSD=Array.from(new Set(_shpSemDose));
+      const lSD=uSD.slice(0,8).join('\n• ')+(uSD.length>8?'\n• e mais '+(uSD.length-8):'');
+      const segue=await cgConfirm(
+        uSD.length+' zona'+(uSD.length>1?'s':'')+' ficará'+(uSD.length>1?'o':'')+' SEM dose no arquivo:\n\n• '+lSD+
+        '\n\nO monitor pode interpretar o campo vazio como zero e deixar de aplicar nessas zonas.\nCorrija o identificador da zona na planilha ou continue por sua conta.',
+        {titulo:'Zonas sem dose', tipo:'warn', okLabel:'Exportar mesmo assim', okDanger:true}
+      );
+      if(!segue){ toast('Exportação cancelada — corrija as doses e tente novamente','wrn'); goBtn.disabled=false; goBtn.textContent=txt0; return; }
+    }
+
     const blob=await zip.generateAsync({type:'blob'});
     const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
     // nome padrão do zip: Taxa Variável de <insumo> (1 insumo) | Taxa Variável Geral (vários)
@@ -5756,7 +6131,7 @@ async function doRecExport(){
     if(_shpDescartes.length){
       const uniq=Array.from(new Set(_shpDescartes));
       const lista=uniq.slice(0,3).join(', ')+(uniq.length>3?' e mais '+(uniq.length-3):'');
-      setTimeout(()=>toast('Atenção: '+uniq.length+' zona'+(uniq.length>1?'s':'')+' fora do arquivo por coordenada inválida ('+lista+'). Confira o shapefile de origem.','wrn'), 600);
+      setTimeout(()=>toast('Exportado sem '+uniq.length+' zona'+(uniq.length>1?'s':'')+' ('+lista+') — descarte confirmado antes do download.','wrn'), 600);
       console.warn('[export] zonas descartadas por coordenada inválida:', uniq);
     }
     if(_shpSemDose.length){
@@ -5765,6 +6140,19 @@ async function doRecExport(){
       setTimeout(()=>toast(u2.length+' zona'+(u2.length>1?'s':'')+' exportada'+(u2.length>1?'s':'')+' sem dose ('+l2+'). Verifique se o identificador da zona bate entre o shapefile e a planilha.','wrn'), _shpDescartes.length?1400:600);
       console.warn('[export] zonas sem dose (campo vazio no dbf):', u2);
     }
+    if(_shpReparos.length){
+      const u3=Array.from(new Set(_shpReparos));
+      const susp=u3.filter(s=>/não resolvida/.test(s));
+      console.warn('[export] geometrias corrigidas antes de gravar:', u3);
+      const atraso=(_shpDescartes.length?1400:600)+(_shpSemDose.length?800:0);
+      if(susp.length){
+        const l3=susp.slice(0,3).join(', ')+(susp.length>3?' e mais '+(susp.length-3):'');
+        setTimeout(()=>toast('Atenção: '+susp.length+' zona'+(susp.length>1?'s':'')+' com auto-interseção que não pôde ser corrigida ('+l3+'). Rode "Corrigir geometrias" no QGIS antes de enviar ao monitor.','wrn'), atraso);
+      }else{
+        setTimeout(()=>toast(u3.length+' geometria'+(u3.length>1?'s':'')+' corrigida'+(u3.length>1?'s':'')+' automaticamente antes da exportação.','ok'), atraso);
+      }
+    }
+
   }catch(e){ toast('Erro na exportação: '+e.message,'err'); }
   goBtn.disabled=false; goBtn.textContent=txt0;
 }
@@ -7779,6 +8167,19 @@ async function exportarArquivosColeta(){
       if(status) status.textContent='Nada válido para exportar (geometrias inválidas).';
       toast('Nada válido para exportar — geometrias inválidas.','err');
       return;
+    }
+    // (7) confirmação explícita quando algo foi descartado: o arquivo sairá
+    // incompleto e o consultor precisa saber ANTES do download.
+    if(descartadasZonas || descartadosPontos){
+      const itens=[];
+      if(descartadasZonas) itens.push(descartadasZonas+' zona(s) com geometria inválida');
+      if(descartadosPontos) itens.push(descartadosPontos+' ponto(s) com coordenada inválida');
+      const segueEx=await cgConfirm(
+        'Serão descartados do arquivo:\n\n• '+itens.join('\n• ')+
+        '\n\nO material de campo sairá incompleto. Corrija a origem ou continue por sua conta.',
+        {titulo:'Feições descartadas', tipo:'warn', okLabel:'Exportar incompleto', okDanger:true}
+      );
+      if(!segueEx){ if(status) status.textContent='Exportação cancelada.'; toast('Exportação cancelada','wrn'); return; }
     }
 
     // shp-write gera um ZIP com os arquivos .shp/.shx/.dbf/.prj de CADA
@@ -10456,6 +10857,7 @@ function _buildDbfMulti(rows, fields){
 }
 function _geojsonToShp(geo, kind){
   const feats=(geo&&geo.features)||[]; if(!feats.length) return null;
+  const descartes=[];
   const isPoly=g=>g&&(g.type==='Polygon'||g.type==='MultiPolygon');
   const isPt=g=>g&&(g.type==='Point'||g.type==='MultiPoint');
   // descobre campos a exportar (até 12), normalizando nomes p/ DBF
@@ -10471,25 +10873,36 @@ function _geojsonToShp(geo, kind){
   });
   if(kind==='poly'){
     const recs=[], rows=[];
-    feats.forEach(f=>{ if(!isPoly(f.geometry)) return; const rec=_shpRecord(f.geometry); if(!rec) return;
-      recs.push(rec); const row={}; fieldList.forEach(fd=>row[fd.name]=(f.properties||{})[fd.srcKey]); rows.push(row); });
+    feats.forEach((f,fi)=>{
+      if(!isPoly(f.geometry)){ descartes.push('feição '+(fi+1)+' — geometria não suportada para exportação de polígonos'); return; }
+      const rec=_shpRecord(f.geometry);
+      if(!rec){ descartes.push('feição '+(fi+1)+' — geometria inválida/descartada'); return; }
+      recs.push(rec); const row={}; fieldList.forEach(fd=>row[fd.name]=(f.properties||{})[fd.srcKey]); rows.push(row);
+    });
     if(!recs.length) return null;
     const {shp,shx}=_buildShp(recs);
-    return {shp,shx,dbf:_buildDbfMulti(rows,fieldList),prj:PRJ_WGS84};
+    return {shp,shx,dbf:_buildDbfMulti(rows,fieldList),prj:PRJ_WGS84,descartes};
   } else {
     const pts=[], rows=[];
-    feats.forEach(f=>{ const g=f.geometry; if(!isPt(g)) return;
+    feats.forEach((f,fi)=>{
+      const g=f.geometry;
+      if(!isPt(g)){ descartes.push('feição '+(fi+1)+' — geometria não suportada para exportação de pontos'); return; }
       const cs=g.type==='Point'?[g.coordinates]:g.coordinates;
-      cs.forEach(c=>{
-        if(!Array.isArray(c)) return;
+      let validosDaFeicao=0;
+      cs.forEach((c,ci)=>{
+        if(!Array.isArray(c)){ descartes.push('feição '+(fi+1)+' ponto '+(ci+1)+' — coordenada malformada'); return; }
         const x=_coordNum(c[0]), y=_coordNum(c[1]);
-        if(!Number.isFinite(x)||!Number.isFinite(y)||x<-180||x>180||y<-90||y>90) return;
+        if(!Number.isFinite(x)||!Number.isFinite(y)||x<-180||x>180||y<-90||y>90){
+          descartes.push('feição '+(fi+1)+' ponto '+(ci+1)+' — coordenada inválida/fora do WGS84'); return;
+        }
         pts.push([x,y]); const row={}; fieldList.forEach(fd=>row[fd.name]=(f.properties||{})[fd.srcKey]); rows.push(row);
+        validosDaFeicao++;
       });
+      if(!validosDaFeicao && cs.length) descartes.push('feição '+(fi+1)+' — nenhum ponto válido para exportação');
     });
     if(!pts.length) return null;
     const {shp,shx}=_buildShpPoints(pts);
-    return {shp,shx,dbf:_buildDbfMulti(rows,fieldList),prj:PRJ_WGS84};
+    return {shp,shx,dbf:_buildDbfMulti(rows,fieldList),prj:PRJ_WGS84,descartes};
   }
 }
 
@@ -10535,34 +10948,46 @@ async function baixarShpColeta(){
     }
     async function buildTalhaoZip(t){
       const inner=new JSZip();
+      const descartes=[];
       const safe=_normNome(t.nome);
       let okZ=await tryExtractShp(t.zonasUrl, safe+'_zonas', inner);
       if(!okZ && t.zonasGeo){
         const sf=_geojsonToShp(t.zonasGeo,'poly');
-        if(sf){ inner.file(safe+'_zonas.shp',sf.shp); inner.file(safe+'_zonas.shx',sf.shx); inner.file(safe+'_zonas.dbf',sf.dbf); inner.file(safe+'_zonas.prj',sf.prj); okZ=true; }
+        if(sf){ inner.file(safe+'_zonas.shp',sf.shp); inner.file(safe+'_zonas.shx',sf.shx); inner.file(safe+'_zonas.dbf',sf.dbf); inner.file(safe+'_zonas.prj',sf.prj); okZ=true; if(sf.descartes&&sf.descartes.length) descartes.push(...sf.descartes.map(x=>'zonas — '+x)); }
       }
       let okP=await tryExtractShp(t.pontosUrl, safe+'_pontos', inner);
       if(!okP && t.pontosGeo){
         const sf=_geojsonToShp(t.pontosGeo,'point');
-        if(sf){ inner.file(safe+'_pontos.shp',sf.shp); inner.file(safe+'_pontos.shx',sf.shx); inner.file(safe+'_pontos.dbf',sf.dbf); inner.file(safe+'_pontos.prj',sf.prj); okP=true; }
+        if(sf){ inner.file(safe+'_pontos.shp',sf.shp); inner.file(safe+'_pontos.shx',sf.shx); inner.file(safe+'_pontos.dbf',sf.dbf); inner.file(safe+'_pontos.prj',sf.prj); okP=true; if(sf.descartes&&sf.descartes.length) descartes.push(...sf.descartes.map(x=>'pontos — '+x)); }
       }
       if(!okZ && !okP) return null;
       const blob=await inner.generateAsync({type:'blob'});
       const nome='Arquivos SHP para Amostragem de Solo_'+_normNome(meta.cliente)+'_'+_normNome(meta.fazenda)+'_'+safe+'.zip';
-      return {nome, blob};
+      return {nome, blob, descartes};
     }
     const dl=(blob,name)=>{ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(()=>{ try{URL.revokeObjectURL(a.href);}catch(e){} a.remove(); },1500); };
 
     if(talhoes.length===1){
       const z=await buildTalhaoZip(talhoes[0]);
       if(!z){ alert('Não foi possível gerar o shapefile.'); return; }
-      dl(z.blob, z.nome); return;
+      dl(z.blob, z.nome);
+      if(z.descartes&&z.descartes.length){
+        const u=Array.from(new Set(z.descartes));
+        alert('Atenção: '+u.length+' item'+(u.length>1?'ns':'')+' foi/foram excluído(s) da exportação:\n\n• '+u.slice(0,8).join('\n• ')+(u.length>8?'\n• e mais '+(u.length-8):'')+'\n\nConfira o arquivo de origem antes de usar o material no campo.');
+        console.warn('[coleta] feições descartadas na conversão GeoJSON→SHP:',u);
+      }
+      return;
     }
-    const outer=new JSZip(); let ok=0;
-    for(const t of talhoes){ const z=await buildTalhaoZip(t); if(z){ outer.file(z.nome, z.blob); ok++; } }
+    const outer=new JSZip(); let ok=0; const descartesMulti=[];
+    for(const t of talhoes){ const z=await buildTalhaoZip(t); if(z){ outer.file(z.nome, z.blob); ok++; if(z.descartes&&z.descartes.length) descartesMulti.push(...z.descartes.map(x=>t.nome+' — '+x)); } }
     if(!ok){ alert('Não foi possível gerar nenhum shapefile.'); return; }
     const blob=await outer.generateAsync({type:'blob'});
     dl(blob, 'Arquivos SHP para Amostragem de Solo_'+_normNome(meta.cliente)+'_'+_normNome(meta.fazenda)+'.zip');
+    if(descartesMulti.length){
+      const u=Array.from(new Set(descartesMulti));
+      alert('Atenção: '+u.length+' item'+(u.length>1?'ns':'')+' foi/foram excluído(s) de uma ou mais exportações:\n\n• '+u.slice(0,8).join('\n• ')+(u.length>8?'\n• e mais '+(u.length-8):'')+'\n\nConfira os arquivos de origem antes de usar o material no campo.');
+      console.warn('[coleta] feições descartadas na conversão GeoJSON→SHP:',u);
+    }
   }catch(err){ alert('Erro ao baixar: '+err.message); }
 }
 
@@ -11701,7 +12126,7 @@ function ensureCompareMap(){
   if(S.compare.map2) return;
   const m = L.map('map2',{zoomControl:true});
   const baseLayers = {
-    mapa: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{attribution:'© OSM © CartoDB',subdomains:'abcd',maxZoom:20,crossOrigin:true}),
+    mapa: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19,maxNativeZoom:19,crossOrigin:true}),
     satelite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{attribution:'© Esri',maxZoom:20,maxNativeZoom:17,crossOrigin:true})
   };
   baseLayers[S.activeBase || 'mapa'].addTo(m);
