@@ -1335,13 +1335,19 @@ function autoPalette(colName){
   // Não pega "Alumínio"/"Alcalinidade" (vem letra depois) — o primeiro já é
   // tratado por termosAcidez, o segundo corretamente fica de fora.
   const isAl = cargaAlNa || unidAlNa || termosAcidez || satAl || /^al([^a-z]|$)/.test(naS) || /^na([^a-z]|$)/.test(naS);
+  // Acidez ativa/potencial por H: "H+" e "H%" -> rampa invertida (alto = ruim).
+  // Casamento EXATO sobre o nome normalizado: não pega "pH (H2O)", "H+Al"
+  // (este já cai em termosAcidez) nem "H (cmolc)" — esse, se aparecer, entra
+  // pela variante abaixo com unidade de acidez.
+  const isH = na==='h%' || na==='h+'
+           || /^h[^a-z]{0,4}(cmol|meq|mmol)/.test(na);
   // Saturação por alumínio (m, m%, m³)
   const isSatM =
        ns==='m' || ns==='m%' || /^m[³²]/.test(ns)
     || /^m(\s|$|%)/.test(raw)
     || /^m(cmol|meq|mmol)/.test(na);
 
-  if(isAl || isSatM)
+  if(isAl || isSatM || isH)
     return {pal:'rdylgn', invert:true};
   return null;
 }
