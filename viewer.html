@@ -7123,9 +7123,20 @@ function _satAplicarUIIndice(c){
 }
 
 async function renderSatelite(){
-  if(S.mapMode!=='satelite' || S.sat.carregando) return;
+  if(S.mapMode!=='satelite') return;
+  // FIX-113: antes, qualquer troca de captura durante um carregamento era
+  // simplesmente DESCARTADA (return). Ao gerar 2 ou 3 médias seguidas, a
+  // seleção mudava enquanto a 1ª ainda carregava e a tela continuava
+  // mostrando a primeira imagem. Agora a última seleção fica pendente e é
+  // renderizada assim que o carregamento em curso termina; renderizações
+  // obsoletas são abandonadas antes de tocar no mapa.
+  if(S.sat.carregando){ S.sat._renderPendente=true; return; }
   const c=S.sat.capturas[S.sat.atual];
   if(!c) return;
+  const _idxSel=S.sat.atual;
+  const _seq=(S.sat._renderSeq=(S.sat._renderSeq||0)+1);
+  const _obsoleto=()=>(S.sat._renderSeq!==_seq || S.sat.atual!==_idxSel);
+  S.sat._renderPendente=false;
   S.sat.carregando=true;
   const info=document.getElementById('sat-info');
   if(info) info.textContent='Carregando imagem…';
@@ -7150,6 +7161,7 @@ async function renderSatelite(){
       c._ndmiMedio = media(_satValoresValidos(gr,1,mask));
     }
 
+    if(_obsoleto()) return; // seleção mudou durante o carregamento
     if(S.sat.overlay){ try{ S.map.removeLayer(S.sat.overlay); }catch(e){} S.sat.overlay=null; }
     const bounds=L.latLngBounds([[gr.ymin,gr.xmin],[gr.ymax,gr.xmax]]);
     S.sat.overlay=L.imageOverlay(canvas.toDataURL('image/png'), bounds, { opacity:S.sat.opacidade, interactive:false }).addTo(S.map);
@@ -7193,6 +7205,12 @@ async function renderSatelite(){
   }finally{
     S.sat.carregando=false;
     renderSatLegenda();
+    // FIX-113: se o usuário trocou de imagem enquanto esta carregava,
+    // renderiza agora a seleção mais recente.
+    if(S.sat._renderPendente || S.sat.atual!==_idxSel){
+      S.sat._renderPendente=false;
+      setTimeout(()=>{ try{ renderSatelite(); }catch(e){ console.warn('[sat] re-render pendente:', e); } },0);
+    }
   }
 }
 
@@ -10308,7 +10326,7 @@ function _satLimparCamada(){
 
 (function _satLigarControles(){
   const on=(id,ev,fn)=>{ const el=document.getElementById(id); if(el) el.addEventListener(ev,fn); };
-  on('sel-sat-data','change',function(){ S.sat.atual=+this.value; renderSatelite(); });
+  on('sel-sat-data','change',function(){ S.sat.atual=+this.value; S.sat._renderPendente=true; renderSatelite(); });
   on('sel-sat-idx','change',function(){ S.sat.idx=this.value; renderSatelite(); });
   on('sel-sat-modo','change',function(){ S.sat.modo=this.value; renderSatelite(); });
   const satLblTgl=document.getElementById('sat-labels-toggle');
