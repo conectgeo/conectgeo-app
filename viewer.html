@@ -1703,10 +1703,13 @@ function parseXLSX(buf){
 //                mas em lavoura uniforme o mapa fica quase todo de uma cor.
 const SAT_PAL = {
   evi:  ['#f01b1e','#f6990d','#f8ff13','#15d922','#19953e'],  // igual à paleta rdylgn já usada
-  ndmi: ['#f01b1e','#f6990d','#f7f4b0','#8fd18a','#3498db']   // termina em azul (água)
+  ndmi: ['#f01b1e','#f6990d','#f7f4b0','#8fd18a','#3498db'],  // termina em azul (água)
+  // FIX-113: índice composto das composições "Média de Safras" (EVI + NDMI).
+  // Mesma rampa do EVI (vermelho→verde): é um índice de vigor, não de umidade.
+  iv:   ['#f01b1e','#f6990d','#f8ff13','#15d922','#19953e']
 };
 // faixas fixas do modo absoluto (valores típicos de lavoura)
-const SAT_FIXO = { evi:[0.00,0.80], ndmi:[-0.20,0.60] };
+const SAT_FIXO = { evi:[0.00,0.80], ndmi:[-0.20,0.60], iv:[-0.10,0.60] };
 
 // Saturação 0-100 → percentil de corte 0-10% em cada ponta.
 // 0 = min/máx puro (sem corte) · 20 = 2% (padrão do QGIS) · 100 = 10%
@@ -6690,6 +6693,10 @@ async function satMediaExecutar(){
     mes_inicio:+(document.getElementById('sm-mes-ini')||{}).value||null,
     mes_fim:+(document.getElementById('sm-mes-fim')||{}).value||null,
     indice:(document.getElementById('sm-indice')||{}).value||'evi_ndmi',
+    // FIX-113: identificador único da execução. A Edge usa isso no nome do
+    // arquivo, então duas médias nunca gravam no MESMO .tif do Storage
+    // (era por isso que a 2ª média mostrava a imagem da 1ª).
+    req_id:'r'+Date.now().toString(36)+Math.random().toString(36).slice(2,7),
     nuvem_max:+(document.getElementById('sm-nuvem')||{}).value||30,
     cobertura_min:+(document.getElementById('sm-cob')||{}).value||80,
     datas:manual.length?manual:null
@@ -7093,6 +7100,28 @@ function _satPintarCanvas(gr, idx, modo, saturacao){
   return { canvas:cv, lo, hi, vals };
 }
 
+// FIX-113: qual índice REALMENTE está sendo pintado.
+// Numa captura normal quem manda é o seletor "Índice". Numa composição de
+// Média de Safras a banda 0 do GeoTIFF já é o resultado escolhido no modal
+// (EVI médio ou IV composto) — o seletor não se aplica e estava fazendo a
+// imagem e a legenda mostrarem outro índice que não o da média.
+function _satIdxEfetivo(c){
+  if(c && c.media){
+    const im=(c.meta&&c.meta.indice)||'';
+    return (im==='evi')?'evi':'iv';
+  }
+  return S.sat.idx;
+}
+function _satRotuloIdx(idx){
+  return (idx==='evi')?'EVI':(idx==='ndmi'?'NDMI':(idx==='iv'?'IV composto':String(idx||'').toUpperCase()));
+}
+// Esconde o bloco "Índice" quando a imagem exibida é uma média (não há o que
+// escolher) e mostra de volta nas capturas normais.
+function _satAplicarUIIndice(c){
+  const sec=document.getElementById('sec-sat-idx');
+  if(sec) sec.style.display=(c&&c.media)?'none':'';
+}
+
 async function renderSatelite(){
   if(S.mapMode!=='satelite' || S.sat.carregando) return;
   const c=S.sat.capturas[S.sat.atual];
@@ -7105,7 +7134,10 @@ async function renderSatelite(){
     const gr=await _satRasterDaCaptura(c);
     if(!isFinite(gr.xmin)||!isFinite(gr.ymin)||!isFinite(gr.xmax)||!isFinite(gr.ymax)) throw new Error('GeoTIFF sem georreferenciamento reconhecível.');
 
-    const { canvas, lo, hi, vals } = _satPintarCanvas(gr, S.sat.idx, S.sat.modo, S.sat.saturacao);
+    const _idxEf=_satIdxEfetivo(c);
+    S.sat.idxEfetivo=_idxEf;
+    _satAplicarUIIndice(c);
+    const { canvas, lo, hi, vals } = _satPintarCanvas(gr, _idxEf, S.sat.modo, S.sat.saturacao);
     S.sat.lo=lo; S.sat.hi=hi;
 
     // médias dos índices DENTRO do talhão (máscara exclui mata/estrada do
@@ -10222,10 +10254,14 @@ async function satDownloadGerar(){
 }
 
 function renderSatLegenda(){
+  // FIX-113: a legenda tem que refletir o índice realmente pintado
+  // (nas médias, o do modal — não o do seletor "Índice").
+  const _c=(S.sat.capturas||[])[S.sat.atual];
+  const _idx=(_c&&_c.media)?_satIdxEfetivo(_c):(S.sat.idxEfetivo||S.sat.idx);
   const box=document.getElementById('sat-legenda');
   const boxMap=document.getElementById('sat-legenda-map'); // FIX 7: versão flutuante sobre o mapa
 
-  if(S.sat.idx==='rgb'){
+  if(_idx==='rgb'){
     if(box) box.innerHTML='<div style="font-size:12px;color:var(--muted);line-height:1.5">Cor natural — composição direta de vermelho, verde e azul. Sem escala de valores.</div>';
     if(boxMap) boxMap.style.display='none'; // cor natural não tem escala numérica
     const av=document.getElementById('sat-aviso');
@@ -10237,8 +10273,8 @@ function renderSatLegenda(){
     const sl=document.getElementById('sl-sat-sat'); if(sl) sl.disabled=(S.sat.modo==='absoluto');
     return;
   }
-  const casas=(S.sat.idx==='ndmi')?2:2;
-  const marcas=_satLegenda(S.sat.lo, S.sat.hi, S.sat.idx, casas);
+  const casas=2;
+  const marcas=_satLegenda(S.sat.lo, S.sat.hi, _idx, casas);
   if(box){
     // ordem visual: melhor em cima
     box.innerHTML=marcas.slice().reverse().map(m=>
@@ -10247,7 +10283,7 @@ function renderSatLegenda(){
   }
   // FIX 7: espelha na legenda flutuante sobre o mapa (estilo OneSoil)
   if(boxMap){
-    const titulo = (S.sat.idx==='evi') ? 'EVI' : (S.sat.idx==='ndmi' ? 'NDMI' : String(S.sat.idx||'').toUpperCase());
+    const titulo = _satRotuloIdx(_idx) + ((_c&&_c.media)?' · média':'');
     boxMap.innerHTML =
       '<div class="slm-title">'+titulo+'</div>' +
       marcas.slice().reverse().map(m=>
