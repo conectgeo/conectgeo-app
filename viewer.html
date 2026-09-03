@@ -6709,7 +6709,7 @@ async function satMediaExecutar(){
     if(!data.raw_url) throw new Error('A função respondeu sem a imagem média (raw_url).');
     S.satMedia.resultado=data;
     satMediaMostrarRelatorio(data);
-    satMediaInjetarCaptura(data);
+    satMediaInjetarCaptura(data, { manual:manual.length>0, indice:corpo.indice });
     if(status) status.textContent='Imagem média gerada e carregada no mapa.';
   }catch(e){
     console.warn('[satMedia] falha:', e);
@@ -6720,12 +6720,29 @@ async function satMediaExecutar(){
   }
 }
 
+/* FIX-110b: a Edge Function pode devolver a lista de cenas com nomes
+   diferentes (cenas_usadas / usadas / cenas / scenes...). Sem isso o
+   relatorio mostrava "0 cena(s) usada(s)" mesmo com a imagem gerada. */
+function _smLista(d, chaves){
+  for(const k of chaves){
+    const v = d && d[k];
+    if(Array.isArray(v)) return v;
+    if(v && Array.isArray(v.itens)) return v.itens;
+  }
+  return null;
+}
+function _smContagem(d, chaves){
+  for(const k of chaves){ const v=d&&d[k]; if(typeof v==='number' && isFinite(v)) return v; }
+  return null;
+}
 function satMediaMostrarRelatorio(d){
   const rel=document.getElementById('sm-relatorio'); if(!rel) return;
-  const usadas=Array.isArray(d.cenas_usadas)?d.cenas_usadas:[];
-  const desc=Array.isArray(d.cenas_descartadas)?d.cenas_descartadas:[];
+  const usadas=_smLista(d,['cenas_usadas','usadas','cenas','scenes','cenas_utilizadas','imagens'])||[];
+  const desc=_smLista(d,['cenas_descartadas','descartadas','ignoradas','skipped'])||[];
+  const nUsadas=usadas.length || _smContagem(d,['n_cenas','total_cenas','qtd_cenas','count','n_usadas']);
+  const nDesc=desc.length || _smContagem(d,['n_descartadas','qtd_descartadas']) || 0;
   let h='<div style="font-size:11.5px;font-weight:700;color:var(--accent2);">Relatório da composição</div>';
-  h+='<div style="font-size:11px;color:var(--muted);margin-top:3px;">'+usadas.length+' cena(s) usada(s) · '+desc.length+' descartada(s)';
+  h+='<div style="font-size:11px;color:var(--muted);margin-top:3px;">'+((nUsadas==null)?'quantidade de cenas não informada pelo serviço':(nUsadas+' cena(s) usada(s) · '+nDesc+' descartada(s)'));
   if(d.periodo) h+=' · período '+_smEsc(d.periodo);
   if(d.janela) h+=' · janela '+_smEsc(d.janela);
   h+='</div>';
@@ -6755,12 +6772,23 @@ function satMediaMostrarRelatorio(d){
 
 // Injeta o resultado como uma "captura" sintética: mesmo formato de banda,
 // então o render, o download e a geração de zonas usam o caminho já testado.
-function satMediaInjetarCaptura(d){
-  const rotulo='📊 Média'+(d.periodo?(' '+d.periodo):'')+(d.cenas_usadas?(' · '+d.cenas_usadas.length+' cenas'):'');
-  const entrada={ data:(d.data_fim||d.data_captura||_smISO(new Date())), nuvem:null, url:d.raw_url,
+function satMediaInjetarCaptura(d, ctx){
+  /* FIX-110c: a Edge Function pode devolver a MESMA raw_url para composicoes
+     diferentes (nome de arquivo deterministico). Antes, a 2a media (manual)
+     substituia a 1a e o mapa continuava mostrando o raster em cache.
+     Agora cada execucao vira uma entrada unica, com rotulo distinto e
+     cache-busting na URL. */
+  const cUsadas=_smLista(d,['cenas_usadas','usadas','cenas','scenes','cenas_utilizadas','imagens']);
+  const nCenas=(cUsadas?cUsadas.length:null) || _smContagem(d,['n_cenas','total_cenas','qtd_cenas','count','n_usadas']);
+  const modo=(ctx&&ctx.manual)?'manual':'automática';
+  const idxLabel=((d.indice==='evi')||(ctx&&ctx.indice==='evi'))?'EVI':'IV';
+  const hora=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  const rotulo='📊 Média '+idxLabel+(d.periodo?(' '+d.periodo):'')+' · '+modo+(nCenas?(' · '+nCenas+' cenas'):'')+' · '+hora;
+  let url=String(d.raw_url||'');
+  url += (url.indexOf('?')>=0?'&':'?')+'_mv='+Date.now();
+  const entrada={ data:(d.data_fim||d.data_captura||_smISO(new Date())), nuvem:null, url:url,
                   versao:(d.versao||SAT_VERSAO), media:true, rotulo:rotulo, meta:d };
-  const idx=S.sat.capturas.findIndex(c=>c.media && c.url===d.raw_url);
-  if(idx>=0) S.sat.capturas[idx]=entrada; else S.sat.capturas.unshift(entrada);
+  S.sat.capturas.unshift(entrada);
   const sel=document.getElementById('sel-sat-data');
   if(sel){
     sel.innerHTML=S.sat.capturas.map((c,i)=>{
@@ -12654,7 +12682,7 @@ document.getElementById('sel-depth-right').addEventListener('change',function(){
     <div style="margin-top:12px;display:grid;grid-template-columns:1fr;gap:8px;">
       <label class="sm-campo"><span>&#205;ndice de sa&#237;da</span>
         <select id="sm-indice">
-          <option value="evi_ndmi">IV composto &#8212; (EVI + NDMI) / 2</option>
+          <option value="evi_ndmi">IV composto &#8212; EVI + NDMI</option>
           <option value="evi">M&#233;dia EVI</option>
         </select></label>
     </div>
