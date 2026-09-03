@@ -6789,6 +6789,11 @@ function satMediaInjetarCaptura(d, ctx){
   const entrada={ data:(d.data_fim||d.data_captura||_smISO(new Date())), nuvem:null, url:url,
                   versao:(d.versao||SAT_VERSAO), media:true, rotulo:rotulo, meta:d };
   S.sat.capturas.unshift(entrada);
+  // FIX-111: baixa os bytes desta média AGORA, antes que uma próxima execução
+  // possa sobrescrever o mesmo arquivo no Storage.
+  entrada._bufPromessa = _satBaixarBytes(url)
+    .then(b=>{ entrada._buf=b; })
+    .catch(e=>{ console.warn('[satMedia] pré-download da média falhou (segue pela URL):', e); });
   const sel=document.getElementById('sel-sat-data');
   if(sel){
     sel.innerHTML=S.sat.capturas.map((c,i)=>{
@@ -6877,6 +6882,32 @@ async function _satCarregarRaster(url){
   const gr=await _parse(buf);
   S.sat._gr=gr; S.sat._url=url;
   return gr;
+}
+
+// FIX-111: cada captura de MÉDIA guarda o próprio raster.
+// A Edge Function pode gravar composições diferentes no MESMO arquivo do
+// Storage (nome determinístico) e o CDN pode ignorar o parâmetro de
+// cache-busting — resultado: a 2ª e a 3ª média mostravam a imagem da 1ª.
+// Agora os bytes da média são baixados na hora em que ela é gerada
+// (satMediaInjetarCaptura) e guardados na própria entrada da lista, e o
+// georaster parseado fica em cache POR ENTRADA, nunca por URL.
+async function _satRasterDaCaptura(c){
+  if(!c) throw new Error('captura inexistente');
+  if(c._grEntrada) return c._grEntrada;
+  if(!c.media) return _satCarregarRaster(c.url);
+  const _parse=(typeof parseGeoraster!=='undefined')?parseGeoraster:(window.parseGeoraster||window.parseGeoRaster);
+  if(!_parse) throw new Error('biblioteca georaster indisponível');
+  let buf=c._buf;
+  if(!buf) buf=await _satBaixarBytes(c.url);
+  const gr=await _parse(buf);
+  c._grEntrada=gr; c._buf=null; // libera os bytes crus; o parseado basta
+  return gr;
+}
+
+async function _satBaixarBytes(url){
+  const r=await fetch(url, { cache:'no-store' });
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.arrayBuffer();
 }
 
 // junta os valores válidos da banda do índice, para calcular os percentis
@@ -7070,7 +7101,8 @@ async function renderSatelite(){
   const info=document.getElementById('sat-info');
   if(info) info.textContent='Carregando imagem…';
   try{
-    const gr=await _satCarregarRaster(c.url);
+    if(c._bufPromessa){ try{ await c._bufPromessa; }catch(e){} }
+    const gr=await _satRasterDaCaptura(c);
     if(!isFinite(gr.xmin)||!isFinite(gr.ymin)||!isFinite(gr.xmax)||!isFinite(gr.ymax)) throw new Error('GeoTIFF sem georreferenciamento reconhecível.');
 
     const { canvas, lo, hi, vals } = _satPintarCanvas(gr, S.sat.idx, S.sat.modo, S.sat.saturacao);
@@ -7119,7 +7151,7 @@ async function renderSatelite(){
     // corrompido — ex: uma data que falhou no processamento e ficou gravada
     // errada no banco), o cache não pode segurar o estado ruim, senão nem
     // reprocessar resolve na mesma sessão.
-    S.sat._gr=null; S.sat._url=null;
+    S.sat._gr=null; S.sat._url=null; try{ c._grEntrada=null; }catch(_e){}
     if(info){
       const dataIso=c.data;
       info.innerHTML='<span style="color:var(--danger)">Não consegui abrir esta imagem'
@@ -9661,6 +9693,35 @@ function _satZonasParaGeoJSON(){
 // usa: Storage (bucket "arquivos") + RPC atualizar_nutrientes. É assim que
 // as zonas desenhadas aqui "viram oficiais" pras outras abas — sem
 // precisar de nenhum mecanismo novo no banco.
+// FIX-112: resolução robusta do id do talhão a partir do token do link.
+// Antes só olhávamos S.linkData.talhao_id e uma coluna "token" em talhoes
+// (que não existe) — por isso o salvamento das zonas avisava "não foi
+// possível identificar o talhão" e os hectares/nº de zonas não atualizavam
+// no painel depois de editar uma zona. Agora tentamos, em ordem:
+// 1) o que já veio do get_link_data (vários nomes possíveis);
+// 2) a view de links (token -> talhao_id);
+// 3) o join talhoes x links_view.
+// O resultado é memorizado em S.linkData para os próximos salvamentos.
+async function _resolverTalhaoId(){
+  const ld=S.linkData||{};
+  let id = ld.talhao_id || ld.talhaoId || ld.id_talhao ||
+           (ld.talhao && (ld.talhao.id || ld.talhao.talhao_id)) || null;
+  if(id) return id;
+  if(!sb || !S.tokenAtual) return null;
+  try{
+    const q=await sb.from('links_view').select('talhao_id').eq('token', S.tokenAtual).limit(1);
+    if(q && !q.error && q.data && q.data[0] && q.data[0].talhao_id) id=q.data[0].talhao_id;
+  }catch(e){ console.warn('[talhao_id] links_view indisponível:', e); }
+  if(!id){
+    try{
+      const q2=await sb.from('talhoes').select('id,links_view!inner(token)').eq('links_view.token', S.tokenAtual).limit(1);
+      if(q2 && !q2.error && q2.data && q2.data[0]) id=q2.data[0].id;
+    }catch(e){ console.warn('[talhao_id] join talhoes x links_view indisponível:', e); }
+  }
+  if(id && S.linkData) S.linkData.talhao_id=id;
+  return id||null;
+}
+
 async function satZonasSalvarOficial(){
   const status=document.getElementById('satz-status');
   if(!sb || !S.tokenAtual){ if(status) status.textContent='Sem conexão para salvar.'; return; }
@@ -9718,14 +9779,7 @@ async function satZonasSalvarOficial(){
       // SILÊNCIO (hectares/zonas ficavam desatualizados no dashboard sem
       // ninguém perceber). Agora tenta resolver o id por caminhos alternativos
       // e, se ainda assim não der (ou o update falhar), AVISA na tela.
-      let _talhaoId = (S.linkData && (S.linkData.talhao_id || S.linkData.talhaoId)) || null;
-      if(!_talhaoId && S.linkData && S.linkData.talhao && S.linkData.talhao.id) _talhaoId = S.linkData.talhao.id;
-      if(!_talhaoId && sb && S.tokenAtual){
-        try{
-          const q=await sb.from('talhoes').select('id').eq('token', S.tokenAtual).limit(1);
-          if(q && !q.error && q.data && q.data[0]) _talhaoId=q.data[0].id;
-        }catch(e){ console.warn('[satZonas] não foi possível resolver talhao_id pelo token:', e); }
-      }
+      const _talhaoId = await _resolverTalhaoId();
       if(_talhaoId){
         try{
           const upd = await sb.from('talhoes').update({
@@ -9734,7 +9788,13 @@ async function satZonasSalvarOficial(){
             zonas_geojson_url: url
           }).eq('id', _talhaoId);
           if(upd && upd.error) throw new Error(upd.error.message);
-          if(S.linkData){ S.linkData.talhao_id=_talhaoId; S.linkData.zonas_geojson_url=url; }
+          if(S.linkData){
+            S.linkData.talhao_id=_talhaoId;
+            S.linkData.zonas_geojson_url=url;
+            S.linkData.hectares=Math.round(totalHa*100)/100;
+            S.linkData.zonas=geojson.features.length;
+          }
+          try{ if(typeof _renderCabecalho==='function') _renderCabecalho(); }catch(e){}
         }catch(e){
           console.warn('[satZonas] update de hectares falhou:', e);
           toast('Zonas salvas, mas os totais do talhão (hectares/nº de zonas) não foram atualizados no painel.', 'wrn');
@@ -10105,7 +10165,7 @@ async function satDownloadGerar(){
     // ══ GeoTIFF: um arquivo por índice, valores brutos (do .tif em cache) ══
     if(fmt==='geotiff'){
       status.textContent='Carregando dados brutos…';
-      const gr=await _satCarregarRaster(c.url);
+      const gr=await _satRasterDaCaptura(c);
       const listaIdx = (idx==='todos') ? ['evi','ndmi','rgb'] : [idx];
 
       if(listaIdx.length===1){
@@ -10131,7 +10191,7 @@ async function satDownloadGerar(){
 
     // ══ JPEG colorido: pinta o índice num canvas (com upscale) ══
     status.textContent='Renderizando…';
-    const gr=await _satCarregarRaster(c.url);
+    const gr=await _satRasterDaCaptura(c);
 
     if(idx==='todos'){
       // gera os três e empacota num zip
