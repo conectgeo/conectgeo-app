@@ -348,7 +348,7 @@ body.mode-sat #painel-coleta,body.mode-sat #painel-rec,body.mode-sat #view-banne
 .sat-cal-dia.carregando{opacity:.5;cursor:wait;}
 .sat-cal-dia.sel-media{outline:3px solid #6cb32d;outline-offset:1px;box-shadow:0 0 0 2px #fff inset;}
 .sm-campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted);}
-.sm-campo input,.sm-campo select{padding:7px 8px;border:1.5px solid var(--sand2);border-radius:8px;font-size:12.5px;font-weight:600;background:#fff;}
+.sm-campo input,.sm-campo select{padding:7px 8px;border:1.5px solid var(--leaf);border-radius:8px;font-size:12.5px;font-weight:600;color:var(--accent2);background:#fff;cursor:pointer;}
 .sm-cena{display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px dashed var(--sand2);}
 /* dia com estatística: empilha número em cima, EVI embaixo */
 .sat-cal-dia.tem-evi{flex-direction:column;gap:0;line-height:1;padding:2px 0;}
@@ -828,13 +828,13 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="sec" id="sec-sat-src">
     <div class="sec-label"><span class="txt"><span class="sec-num"></span>Imagem</span></div>
     <!-- Botão principal em DESTAQUE no topo -->
-    <button type="button" onclick="satCalAbrir()" style="width:100%;padding:11px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:13px;cursor:pointer;box-shadow:0 2px 6px rgba(108,179,45,.25);">🔍 Busca de Imagens</button>
-    <button type="button" onclick="satMediaAbrir()" style="width:100%;margin-top:7px;padding:10px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12.5px;cursor:pointer;">📊 Média de Safras</button>
+    <button type="button" onclick="satCalAbrir()" style="width:100%;padding:11px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:13px;cursor:pointer;box-shadow:0 2px 6px rgba(108,179,45,.25);">Busca de Imagens</button>
+    <button type="button" onclick="satMediaAbrir()" style="width:100%;margin-top:7px;padding:10px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12.5px;cursor:pointer;">Média de Safras</button>
     <!-- Campo de imagens carregadas fica embaixo -->
     <div class="ctrl" style="margin-top:10px;"><select id="sel-sat-data"></select></div>
     <div id="sat-empty" style="font-size:12px;color:var(--muted);margin-top:6px;display:none"></div>
     <div id="sat-info" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
-    <button type="button" id="btn-sat-download" onclick="satDownloadAbrir()" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer;display:none">⬇️ Baixar esta imagem</button>
+    <button type="button" id="btn-sat-download" onclick="satDownloadAbrir()" style="margin-top:7px;width:100%;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);font-weight:700;font-size:12.5px;color:var(--accent2);cursor:pointer;display:none"><span style="display:inline-flex;align-items:center;gap:7px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Baixar esta imagem</span></span></button>
     <!-- Toggle: mostrar/ocultar overlay Sentinel no mapa (sem apagar do cache) -->
     <button type="button" id="btn-sat-toggle" onclick="satOverlayToggle()" title="Oculta o overlay da imagem satélite pra ver melhor as zonas / basemap por baixo" style="display:none;"></button>
     <div class="invert-row" id="sat-overlay-row" style="display:none;">
@@ -871,7 +871,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="sec" id="sec-sat-zonas">
   <!-- Zonas de manejo — desenho manual sobre a imagem de satélite (Fase 1) -->
   <div class="sec-label"><span class="txt"><span class="sec-num"></span>Zonas de manejo</span></div>
-  <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">✏️ Criar/Editar</button>
+  <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">Criar/Editar</button>
   <div id="satz-ref-aviso" class="satz-ref-aviso" style="display:none;">
     <span>Contorno tracejado = perímetro cadastrado, só referência.</span>
     <button type="button" onclick="satZonasReferenciaDispensar()">Ocultar</button>
@@ -890,7 +890,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div style="font-size:10.5px;color:var(--muted);margin-top:4px;display:none;" id="satz-dica-editar">Toque no ✎ de uma zona na lista pra arrastar os vértices dela direto no mapa. Segure Ctrl e clique em zonas no mapa pra selecionar várias e mesclar.</div>
     <div id="satz-lista" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;max-height:320px;overflow-y:auto;padding-right:2px;"></div>
     <div id="satz-vazio" style="font-size:11.5px;color:var(--muted);margin-top:6px;">Nenhuma zona desenhada ainda.</div>
-    <button type="button" id="btn-satz-salvar" onclick="satZonasSalvarOficial()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;display:none">💾 Salvar como zonas oficiais</button>
+    <button type="button" id="btn-satz-salvar" onclick="satZonasSalvarOficial()" style="margin-top:10px;width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;display:none">Salvar como zonas oficiais</button>
     <div id="satz-status" style="font-size:11px;color:var(--muted);margin-top:8px;min-height:14px;"></div>
   </div>
   </div>
@@ -950,7 +950,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     </div>
 
     <!-- FASE 6: botão único (verde grande, no lugar do antigo "Ocultar rótulos") -->
-    <button type="button" id="btn-pontos-gerar" onclick="pontosGerarAcao()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;margin-bottom:10px;">✏️ Criar/Editar</button>
+    <button type="button" id="btn-pontos-gerar" onclick="pontosGerarAcao()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;margin-bottom:10px;">Criar/Editar</button>
 
     <!-- FASE 7: lista de pontos com max-height + scroll (já tinha, mantido) -->
     <div id="pontos-lista" style="display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto;"></div>
@@ -960,7 +960,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div id="pontos-rodape" style="display:none;margin-top:10px;">
       <button type="button" onclick="pontosLimparTodos()" style="width:100%;margin-top:0;padding:8px;border:1.5px solid #e0c8c4;border-radius:8px;background:#fff;font-weight:700;font-size:11.5px;color:var(--danger);cursor:pointer;">🗑️ Limpar todos</button>
       <!-- FASE 9: botão "Confirmar/Salvar Pontos" (verde, igual "Salvar zonas oficiais") -->
-      <button type="button" id="btn-pontos-confirmar" onclick="pontosConfirmarSalvar()" style="width:100%;margin-top:8px;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;">✓ Confirmar Pontos</button>
+      <button type="button" id="btn-pontos-confirmar" onclick="pontosConfirmarSalvar()" style="width:100%;margin-top:8px;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;">Confirmar Pontos</button>
     </div>
     <!-- botão legado (oculto) — mantido pra não quebrar código antigo que ainda referencia -->
     <button type="button" id="btn-pontos-legenda" onclick="pontosLegendaToggle()" style="display:none;"></button>
@@ -975,7 +975,11 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
         <strong style="font-size:14.5px;">Baixar imagem</strong>
         <span onclick="satDownloadFechar()" style="cursor:pointer;font-size:18px;color:var(--muted);line-height:1;padding:2px 4px;">✕</span>
       </div>
-      <div id="sat-dl-data" style="font-size:11px;color:var(--muted);margin-bottom:14px;">—</div>
+      <div id="sat-dl-data" style="font-size:11px;color:var(--muted);margin-bottom:10px;">—</div>
+      <div class="dl-grupo" id="dl-grupo-captura" style="display:none;">
+        <div class="dl-titulo">Imagem</div>
+        <select id="sat-dl-captura" onchange="satDownloadTrocarImagem()" style="width:100%;padding:9px 10px;border:1.5px solid var(--leaf);border-radius:8px;background:#fff;font-size:12.5px;color:var(--ink);font-weight:600;"></select>
+      </div>
 
       <div class="dl-grupo">
         <div class="dl-titulo">Formato</div>
@@ -7759,7 +7763,7 @@ function pontosModoSelecionar(modo){
     if(modo==='manual'){
       btnG.textContent = S.pontos._manualAtivo ? '✕ Sair do modo manual' : '🎯 Ativar modo manual';
     } else {
-      btnG.textContent = '✏️ Criar/Editar';
+      btnG.textContent = 'Criar/Editar';
     }
   }
 }
@@ -8681,11 +8685,32 @@ async function exportarArquivosColeta(){
 // contém todas as bandas) — então baixa o .tif uma vez só.
 // ─────────────────────────────────────────────────────────────────
 
+function _satDlRotulo(c){
+  if(!c) return '—';
+  if(c.rotulo) return c.rotulo;
+  const p=String(c.data).split('-');
+  if(p.length===3) return 'Imagem de '+p[2]+'/'+p[1]+'/'+p[0]+(c.nuvem!=null?(' · '+Math.round(c.nuvem)+'% nuvem'):'');
+  return String(c.data);
+}
+function satDownloadTrocarImagem(){
+  const sel=document.getElementById('sat-dl-captura');
+  const lbl=document.getElementById('sat-dl-data');
+  const c=S.sat.capturas[sel?+sel.value:S.sat.atual];
+  if(lbl) lbl.textContent=_satDlRotulo(c);
+}
 function satDownloadAbrir(){
   const c=S.sat.capturas[S.sat.atual];
   if(!c){ toast('Abra uma imagem primeiro.','wrn'); return; }
+  // seletor de imagem: aparece quando há mais de uma (ex.: várias médias de safras)
+  const sel=document.getElementById('sat-dl-captura');
+  const grp=document.getElementById('dl-grupo-captura');
+  if(sel){
+    sel.innerHTML=S.sat.capturas.map((cc,i)=>'<option value="'+i+'">'+_smEsc(_satDlRotulo(cc))+'</option>').join('');
+    sel.value=String(S.sat.atual);
+    if(grp) grp.style.display = S.sat.capturas.length>1 ? '' : 'none';
+  }
   const lbl=document.getElementById('sat-dl-data');
-  if(lbl){ const [a,m,d]=String(c.data).split('-'); lbl.textContent='Imagem de '+d+'/'+m+'/'+a+(c.nuvem!=null?(' · '+Math.round(c.nuvem)+'% nuvem'):''); }
+  if(lbl) lbl.textContent=_satDlRotulo(c);
   // índice inicial = o que está em tela
   const radioIdx=document.querySelector('input[name="dl-indice"][value="'+(S.sat.idx||'evi')+'"]');
   if(radioIdx) radioIdx.checked=true;
@@ -9017,7 +9042,7 @@ function satZonasParar(){
   const btn=document.getElementById('btn-satz-alternar');
   // Volta ao verde sólido, igual aos demais botões principais do layout.
   if(btn){
-    btn.textContent='✏️ Criar/Editar';
+    btn.textContent='Criar/Editar';
     btn.style.background='var(--leaf)';
     btn.style.color='#fff';
     btn.style.border='none';
@@ -10199,15 +10224,17 @@ function _satGerarGeoTiffIndice(gr, idx){
 }
 
 async function satDownloadGerar(){
-  const c=S.sat.capturas[S.sat.atual];
+  const sel=document.getElementById('sat-dl-captura');
+  const c=S.sat.capturas[sel?+sel.value:S.sat.atual];
   if(!c) return;
   const status=document.getElementById('sat-dl-status');
   const btn=document.getElementById('btn-sat-dl-gerar');
   const fmt=(document.querySelector('input[name="dl-formato"]:checked')||{}).value;
   const idx=(document.querySelector('input[name="dl-indice"]:checked')||{}).value;
   const comZonas=(document.querySelector('input[name="dl-zonas"]:checked')||{}).value==='sim';
-  const [a,m,d]=String(c.data).split('-');
-  const dataTag=a+m+d;
+  const pData=String(c.data).split('-');
+  const dataTag=(pData.length===3)?(pData[0]+pData[1]+pData[2])
+    :('media_'+String(c.rotulo||c.data).replace(/[^0-9A-Za-z]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40));
   try{
     btn.disabled=true; status.textContent='Preparando…';
     const zonasSuffix=comZonas?'_zonas':'';
