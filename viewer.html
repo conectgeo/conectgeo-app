@@ -348,7 +348,7 @@ body.mode-sat #painel-coleta,body.mode-sat #painel-rec,body.mode-sat #view-banne
 .sat-cal-dia.carregando{opacity:.5;cursor:wait;}
 .sat-cal-dia.sel-media{outline:3px solid #6cb32d;outline-offset:1px;box-shadow:0 0 0 2px #fff inset;}
 .sm-campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted);}
-.sm-campo input,.sm-campo select{padding:7px 8px;border:1.5px solid var(--leaf);border-radius:8px;font-size:12.5px;font-weight:600;color:var(--accent2);background:#fff;cursor:pointer;}
+.sm-campo input,.sm-campo select{padding:7px 8px;border:1.5px solid var(--leaf);border-radius:8px;font-size:12.5px;font-weight:600;color:var(--ink);background:#fff;cursor:pointer;}
 .sm-cena{display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px dashed var(--sand2);}
 /* dia com estatística: empilha número em cima, EVI embaixo */
 .sat-cal-dia.tem-evi{flex-direction:column;gap:0;line-height:1;padding:2px 0;}
@@ -1028,7 +1028,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <div class="sec" id="sec-sat-exportar">
     <div class="sec-label"><span class="txt"><span class="sec-num"></span>Exportar</span></div>
-    <button type="button" onclick="exportarArquivosColeta()" style="width:100%;padding:11px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;box-shadow:0 2px 6px rgba(108,179,45,.25);">📦 Exportar Arquivos de Coleta</button>
+    <button type="button" onclick="exportarArquivosColeta()" style="width:100%;padding:11px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;box-shadow:0 2px 6px rgba(108,179,45,.25);"><span style="display:inline-flex;align-items:center;gap:7px;"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg><span>Exportar Arquivos de Coleta</span></span></button>
     <div id="exportar-status" style="font-size:11px;color:var(--muted);margin-top:6px;min-height:14px;"></div>
     <div style="font-size:10.5px;color:var(--muted);margin-top:6px;line-height:1.4;">
       Gera um ZIP com as zonas de manejo e os pontos de coleta em formato shapefile (.shp).
