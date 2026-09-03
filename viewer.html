@@ -346,6 +346,10 @@ body.mode-sat #painel-coleta,body.mode-sat #painel-rec,body.mode-sat #view-banne
 .sat-cal-dia.processada{outline:2px solid #24271f;outline-offset:1px;}
 .sat-cal-dia.fora-limite{opacity:.45;}
 .sat-cal-dia.carregando{opacity:.5;cursor:wait;}
+.sat-cal-dia.sel-media{outline:3px solid #6cb32d;outline-offset:1px;box-shadow:0 0 0 2px #fff inset;}
+.sm-campo{display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted);}
+.sm-campo input,.sm-campo select{padding:7px 8px;border:1.5px solid var(--sand2);border-radius:8px;font-size:12.5px;font-weight:600;background:#fff;}
+.sm-cena{display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:3px 0;border-bottom:1px dashed var(--sand2);}
 /* dia com estatística: empilha número em cima, EVI embaixo */
 .sat-cal-dia.tem-evi{flex-direction:column;gap:0;line-height:1;padding:2px 0;}
 .sat-cal-dia.tem-evi .cal-dnum{font-size:11px;font-weight:700;}
@@ -825,6 +829,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div class="sec-label"><span class="txt"><span class="sec-num"></span>Imagem</span></div>
     <!-- Botão principal em DESTAQUE no topo -->
     <button type="button" onclick="satCalAbrir()" style="width:100%;padding:11px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:13px;cursor:pointer;box-shadow:0 2px 6px rgba(108,179,45,.25);">🔍 Busca de Imagens</button>
+    <button type="button" onclick="satMediaAbrir()" style="width:100%;margin-top:7px;padding:10px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12.5px;cursor:pointer;">📊 Média de Safras</button>
     <!-- Campo de imagens carregadas fica embaixo -->
     <div class="ctrl" style="margin-top:10px;"><select id="sel-sat-data"></select></div>
     <div id="sat-empty" style="font-size:12px;color:var(--muted);margin-top:6px;display:none"></div>
@@ -6404,7 +6409,7 @@ function satCalAbrir(){
   document.getElementById('sat-cal-modal').style.display='flex';
   satCalCarregarMes();
 }
-function satCalFechar(){ document.getElementById('sat-cal-modal').style.display='none'; }
+function satCalFechar(){ document.getElementById('sat-cal-modal').style.display='none'; if(S.satCal.modoSelecao){ S.satCal.modoSelecao=false; const b=document.getElementById('sat-cal-selbar'); if(b) b.style.display='none'; } }
 function satCalMesAnterior(){ S.satCal.mes--; if(S.satCal.mes<1){S.satCal.mes=12;S.satCal.ano--;} satCalCarregarMes(); }
 function satCalMesProximo(){ S.satCal.mes++; if(S.satCal.mes>12){S.satCal.mes=1;S.satCal.ano++;} satCalCarregarMes(); }
 function satCalAtualizarNuvem(v){ S.satCal.nuvemMax=+v; document.getElementById('cv-sat-cal-nuvem').textContent=v+'%'; satCalRenderGrid(); }
@@ -6469,14 +6474,39 @@ async function satCalCarregarStats(ano, mes){
     if(ano===S.satCal.ano && mes===S.satCal.mes){ S.satCal.stats=S.satCal._statsCache[chave]; satCalRenderGrid(); }
     return;
   }
+  // FIX-SAT03: antes, qualquer falha aqui era engolida — o usuário não
+  // distinguia "mês sem estatística" de "serviço de estatísticas fora do ar".
+  // Agora a falha aparece como nota discreta no rodapé do calendário, sem
+  // bloquear nada (o calendário e as nuvens continuam funcionando).
+  const _notaStats=(txt)=>{
+    if(ano!==S.satCal.ano || mes!==S.satCal.mes) return;
+    const st=document.getElementById('sat-cal-status');
+    if(!st) return;
+    const base=(st.textContent||'').split(' · EVI')[0];
+    st.textContent = txt ? (base+' · EVI '+txt) : base;
+  };
   try{
     const resp = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'stats', ano, mes } });
-    if(resp.error || !resp.data || !resp.data.ok) return; // stats é "bônus": falhou, segue sem
+    if(resp.error){
+      const nome=(resp.error && resp.error.name)||'';
+      console.warn('[sat] estatísticas indisponíveis:', resp.error);
+      _notaStats(/FetchError/i.test(nome) ? 'indisponível (serviço não respondeu)' : 'indisponível (erro no serviço)');
+      return;
+    }
+    if(!resp.data || !resp.data.ok){
+      console.warn('[sat] estatísticas indisponíveis (resposta sem dados):', resp.data);
+      _notaStats('indisponível nesta versão do serviço');
+      return;
+    }
     const mapa={};
     for(const s of (resp.data.stats||[])) mapa[s.data]=s;
     S.satCal._statsCache[chave]=mapa;
     if(ano===S.satCal.ano && mes===S.satCal.mes){ S.satCal.stats=mapa; satCalRenderGrid(); }
-  }catch(e){ console.warn('[sat] falha ao carregar estatísticas (não crítico):', e); }
+    if(!Object.keys(mapa).length) _notaStats('sem médias para este mês');
+  }catch(e){
+    console.warn('[sat] falha ao carregar estatísticas (não crítico):', e);
+    _notaStats('indisponível (falha de rede)');
+  }
 }
 function satCalMesSelecionado(v){ S.satCal.mes=+v; satCalCarregarMes(); }
 function satCalAnoSelecionado(v){ S.satCal.ano=+v; satCalCarregarMes(); }
@@ -6518,7 +6548,8 @@ function satCalRenderGrid(){
       }else if(eviVazio){
         tip+=' · sem pixels de lavoura visíveis (nuvem/sombra cobrindo o talhão) — não vale a pena baixar';
       }
-      const classeExtra=(temEvi?' tem-evi':'')+(eviVazio?' evi-vazio':'');
+      let classeExtra=(temEvi?' tem-evi':'')+(eviVazio?' evi-vazio':'');
+    if(S.satCal.modoSelecao && S.satMedia && S.satMedia.datas.indexOf(iso)>=0) classeExtra+=' sel-media';
       html+='<div class="sat-cal-dia com-imagem'+foraLimite+proc+classeExtra+'" style="background:'+cor+'" title="'+tip+'" onclick="satCalEscolherDia(\''+iso+'\','+(eviVazio?'true':'false')+')"><span class="cal-dnum">'+d+'</span>'+eviTxt+'</div>';
     }
   }
@@ -6526,6 +6557,9 @@ function satCalRenderGrid(){
 }
 
 async function satCalEscolherDia(iso, eviVazio){
+  // Modo "pesquisa manual" da Média de Safras: clicar marca/desmarca a cena
+  // em vez de baixar a imagem daquele dia.
+  if(S.satCal.modoSelecao){ satMediaToggleData(iso); return; }
   if(S.satCal.diaEmCurso) return; // evita clique duplo enquanto processa
   // dia sem pixels de lavoura visíveis (100% nuvem/sombra no talhão): baixar
   // gastaria cota pra uma imagem inútil. Confirma antes.
@@ -6553,7 +6587,7 @@ async function satCalEscolherDia(iso, eviVazio){
 
     const sel=document.getElementById('sel-sat-data');
     if(sel){
-      sel.innerHTML=S.sat.capturas.map((c,i)=>{ const [a,m,dd]=String(c.data).split('-'); const nuv=(c.nuvem==null)?'':' · '+Math.round(c.nuvem)+'% nuvem'; return '<option value="'+i+'">'+dd+'/'+m+'/'+a+nuv+'</option>'; }).join('');
+      sel.innerHTML=S.sat.capturas.map((c,i)=>{ if(c.rotulo) return '<option value="'+i+'">'+c.rotulo+'</option>'; const [a,m,dd]=String(c.data).split('-'); const nuv=(c.nuvem==null)?'':' · '+Math.round(c.nuvem)+'% nuvem'; return '<option value="'+i+'">'+dd+'/'+m+'/'+a+nuv+'</option>'; }).join('');
     }
     S.sat.atual=S.sat.capturas.findIndex(c=>c.data===data.data_captura);
     const btnAba=document.getElementById('mode-satelite'); if(btnAba) btnAba.style.display='';
@@ -6567,6 +6601,180 @@ async function satCalEscolherDia(iso, eviVazio){
   }finally{
     S.satCal.diaEmCurso=null;
   }
+}
+
+
+/* ==========================================================================
+   MÉDIA DE SAFRAS (aba Satélite) — FIX-109
+   Composição multi-cena Sentinel-2 do talhão. Toda a carga pesada roda na
+   Edge Function (ação 'mediaSafras'); o viewer só monta os parâmetros,
+   mostra o relatório de cenas e injeta o resultado na lista de imagens —
+   com o mesmo layout de bandas de uma captura normal
+   ([0]=EVI [1]=NDMI [2]=R [3]=G [4]=B [5]=válido [6]=N), de modo que
+   render, download e geração de zonas continuam funcionando sem alteração.
+   ========================================================================== */
+S.satMedia = { datas:[], rodando:false, resultado:null, voltarPara:null };
+
+function _smEsc(v){ return String(v==null?'':v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function _smISO(d){ return d.toISOString().slice(0,10); }
+
+function satMediaAbrir(){
+  const m=document.getElementById('sat-media-modal'); if(!m) return;
+  const mi=document.getElementById('sm-mes-ini'), mf=document.getElementById('sm-mes-fim');
+  if(mi && !mi.options.length){
+    const nomes=['(sem filtro)','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    const opts=nomes.map((n,i)=>'<option value="'+(i===0?'':i)+'">'+n+'</option>').join('');
+    mi.innerHTML=opts; mf.innerHTML=opts;
+  }
+  const ini=document.getElementById('sm-inicio'), fim=document.getElementById('sm-fim');
+  if(ini && !ini.value){
+    const hoje=new Date();
+    const tras=new Date(Date.UTC(hoje.getUTCFullYear()-3, hoje.getUTCMonth(), 1));
+    ini.value=_smISO(tras); fim.value=_smISO(hoje);
+  }
+  satMediaAtualizarManual();
+  m.style.display='flex';
+}
+function satMediaFechar(){ const m=document.getElementById('sat-media-modal'); if(m) m.style.display='none'; }
+
+/* ---- pesquisa manual: reaproveita o calendário existente em modo seleção ---- */
+function satMediaSelecaoAbrir(){
+  S.satCal.modoSelecao=true;
+  satMediaFechar();
+  satCalAbrir();
+  const bar=document.getElementById('sat-cal-selbar'); if(bar) bar.style.display='block';
+  satMediaAtualizarSelBar();
+}
+function satMediaToggleData(iso){
+  const i=S.satMedia.datas.indexOf(iso);
+  if(i>=0) S.satMedia.datas.splice(i,1); else S.satMedia.datas.push(iso);
+  S.satMedia.datas.sort();
+  satMediaAtualizarSelBar();
+  satCalRenderGrid();
+}
+function satMediaSelecaoLimpar(){ S.satMedia.datas=[]; satMediaAtualizarSelBar(); satCalRenderGrid(); }
+function satMediaSelecaoConcluir(){
+  S.satCal.modoSelecao=false;
+  const bar=document.getElementById('sat-cal-selbar'); if(bar) bar.style.display='none';
+  satCalFechar();
+  satCalRenderGrid();
+  satMediaAbrir();
+}
+function satMediaAtualizarSelBar(){
+  const el=document.getElementById('sat-cal-selinfo'); if(!el) return;
+  const n=S.satMedia.datas.length;
+  el.textContent = n ? (n+' cena(s) marcada(s): '+S.satMedia.datas.map(d=>d.split('-').reverse().join('/')).join(', ')) : 'Nenhuma cena marcada.';
+}
+function satMediaAtualizarManual(){
+  const el=document.getElementById('sm-manual-info'); if(!el) return;
+  const n=S.satMedia.datas.length;
+  el.textContent = n ? (n+' cena(s) marcada(s) — só elas entram na média.') : 'Sem cenas marcadas — o período acima será usado automaticamente.';
+}
+
+/* ---- execução ---- */
+async function satMediaExecutar(){
+  if(S.satMedia.rodando) return;
+  const status=document.getElementById('sm-status');
+  const btn=document.getElementById('sm-btn-rodar');
+  const rel=document.getElementById('sm-relatorio');
+  const manual=S.satMedia.datas.slice();
+  const inicio=(document.getElementById('sm-inicio')||{}).value||'';
+  const fim=(document.getElementById('sm-fim')||{}).value||'';
+  if(!manual.length){
+    if(!inicio || !fim){ if(status) status.textContent='Informe data inicial e final (ou marque cenas na pesquisa manual).'; return; }
+    if(inicio>fim){ if(status) status.textContent='A data inicial precisa ser anterior à final.'; return; }
+  }
+  const corpo={
+    token:S.tokenAtual, action:'mediaSafras',
+    inicio:inicio||null, fim:fim||null,
+    mes_inicio:+(document.getElementById('sm-mes-ini')||{}).value||null,
+    mes_fim:+(document.getElementById('sm-mes-fim')||{}).value||null,
+    indice:(document.getElementById('sm-indice')||{}).value||'evi_ndmi',
+    nuvem_max:+(document.getElementById('sm-nuvem')||{}).value||30,
+    cobertura_min:+(document.getElementById('sm-cob')||{}).value||80,
+    datas:manual.length?manual:null
+  };
+  S.satMedia.rodando=true;
+  if(btn){ btn.disabled=true; btn.style.opacity='.6'; }
+  if(rel) rel.style.display='none';
+  if(status) status.textContent='Processando cenas… isso pode levar alguns minutos dependendo do período.';
+  try{
+    const { data, error } = await sb.functions.invoke(SAT_FN, { body:corpo });
+    if(error) throw error;
+    if(!data || !data.ok){
+      const msg=String((data&&data.erro)||'');
+      if(/ação|acao|action|desconhec|unknown/i.test(msg)) throw new Error("A Edge Function '"+SAT_FN+"' ainda não tem a ação 'mediaSafras' implantada. Publique a versão nova da função e tente de novo.");
+      throw new Error(msg||'Falha ao gerar a média.');
+    }
+    if(!data.raw_url) throw new Error('A função respondeu sem a imagem média (raw_url).');
+    S.satMedia.resultado=data;
+    satMediaMostrarRelatorio(data);
+    satMediaInjetarCaptura(data);
+    if(status) status.textContent='Imagem média gerada e carregada no mapa.';
+  }catch(e){
+    console.warn('[satMedia] falha:', e);
+    if(status) status.textContent='Não consegui gerar a média: '+String((e&&e.message)||e).slice(0,200);
+  }finally{
+    S.satMedia.rodando=false;
+    if(btn){ btn.disabled=false; btn.style.opacity=''; }
+  }
+}
+
+function satMediaMostrarRelatorio(d){
+  const rel=document.getElementById('sm-relatorio'); if(!rel) return;
+  const usadas=Array.isArray(d.cenas_usadas)?d.cenas_usadas:[];
+  const desc=Array.isArray(d.cenas_descartadas)?d.cenas_descartadas:[];
+  let h='<div style="font-size:11.5px;font-weight:700;color:var(--accent2);">Relatório da composição</div>';
+  h+='<div style="font-size:11px;color:var(--muted);margin-top:3px;">'+usadas.length+' cena(s) usada(s) · '+desc.length+' descartada(s)';
+  if(d.periodo) h+=' · período '+_smEsc(d.periodo);
+  if(d.janela) h+=' · janela '+_smEsc(d.janela);
+  h+='</div>';
+  if(d.n_medio!=null){
+    const alerta=(+d.n_medio<5)?' style="color:#b45309;font-weight:700"':'';
+    h+='<div'+alerta+' style="font-size:11px;margin-top:5px;">Observações válidas por pixel (média): '+(+d.n_medio).toFixed(1)+(+d.n_medio<5?' — confiança baixa (N &lt; 5)':'')+'</div>';
+  }
+  if(usadas.length){
+    h+='<div style="margin-top:7px;max-height:150px;overflow-y:auto;">';
+    usadas.forEach(c=>{
+      const dt=String(c.data||c).split('-').reverse().join('/');
+      const nv=(c.nuvem==null)?'':Math.round(c.nuvem)+'% nuvem';
+      h+='<div class="sm-cena"><span>'+_smEsc(dt)+'</span><span>'+_smEsc(nv)+'</span></div>';
+    });
+    h+='</div>';
+  }
+  if(desc.length){
+    h+='<details style="margin-top:6px;"><summary style="font-size:11px;cursor:pointer;color:var(--muted);">Cenas descartadas</summary><div style="max-height:130px;overflow-y:auto;margin-top:4px;">';
+    desc.forEach(c=>{
+      const dt=String(c.data||c).split('-').reverse().join('/');
+      h+='<div class="sm-cena"><span>'+_smEsc(dt)+'</span><span>'+_smEsc(c.motivo||'')+'</span></div>';
+    });
+    h+='</div></details>';
+  }
+  rel.innerHTML=h; rel.style.display='block';
+}
+
+// Injeta o resultado como uma "captura" sintética: mesmo formato de banda,
+// então o render, o download e a geração de zonas usam o caminho já testado.
+function satMediaInjetarCaptura(d){
+  const rotulo='📊 Média'+(d.periodo?(' '+d.periodo):'')+(d.cenas_usadas?(' · '+d.cenas_usadas.length+' cenas'):'');
+  const entrada={ data:(d.data_fim||d.data_captura||_smISO(new Date())), nuvem:null, url:d.raw_url,
+                  versao:(d.versao||SAT_VERSAO), media:true, rotulo:rotulo, meta:d };
+  const idx=S.sat.capturas.findIndex(c=>c.media && c.url===d.raw_url);
+  if(idx>=0) S.sat.capturas[idx]=entrada; else S.sat.capturas.unshift(entrada);
+  const sel=document.getElementById('sel-sat-data');
+  if(sel){
+    sel.innerHTML=S.sat.capturas.map((c,i)=>{
+      if(c.rotulo) return '<option value="'+i+'">'+_smEsc(c.rotulo)+'</option>';
+      const [a,m,dd]=String(c.data).split('-');
+      const nuv=(c.nuvem==null)?'':' · '+Math.round(c.nuvem)+'% nuvem';
+      return '<option value="'+i+'">'+dd+'/'+m+'/'+a+nuv+'</option>';
+    }).join('');
+  }
+  S.sat.atual=S.sat.capturas.indexOf(entrada);
+  if(sel) sel.value=String(S.sat.atual);
+  const btnAba=document.getElementById('mode-satelite'); if(btnAba) btnAba.style.display='';
+  const vazio=document.getElementById('sat-empty'); if(vazio) vazio.style.display='none';
+  try{ renderSatelite(); }catch(e){ console.warn('[satMedia] render:', e); }
 }
 
 async function carregarSatCapturas(){
@@ -6586,6 +6794,7 @@ async function carregarSatCapturas(){
   try{
     if(S.sat.capturas.length){
       S.sat.capturas.forEach(c=>{
+        if(c && c.media) return; // composição média não é captura catalogada
         try{ sb.rpc('marcar_sentinel_acesso',{ p_token:S.tokenAtual, p_data:c.data, p_versao:(c.versao||SAT_VERSAO) }); }catch(e){}
       });
     }
@@ -6612,6 +6821,7 @@ async function carregarSatCapturas(){
   const sel=document.getElementById('sel-sat-data');
   if(sel){
     sel.innerHTML = S.sat.capturas.map((c,i)=>{
+      if(c.rotulo) return '<option value="'+i+'">'+c.rotulo+'</option>';
       const [a,m,dd]=String(c.data).split('-');
       const nuv=(c.nuvem==null)?'':' · '+Math.round(c.nuvem)+'% nuvem';
       return '<option value="'+i+'">'+dd+'/'+m+'/'+a+nuv+'</option>';
@@ -9445,6 +9655,9 @@ async function satZonasSalvarOficial(){
     if(status) status.textContent=vazio?'Removendo zonas…':'Salvando zonas…';
     const geojson=_satZonasParaGeoJSON();
     const blob=new Blob([JSON.stringify(geojson)], { type:'application/json' });
+    // FIX-SAT02: guarda a URL do geojson oficial ANTERIOR para remover o
+    // arquivo órfão do bucket depois que o novo virar oficial com sucesso.
+    const _urlAnterior = (S.linkData && (S.linkData.zonas_geojson_url || S.linkData.zonas_url)) || null;
     const path='nutrientes/'+S.tokenAtual+'/zonas_'+Date.now()+'.geojson';
     const up=await sb.storage.from('arquivos').upload(path, blob, { upsert:true, contentType:'application/json' });
     if(up && up.error) throw new Error('Upload bloqueado pelo bucket "arquivos": '+up.error.message);
@@ -9473,15 +9686,34 @@ async function satZonasSalvarOficial(){
         }
         if(!isNaN(ha) && ha>0) totalHa += ha;
       }
-      // Só atualiza se conseguiu resolver o talhão via link
-      if(S.linkData && S.linkData.talhao_id){
+      // FIX-SAT01: antes, sem S.linkData.talhao_id o update era pulado EM
+      // SILÊNCIO (hectares/zonas ficavam desatualizados no dashboard sem
+      // ninguém perceber). Agora tenta resolver o id por caminhos alternativos
+      // e, se ainda assim não der (ou o update falhar), AVISA na tela.
+      let _talhaoId = (S.linkData && (S.linkData.talhao_id || S.linkData.talhaoId)) || null;
+      if(!_talhaoId && S.linkData && S.linkData.talhao && S.linkData.talhao.id) _talhaoId = S.linkData.talhao.id;
+      if(!_talhaoId && sb && S.tokenAtual){
         try{
-          await sb.from('talhoes').update({
+          const q=await sb.from('talhoes').select('id').eq('token', S.tokenAtual).limit(1);
+          if(q && !q.error && q.data && q.data[0]) _talhaoId=q.data[0].id;
+        }catch(e){ console.warn('[satZonas] não foi possível resolver talhao_id pelo token:', e); }
+      }
+      if(_talhaoId){
+        try{
+          const upd = await sb.from('talhoes').update({
             hectares: Math.round(totalHa*100)/100,
             zonas: geojson.features.length,
             zonas_geojson_url: url
-          }).eq('id', S.linkData.talhao_id);
-        }catch(e){ console.warn('[satZonas] update de hectares falhou (não crítico):', e); }
+          }).eq('id', _talhaoId);
+          if(upd && upd.error) throw new Error(upd.error.message);
+          if(S.linkData){ S.linkData.talhao_id=_talhaoId; S.linkData.zonas_geojson_url=url; }
+        }catch(e){
+          console.warn('[satZonas] update de hectares falhou:', e);
+          toast('Zonas salvas, mas os totais do talhão (hectares/nº de zonas) não foram atualizados no painel.', 'wrn');
+        }
+      }else{
+        console.warn('[satZonas] talhao_id não resolvido — hectares/zonas não atualizados.');
+        toast('Zonas salvas, mas não foi possível identificar o talhão para atualizar hectares/nº de zonas no painel.', 'wrn');
       }
     }catch(e){ console.warn('[satZonas] recálculo de hectares falhou:', e); }
 
@@ -9511,6 +9743,19 @@ async function satZonasSalvarOficial(){
       if(rr && rr.error) console.warn('[satZonas] atualizar_recomendacao(p_zonas_url) não aceito:', rr.error.message);
       else if(S.linkData) S.linkData.recomendacao_zonas_url=url;
     }catch(e){ console.warn('[satZonas] atualizar_recomendacao(p_zonas_url) lançou:', e); }
+
+    // FIX-SAT02: limpeza do GeoJSON órfão. O path usa Date.now(), então cada
+    // salvamento cria um arquivo novo e o antigo ficava para sempre no bucket.
+    // Só apaga DEPOIS que o novo já é o oficial, e nunca apaga o próprio novo
+    // arquivo. Falha aqui é inofensiva (só deixa o lixo), então é silenciosa.
+    try{
+      const _pathAnt=_storagePathFromPublicUrl(_urlAnterior);
+      if(_pathAnt && _pathAnt!==path && /\.geojson$/i.test(_pathAnt) && _pathAnt.indexOf('nutrientes/'+S.tokenAtual+'/')===0){
+        const rm=await sb.storage.from('arquivos').remove([_pathAnt]);
+        if(rm && rm.error) console.warn('[satZonas] não removeu geojson antigo:', rm.error.message);
+      }
+    }catch(e){ console.warn('[satZonas] limpeza do geojson antigo falhou (não crítico):', e); }
+
 
     // ═════════════════════════════════════════════════════════════════════
     // FIX: NÃO recarregar a página (perde pontos de coleta + estado local).
@@ -9657,9 +9902,24 @@ function satDownloadAtualizarUI(){
 function _satDesenharZonasNoCanvas(ctx, gr, escala){
   if(!S.geoData || !S.geoData.features) return;
   escala=escala||1;
+  // FIX-SAT04: o raster do satélite é EPSG:4326 (linhas lineares em latitude),
+  // então a projeção linear lng/lat -> pixel é a CORRETA aqui — não se aplica
+  // Mercator. O que faltava era blindagem: bbox degenerada/não-geográfica ou
+  // raster em outra projeção desenhavam o contorno em lugar errado (ou
+  // dividiam por zero) em vez de simplesmente não desenhar.
+  const dx=gr.xmax-gr.xmin, dy=gr.ymax-gr.ymin;
+  const bboxOk = [gr.xmin,gr.xmax,gr.ymin,gr.ymax].every(v=>Number.isFinite(v))
+              && dx>0 && dy>0
+              && gr.xmin>=-180 && gr.xmax<=180 && gr.ymin>=-90 && gr.ymax<=90;
+  const proj=gr.projection;
+  const projOk = (!proj || String(proj)==='4326' || String(proj).toUpperCase()==='EPSG:4326');
+  if(!bboxOk || !projOk){
+    console.warn('[sat] contorno das zonas não desenhado: raster sem bbox geográfica confiável.', {proj, bbox:[gr.xmin,gr.ymin,gr.xmax,gr.ymax]});
+    return;
+  }
   const w=gr.width*escala, h=gr.height*escala;
-  const projX=lng=> ((lng-gr.xmin)/(gr.xmax-gr.xmin))*w;
-  const projY=lat=> ((gr.ymax-lat)/(gr.ymax-gr.ymin))*h;
+  const projX=lng=> ((lng-gr.xmin)/dx)*w;
+  const projY=lat=> ((gr.ymax-lat)/dy)*h;
   ctx.save();
   ctx.imageSmoothingEnabled=true; // linha da zona pode ser suave (não é dado científico)
   ctx.strokeStyle='rgba(0,0,0,.85)';
@@ -12372,6 +12632,53 @@ document.getElementById('sel-depth-right').addEventListener('change',function(){
 });
 
 </script>
+<div id="sat-media-modal" style="display:none;position:fixed;inset:0;z-index:8990;background:rgba(20,22,17,.45);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:14px;max-width:420px;width:93%;max-height:88vh;overflow-y:auto;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+      <strong style="font-size:14.5px;">Média de Safras</strong>
+      <span onclick="satMediaFechar()" style="cursor:pointer;font-size:18px;color:var(--muted);line-height:1;padding:2px 4px;">&#10005;</span>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px;">Composição mediana/média de várias cenas Sentinel-2 do talhão. O resultado entra na lista de imagens e pode gerar zonas.</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+      <label class="sm-campo"><span>Data inicial</span><input type="date" id="sm-inicio"></label>
+      <label class="sm-campo"><span>Data final</span><input type="date" id="sm-fim"></label>
+    </div>
+
+    <div style="margin-top:10px;font-size:11px;color:var(--muted);">Janela fenol&#243;gica (opcional) &#8212; aceita safra atravessando o ano (ex.: nov&#8594;fev)</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;">
+      <label class="sm-campo"><span>M&#234;s inicial</span><select id="sm-mes-ini"></select></label>
+      <label class="sm-campo"><span>M&#234;s final</span><select id="sm-mes-fim"></select></label>
+    </div>
+
+    <div style="margin-top:12px;display:grid;grid-template-columns:1fr;gap:8px;">
+      <label class="sm-campo"><span>&#205;ndice de sa&#237;da</span>
+        <select id="sm-indice">
+          <option value="evi_ndmi">IV composto &#8212; (EVI + NDMI) / 2</option>
+          <option value="evi">M&#233;dia EVI</option>
+        </select></label>
+    </div>
+    <div style="font-size:10.5px;color:var(--muted);margin-top:4px;">A m&#233;dia RGB (mediana por banda) sai sempre.</div>
+
+    <div class="ctrl" style="margin-top:12px;"><div class="ctrl-label"><span>Nuvem m&#225;xima dentro do talh&#227;o</span> <span class="ctrl-val" id="cv-sm-nuvem">30%</span></div>
+      <input type="range" id="sm-nuvem" min="0" max="100" step="5" value="30" oninput="document.getElementById('cv-sm-nuvem').textContent=this.value+'%'"></div>
+    <div class="ctrl"><div class="ctrl-label"><span>Cobertura v&#225;lida m&#237;nima por cena</span> <span class="ctrl-val" id="cv-sm-cob">80%</span></div>
+      <input type="range" id="sm-cob" min="30" max="100" step="5" value="80" oninput="document.getElementById('cv-sm-cob').textContent=this.value+'%'"></div>
+
+    <div style="margin-top:10px;padding:9px;border:1.5px dashed var(--sand2);border-radius:9px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div style="font-size:11.5px;font-weight:700;">Pesquisa manual</div>
+        <button type="button" onclick="satMediaSelecaoAbrir()" style="padding:6px 10px;border:1.5px solid var(--leaf);border-radius:8px;background:#fff;color:var(--accent2);font-size:11.5px;font-weight:700;cursor:pointer;">Escolher cenas</button>
+      </div>
+      <div id="sm-manual-info" style="font-size:11px;color:var(--muted);margin-top:5px;">Sem cenas marcadas &#8212; o per&#237;odo acima ser&#225; usado automaticamente.</div>
+    </div>
+
+    <button type="button" id="sm-btn-rodar" onclick="satMediaExecutar()" style="width:100%;margin-top:14px;padding:11px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:13px;cursor:pointer;">Gerar imagem m&#233;dia</button>
+    <div id="sm-status" style="font-size:11.5px;color:var(--muted);margin-top:10px;min-height:16px;"></div>
+    <div id="sm-relatorio" style="display:none;margin-top:10px;padding:10px;border-radius:9px;background:var(--accent3);"></div>
+  </div>
+</div>
+
 <div id="sat-cal-modal" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(20,22,17,.45);align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:14px;max-width:380px;width:92%;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
@@ -12394,6 +12701,14 @@ document.getElementById('sel-depth-right').addEventListener('change',function(){
       <div>D</div><div>S</div><div>T</div><div>Q</div><div>Q</div><div>S</div><div>S</div>
     </div>
     <div id="sat-cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;"></div>
+    <div id="sat-cal-selbar" style="display:none;margin-top:10px;padding:9px;border-radius:9px;background:var(--accent3);">
+      <div style="font-size:11.5px;font-weight:700;color:var(--accent2);">Seleção manual de cenas</div>
+      <div id="sat-cal-selinfo" style="font-size:11px;color:var(--muted);margin-top:3px;">Nenhuma cena marcada.</div>
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <button type="button" onclick="satMediaSelecaoLimpar()" style="flex:1;padding:8px;border:1.5px solid var(--sand2);border-radius:8px;background:#fff;font-size:12px;font-weight:700;cursor:pointer;">Limpar</button>
+        <button type="button" onclick="satMediaSelecaoConcluir()" style="flex:1;padding:8px;border:none;border-radius:8px;background:var(--leaf);color:#fff;font-size:12px;font-weight:700;cursor:pointer;">Concluir</button>
+      </div>
+    </div>
     <div id="sat-cal-status" style="font-size:11.5px;color:var(--muted);margin-top:10px;min-height:16px;"></div>
   </div>
 </div>
