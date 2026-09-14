@@ -871,7 +871,11 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="sec" id="sec-sat-zonas">
   <!-- Zonas de manejo — desenho manual sobre a imagem de satélite (Fase 1) -->
   <div class="sec-label"><span class="txt"><span class="sec-num"></span>Zonas de manejo</span></div>
-  <button type="button" id="btn-satz-perimetro" onclick="satZonasPerimetroCriar()" style="width:100%;padding:10px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12.5px;cursor:pointer">Criar perímetro para as zonas</button>
+  <button type="button" id="btn-satz-perimetro" onclick="satZonasPerimetroCriar()" style="width:100%;padding:10px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12.5px;cursor:pointer">Criar perímetro</button>
+  <div id="satz-perimetro-acoes" style="display:none;gap:7px;margin-top:7px;">
+    <button type="button" id="btn-satz-perimetro-editar" onclick="satZonasPerimetroEditar()" style="flex:1;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12px;cursor:pointer">Editar perímetro</button>
+    <button type="button" id="btn-satz-perimetro-salvar" onclick="satZonasPerimetroSalvar()" style="flex:1;padding:9px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12px;cursor:pointer">Salvar perímetro</button>
+  </div>
   <div id="satz-perimetro-status" style="font-size:10.5px;color:var(--muted);line-height:1.4;margin:5px 0 8px;">Sem desenho novo: será usado o perímetro cadastrado.</div>
   <button type="button" id="btn-satz-auto" onclick="satZonasAutoAbrir()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">Gerar automaticamente</button>
   <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;margin-top:7px;padding:10px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12.5px;cursor:pointer">Criar/Editar manualmente</button>
@@ -6931,14 +6935,18 @@ async function _satBaixarBytes(url){
 // pixels dentro das zonas contam para a escala/médias, e só eles são
 // pintados (o entorno fica transparente). Cacheada por dimensão do raster.
 function _satMascaraTalhao(gr){
-  if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return null;
-  const chave=gr.width+'x'+gr.height+'@'+gr.xmin.toFixed(6)+','+gr.ymin.toFixed(6);
+  const fonte=(S.satZonasAuto&&S.satZonasAuto.perimetro&&S.satZonasAuto.perimetro.features&&S.satZonasAuto.perimetro.features.length)
+    ? S.satZonasAuto.perimetro
+    : ((S.modeloB&&S.modeloB.perimetro&&S.modeloB.perimetro.features&&S.modeloB.perimetro.features.length)?S.modeloB.perimetro:S.geoData);
+  if(!fonte || !fonte.features || !fonte.features.length) return null;
+  const chave=gr.width+'x'+gr.height+'@'+gr.xmin.toFixed(6)+','+gr.ymin.toFixed(6)+'|'+JSON.stringify(fonte).length;
+
   if(S.sat._maskKey===chave && S.sat._mask) return S.sat._mask;
   const w=gr.width, h=gr.height;
   const px=gr.pixelWidth  || (gr.xmax-gr.xmin)/w;
   const py=gr.pixelHeight || (gr.ymax-gr.ymin)/h;
   const polys=[];
-  S.geoData.features.forEach(f=>{
+  fonte.features.forEach(f=>{
     const g=f.geometry; if(!g) return;
     if(g.type==='Polygon') polys.push(g.coordinates);
     else if(g.type==='MultiPolygon') g.coordinates.forEach(p=>polys.push(p));
@@ -12809,7 +12817,7 @@ document.getElementById('sel-depth-right').addEventListener('change',function(){
 // Produz somente uma prévia. As zonas oficiais continuam protegidas pelo
 // fluxo existente de edição + confirmação em satZonasSalvarOficial().
 // ═══════════════════════════════════════════════════════════════════════════
-S.satZonasAuto={ worker:null, preview:null, resultado:null, rodando:false, perimetro:null, perimetroLayer:null, perimetroDrawer:null };
+S.satZonasAuto={ worker:null, preview:null, resultado:null, rodando:false, perimetro:null, perimetroLayer:null, perimetroDrawer:null, perimetroEditando:false, perimetroSujo:false };
 
 function satZonasAutoAtualizarModo(){
   const modo=(document.getElementById('satz-auto-modo')||{}).value||'area';
@@ -12834,12 +12842,25 @@ function satZonasAutoAbrir(){
   _satZonasAutoAtualizarPerimetroStatus();
   if(m) m.style.display='flex';
 }
+function _satZonasPerimetroGeoJSONDaCamada(){
+  const fs=[];
+  if(S.satZonasAuto.perimetroLayer) S.satZonasAuto.perimetroLayer.eachLayer(l=>{if(l&&l.toGeoJSON)fs.push(l.toGeoJSON());});
+  return {type:'FeatureCollection',features:fs};
+}
+function _satZonasPerimetroExibir(gj){
+  if(S.satZonasAuto.perimetroLayer){try{S.map.removeLayer(S.satZonasAuto.perimetroLayer);}catch(e){}}
+  S.satZonasAuto.perimetroLayer=L.geoJSON(gj,{style:{color:'#e0392b',weight:3,fillOpacity:.14,fillColor:'#e0392b'},interactive:true}).addTo(S.map);
+}
 function _satZonasAutoAtualizarPerimetroStatus(){
-  const el=document.getElementById('satz-perimetro-status'),btn=document.getElementById('btn-satz-perimetro');
+  const el=document.getElementById('satz-perimetro-status'),btn=document.getElementById('btn-satz-perimetro'),acoes=document.getElementById('satz-perimetro-acoes'),salvar=document.getElementById('btn-satz-perimetro-salvar');
   if(!el||!btn)return;
-  if(S.satZonasAuto.perimetro){el.textContent='Perímetro desenhado nesta tela será usado na geração.';btn.textContent='Redesenhar perímetro para as zonas';}
-  else if(S.modeloB&&S.modeloB.perimetro&&S.modeloB.perimetro.features&&S.modeloB.perimetro.features.length){el.textContent='Será usado o perímetro cadastrado do talhão.';btn.textContent='Redesenhar perímetro para as zonas';}
-  else{el.textContent='Nenhum perímetro cadastrado. Desenhe um para gerar as zonas.';btn.textContent='Criar perímetro para as zonas';}
+  const temNovo=!!(S.satZonasAuto.perimetro&&S.satZonasAuto.perimetro.features&&S.satZonasAuto.perimetro.features.length);
+  const temSalvo=!!(S.modeloB&&S.modeloB.perimetro&&S.modeloB.perimetro.features&&S.modeloB.perimetro.features.length);
+  if(acoes)acoes.style.display=(temNovo||temSalvo)?'flex':'none';
+  if(salvar)salvar.style.display=S.satZonasAuto.perimetroSujo?'':'none';
+  if(temNovo){el.textContent=S.satZonasAuto.perimetroSujo?'Perímetro desenhado. Salve para usá-lo nas buscas de imagens.':'Perímetro salvo e ativo nas buscas de imagens.';btn.textContent='Redesenhar perímetro';}
+  else if(temSalvo){el.textContent='Perímetro cadastrado e ativo nas buscas de imagens.';btn.textContent='Redesenhar perímetro';}
+  else{el.textContent='Nenhum perímetro cadastrado. Desenhe e salve um para buscar imagens.';btn.textContent='Criar perímetro';}
 }
 function satZonasPerimetroCriar(){
   if(!S.map){toast('Mapa ainda não carregado.','wrn');return;}
@@ -12849,15 +12870,50 @@ function satZonasPerimetroCriar(){
   const concluir=e=>{
     S.map.off('draw:created',concluir);S.satZonasAuto.perimetroDrawer=null;
     const f=e.layer.toGeoJSON();S.satZonasAuto.perimetro={type:'FeatureCollection',features:[f]};
-    if(S.satZonasAuto.perimetroLayer){try{S.map.removeLayer(S.satZonasAuto.perimetroLayer);}catch(err){}}
-    S.satZonasAuto.perimetroLayer=L.geoJSON(S.satZonasAuto.perimetro,{style:{color:'#e0392b',weight:2,dashArray:'6,5',fillOpacity:.03,fillColor:'#e0392b'},interactive:false}).addTo(S.map);
+    S.satZonasAuto.perimetroSujo=true;S.satZonasAuto.perimetroEditando=false;
+    _satZonasPerimetroExibir(S.satZonasAuto.perimetro);
     S.sat._mask=null;S.sat._maskKey=null;_satZonasAutoAtualizarPerimetroStatus();
-    toast('Perímetro definido. Ele será usado para gerar as zonas.','ok',5000);
+    toast('Perímetro criado. Clique em “Salvar perímetro” para ativá-lo nas buscas.','ok',6000);
   };
   S.map.once('draw:created',concluir);
-  S.satZonasAuto.perimetroDrawer=new L.Draw.Polygon(S.map,{shapeOptions:{color:'#e0392b',weight:2,dashArray:'6,5',fillOpacity:.05},showArea:true,metric:['ha','m']});
+  S.satZonasAuto.perimetroDrawer=new L.Draw.Polygon(S.map,{shapeOptions:{color:'#e0392b',weight:3,fillOpacity:.14,fillColor:'#e0392b'},showArea:true,metric:['ha','m']});
   S.satZonasAuto.perimetroDrawer.enable();
-  toast('Desenhe o perímetro que limitará todas as zonas.','ok',5000);
+  toast('Desenhe o polígono e feche-o clicando no primeiro ponto.','ok',5000);
+}
+function satZonasPerimetroEditar(){
+  let gj=S.satZonasAuto.perimetro;
+  if(!gj&&S.modeloB&&S.modeloB.perimetro)gj=JSON.parse(JSON.stringify(S.modeloB.perimetro));
+  if(!gj||!gj.features||!gj.features.length){toast('Crie um perímetro primeiro.','wrn');return;}
+  if(!S.satZonasAuto.perimetroLayer){S.satZonasAuto.perimetro=gj;_satZonasPerimetroExibir(gj);}
+  const btn=document.getElementById('btn-satz-perimetro-editar');
+  if(!S.satZonasAuto.perimetroEditando){
+    S.satZonasAuto.perimetroLayer.eachLayer(l=>{if(l.editing)l.editing.enable();});
+    S.satZonasAuto.perimetroEditando=true;if(btn)btn.textContent='Concluir edição';
+    toast('Arraste os pontos do perímetro e clique em “Concluir edição”.','ok',5000);
+  }else{
+    S.satZonasAuto.perimetroLayer.eachLayer(l=>{if(l.editing)l.editing.disable();});
+    S.satZonasAuto.perimetro=_satZonasPerimetroGeoJSONDaCamada();
+    S.satZonasAuto.perimetroEditando=false;S.satZonasAuto.perimetroSujo=true;
+    if(btn)btn.textContent='Editar perímetro';S.sat._mask=null;S.sat._maskKey=null;_satZonasAutoAtualizarPerimetroStatus();
+    toast('Edição concluída. Salve o perímetro para ativá-lo nas buscas.','ok',5000);
+  }
+}
+async function satZonasPerimetroSalvar(){
+  if(!sb||!S.tokenAtual){toast('Sem conexão para salvar.','err');return;}
+  if(S.satZonasAuto.perimetroEditando)satZonasPerimetroEditar();
+  const gj=S.satZonasAuto.perimetro||_satZonasPerimetroGeoJSONDaCamada();
+  if(!gj||!gj.features||!gj.features.length){toast('Crie um perímetro primeiro.','wrn');return;}
+  const btn=document.getElementById('btn-satz-perimetro-salvar');if(btn){btn.disabled=true;btn.textContent='Salvando…';}
+  try{
+    const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:gj});
+    if(r&&r.error)throw new Error(r.error.message);
+    S.modeloB=S.modeloB||{on:false,niveis:{},zonas:{}};S.modeloB.perimetro=JSON.parse(JSON.stringify(gj));
+    S.satZonasAuto.perimetro=JSON.parse(JSON.stringify(gj));S.satZonasAuto.perimetroSujo=false;
+    S.sat._mask=null;S.sat._maskKey=null;S.satCal._statsCache={};
+    _satZonasAutoAtualizarPerimetroStatus();_renderRelStatus();
+    toast('Perímetro salvo. As próximas buscas de imagens usarão esta área.','ok',6000);
+  }catch(e){toast('Não foi possível salvar o perímetro: '+((e&&e.message)||e),'err',7000);}
+  finally{if(btn){btn.disabled=false;btn.textContent='Salvar perímetro';}}
 }
 function _satZonasAutoLimparPreview(){
   if(S.satZonasAuto.preview){ try{ S.map.removeLayer(S.satZonasAuto.preview); }catch(e){} S.satZonasAuto.preview=null; }
