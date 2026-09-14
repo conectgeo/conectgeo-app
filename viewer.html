@@ -871,7 +871,8 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <div class="sec" id="sec-sat-zonas">
   <!-- Zonas de manejo — desenho manual sobre a imagem de satélite (Fase 1) -->
   <div class="sec-label"><span class="txt"><span class="sec-num"></span>Zonas de manejo</span></div>
-  <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">Criar/Editar</button>
+  <button type="button" id="btn-satz-auto" onclick="satZonasAutoAbrir()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">Gerar automaticamente</button>
+  <button type="button" id="btn-satz-alternar" onclick="satZonasAlternar()" style="width:100%;margin-top:7px;padding:10px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12.5px;cursor:pointer">Criar/Editar manualmente</button>
   <div id="satz-ref-aviso" class="satz-ref-aviso" style="display:none;">
     <span>Contorno tracejado = perímetro cadastrado, só referência.</span>
     <button type="button" onclick="satZonasReferenciaDispensar()">Ocultar</button>
@@ -12800,7 +12801,235 @@ document.getElementById('sel-depth-right').addEventListener('change',function(){
   renderCompare();
 });
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ZONAS AUTOMÁTICAS — geração local sobre o GeoTIFF atualmente selecionado.
+// Produz somente uma prévia. As zonas oficiais continuam protegidas pelo
+// fluxo existente de edição + confirmação em satZonasSalvarOficial().
+// ═══════════════════════════════════════════════════════════════════════════
+S.satZonasAuto={ worker:null, preview:null, resultado:null, rodando:false };
+
+function satZonasAutoAtualizarModo(){
+  const modo=(document.getElementById('satz-auto-modo')||{}).value||'area';
+  const ar=document.getElementById('satz-auto-area-row'), nr=document.getElementById('satz-auto-numero-row');
+  if(ar) ar.style.display=modo==='area'?'':'none';
+  if(nr) nr.style.display=modo==='numero'?'':'none';
+}
+function _satZonasAutoNomeCaptura(c){
+  if(!c) return 'Nenhuma imagem selecionada';
+  const idx=_satIdxEfetivo(c);
+  return _satDlRotulo(c)+' · '+_satRotuloIdx(idx);
+}
+function satZonasAutoAbrir(){
+  const c=S.sat.capturas[S.sat.atual];
+  if(!c){ toast('Selecione uma imagem antes de gerar zonas.','wrn'); return; }
+  if(_satIdxEfetivo(c)==='rgb'){ toast('Selecione EVI ou NDMI. RGB não representa uma escala contínua de vegetação.','wrn'); return; }
+  const m=document.getElementById('satz-auto-modal');
+  const f=document.getElementById('satz-auto-fonte'); if(f) f.textContent=_satZonasAutoNomeCaptura(c);
+  const st=document.getElementById('satz-auto-status'); if(st) st.textContent='A geração cria uma prévia e não altera as zonas oficiais.';
+  const met=document.getElementById('satz-auto-metricas'); if(met) met.style.display='none';
+  const ac=document.getElementById('satz-auto-aceitar'); if(ac) ac.style.display='none';
+  if(m) m.style.display='flex';
+}
+function _satZonasAutoLimparPreview(){
+  if(S.satZonasAuto.preview){ try{ S.map.removeLayer(S.satZonasAuto.preview); }catch(e){} S.satZonasAuto.preview=null; }
+  S.satZonasAuto.resultado=null;
+}
+function satZonasAutoFechar(){
+  if(S.satZonasAuto.rodando) return;
+  const m=document.getElementById('satz-auto-modal'); if(m) m.style.display='none';
+}
+function satZonasAutoCancelar(){
+  if(S.satZonasAuto.worker){ try{ S.satZonasAuto.worker.terminate(); }catch(e){} S.satZonasAuto.worker=null; }
+  S.satZonasAuto.rodando=false;
+  _satZonasAutoLimparPreview();
+  satZonasAutoFechar();
+}
+function _satZonasAutoPerimetros(){
+  const src=(S.modeloB&&S.modeloB.perimetro&&S.modeloB.perimetro.features&&S.modeloB.perimetro.features.length)
+    ? S.modeloB.perimetro : S.geoData;
+  return (src&&src.features?src.features:[]).filter(f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'));
+}
+function _satZonasAutoAreaHa(){
+  const fs=_satZonasAutoPerimetros(); let a=0;
+  fs.forEach(f=>{ try{ a+=turf.area(f)/10000; }catch(e){} });
+  return a;
+}
+function _satZonasAutoWorkerSource(){ return `
+self.onmessage=function(ev){
+  const d=ev.data,w=d.w,h=d.h,n=w*h,inside=new Uint8Array(d.inside),valid=new Uint8Array(d.valid),v=new Float32Array(d.values);
+  const post=(stage,p)=>self.postMessage({type:'progress',stage:stage,p:p});
+  post('Preparando a imagem…',8);
+  let validN=0,insideN=0,vals=[];
+  for(let i=0;i<n;i++){ if(inside[i])insideN++; if(inside[i]&&valid[i]&&isFinite(v[i])){validN++;vals.push(v[i]);} }
+  if(insideN<20||validN<20) throw new Error('Poucos pixels válidos dentro do perímetro.');
+  const coverage=100*validN/insideN;
+  if(coverage<d.minCoverage) throw new Error('Cobertura útil de '+coverage.toFixed(0)+'%. O mínimo para gerar zonas é '+d.minCoverage+'%.');
+  vals.sort((a,b)=>a-b); const q=p=>vals[Math.max(0,Math.min(vals.length-1,Math.floor(p*(vals.length-1))))];
+  const lo=q(.02),hi=q(.98),mean=vals.reduce((s,x)=>s+x,0)/vals.length;
+  const sd=Math.sqrt(vals.reduce((s,x)=>s+(x-mean)*(x-mean),0)/vals.length);
+  if(!(hi>lo)||sd<0.008) throw new Error('A imagem está praticamente homogênea; não há variabilidade suficiente para zonas confiáveis.');
+  // Preenche nuvens/sombras internas pela vizinhança mais próxima, somente após validar cobertura.
+  let cur=new Float32Array(v), known=new Uint8Array(valid);
+  for(let pass=0;pass<Math.max(w,h);pass++){
+    let changed=0,next=new Float32Array(cur),nk=new Uint8Array(known);
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(!inside[i]||known[i])continue;let s=0,c=0;
+      for(let yy=Math.max(0,y-1);yy<=Math.min(h-1,y+1);yy++)for(let xx=Math.max(0,x-1);xx<=Math.min(w-1,x+1);xx++){const j=yy*w+xx;if(known[j]){s+=cur[j];c++;}}
+      if(c){next[i]=s/c;nk[i]=1;changed++;}
+    }
+    cur=next;known=nk;if(!changed)break;
+  }
+  // Mediana 3x3 preservadora de borda.
+  let smooth=new Float32Array(cur);
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(!inside[i])continue;let a=[];
+    for(let yy=Math.max(0,y-1);yy<=Math.min(h-1,y+1);yy++)for(let xx=Math.max(0,x-1);xx<=Math.min(w-1,x+1);xx++){const j=yy*w+xx;if(inside[j])a.push(cur[j]);}
+    a.sort((p,q)=>p-q);smooth[i]=a[a.length>>1];
+  }
+  post('Identificando faixas de variabilidade…',28);
+  // Fuzzy c-means 1D; escolhe entre 3 e o limite pedido usando FPI+NCE.
+  function fcm(k){let centers=[];for(let z=0;z<k;z++)centers.push(q((z+.5)/k));let U=new Float32Array(n*k),m=2;
+    for(let it=0;it<35;it++){
+      for(let i=0;i<n;i++){if(!inside[i])continue;let exact=-1;for(let z=0;z<k;z++)if(Math.abs(smooth[i]-centers[z])<1e-9)exact=z;
+        if(exact>=0){for(let z=0;z<k;z++)U[i*k+z]=z===exact?1:0;continue;}
+        for(let z=0;z<k;z++){let den=0,dz=Math.max(1e-9,Math.abs(smooth[i]-centers[z]));for(let t=0;t<k;t++){let dt=Math.max(1e-9,Math.abs(smooth[i]-centers[t]));den+=Math.pow(dz/dt,2/(m-1));}U[i*k+z]=1/den;}
+      }
+      let delta=0;for(let z=0;z<k;z++){let num=0,den=0;for(let i=0;i<n;i++){if(!inside[i])continue;let u=U[i*k+z];num+=u*u*smooth[i];den+=u*u;}let nc=den?num/den:centers[z];delta=Math.max(delta,Math.abs(nc-centers[z]));centers[z]=nc;}if(delta<1e-5)break;
+    }
+    let sumsq=0,ent=0;for(let i=0;i<n;i++){if(!inside[i])continue;for(let z=0;z<k;z++){let u=U[i*k+z];sumsq+=u*u;if(u>0)ent+=u*Math.log(u);}}
+    const fpi=1-(k*sumsq/insideN-1)/(k-1),nce=-ent/(insideN*Math.log(k));return{centers,U,score:fpi+nce,k};
+  }
+  let maxK=Math.max(3,Math.min(5,d.maxClasses));if(sd<.035)maxK=3;else if(sd<.065)maxK=Math.min(maxK,4);
+  let best=null;for(let k=3;k<=maxK;k++){let r=fcm(k);if(!best||r.score<best.score)best=r;}
+  best.centers=best.centers.map((c,i)=>({c,i})).sort((a,b)=>a.c-b.c);
+  let cls=new Int16Array(n);cls.fill(-1);
+  for(let i=0;i<n;i++){if(!inside[i])continue;let bz=0,bu=-1;for(let rank=0;rank<best.k;rank++){let old=best.centers[rank].i,u=best.U[i*best.k+old];if(u>bu){bu=u;bz=rank;}}cls[i]=bz;}
+  // Regularização espacial proporcional ao inverso da fidelidade.
+  const passes=d.fidelity>=85?0:(d.fidelity>=65?1:2);
+  for(let pass=0;pass<passes;pass++){let out=new Int16Array(cls);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(cls[i]<0)continue;let counts=new Int16Array(best.k);
+    for(let yy=Math.max(0,y-1);yy<=Math.min(h-1,y+1);yy++)for(let xx=Math.max(0,x-1);xx<=Math.min(w-1,x+1);xx++){let c=cls[yy*w+xx];if(c>=0)counts[c]++;}
+    let bc=cls[i],bn=counts[bc];for(let c=0;c<best.k;c++)if(counts[c]>bn+1){bc=c;bn=counts[c];}out[i]=bc;}cls=out;}
+  post('Formando zonas operacionais…',52);
+  // Componentes por classe; componentes grandes são divididos por Voronoi geodésico aproximado.
+  let seen=new Uint8Array(n),components=[];const dirs=[-1,1,-w,w];
+  for(let i=0;i<n;i++){if(cls[i]<0||seen[i])continue;let c=cls[i],arr=[],queue=[i];seen[i]=1;for(let qi=0;qi<queue.length;qi++){let p=queue[qi];arr.push(p),x=p%w;for(let di=0;di<4;di++){let j=p+dirs[di];if(j<0||j>=n||(di===0&&x===0)||(di===1&&x===w-1)||seen[j]||cls[j]!==c)continue;seen[j]=1;queue.push(j);}}components.push({c,arr});}
+  const target=Math.max(8,d.targetCells),zones=new Int32Array(n);zones.fill(-1);let zid=0;
+  components.sort((a,b)=>b.arr.length-a.arr.length);
+  for(const comp of components){let nz=Math.max(1,Math.round(comp.arr.length/target));if(comp.arr.length<target*.35)nz=1;nz=Math.min(nz,Math.max(1,Math.floor(comp.arr.length/5)));
+    let seeds=[comp.arr[Math.floor(comp.arr.length/2)]];while(seeds.length<nz){let bp=comp.arr[0],bd=-1;for(const p of comp.arr){let x=p%w,y=(p/w)|0,md=1e30;for(const s of seeds){let sx=s%w,sy=(s/w)|0,dd=(x-sx)*(x-sx)+(y-sy)*(y-sy);if(dd<md)md=dd;}if(md>bd){bd=md;bp=p;}}seeds.push(bp);}
+    for(const p of comp.arr){let x=p%w,y=(p/w)|0,b=0,bd=1e30;for(let s=0;s<seeds.length;s++){let sx=seeds[s]%w,sy=(seeds[s]/w)|0,dist=(x-sx)*(x-sx)+(y-sy)*(y-sy);let iv=Math.abs(smooth[p]-smooth[seeds[s]])/(sd||1);let cost=dist*(1+(d.fidelity/100)*iv);if(cost<bd){bd=cost;b=s;}}zones[p]=zid+b;}zid+=nz;
+  }
+  // Absorve zonas pequenas pelo vizinho com IV médio mais semelhante.
+  function stats(){let count=new Int32Array(zid),sum=new Float64Array(zid);for(let i=0;i<n;i++)if(zones[i]>=0){count[zones[i]]++;sum[zones[i]]+=smooth[i];}return{count,sum};}
+  let st=stats(),minCells=Math.max(3,Math.floor(target*.35));
+  for(let z=0;z<zid;z++){if(!st.count[z]||st.count[z]>=minCells)continue;let cand=new Map();for(let i=0;i<n;i++)if(zones[i]===z){let x=i%w;for(let di=0;di<4;di++){let j=i+dirs[di];if(j<0||j>=n||(di===0&&x===0)||(di===1&&x===w-1))continue;let qz=zones[j];if(qz>=0&&qz!==z)cand.set(qz,(cand.get(qz)||0)+1);}}let bestZ=-1,bestCost=1e30,mz=st.sum[z]/st.count[z];for(const [qz,border] of cand){let mq=st.sum[qz]/st.count[qz],cost=Math.abs(mz-mq)-border*1e-5;if(cost<bestCost){bestCost=cost;bestZ=qz;}}if(bestZ>=0)for(let i=0;i<n;i++)if(zones[i]===z)zones[i]=bestZ;}
+  // Renumera e extrai contornos pelas arestas externas das células.
+  let remap=new Map(),next=0;for(let i=0;i<n;i++)if(zones[i]>=0){if(!remap.has(zones[i]))remap.set(zones[i],next++);zones[i]=remap.get(zones[i]);}
+  post('Arredondando contornos…',76);
+  function key(x,y){return x+','+y}function dp(pts,eps){if(pts.length<4)return pts;let first=pts[0],last=pts[pts.length-1],max=0,idx=0,dx=last[0]-first[0],dy=last[1]-first[1],den=dx*dx+dy*dy;for(let i=1;i<pts.length-1;i++){let t=den?((pts[i][0]-first[0])*dx+(pts[i][1]-first[1])*dy)/den:0;t=Math.max(0,Math.min(1,t));let ex=first[0]+t*dx,ey=first[1]+t*dy,dd=Math.hypot(pts[i][0]-ex,pts[i][1]-ey);if(dd>max){max=dd;idx=i;}}if(max>eps){let a=dp(pts.slice(0,idx+1),eps),b=dp(pts.slice(idx),eps);return a.slice(0,-1).concat(b);}return[first,last];}
+  let features=[];for(let z=0;z<next;z++){let edges=new Map(),count=0,sum=0,sum2=0,cz=-1;function add(a,b){let k=key(a[0],a[1]);if(!edges.has(k))edges.set(k,[]);edges.get(k).push(b);}
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){let i=y*w+x;if(zones[i]!==z)continue;count++;sum+=smooth[i];sum2+=smooth[i]*smooth[i];cz=cls[i];if(y===0||zones[i-w]!==z)add([x,y],[x+1,y]);if(x===w-1||zones[i+1]!==z)add([x+1,y],[x+1,y+1]);if(y===h-1||zones[i+w]!==z)add([x+1,y+1],[x,y+1]);if(x===0||zones[i-1]!==z)add([x,y+1],[x,y]);}
+    let rings=[];while(edges.size){let sk=edges.keys().next().value,sp=sk.split(',').map(Number),ring=[sp],cur=sp,guard=0;while(guard++<n*4){let k=key(cur[0],cur[1]),list=edges.get(k);if(!list||!list.length)break;let nx=list.pop();if(!list.length)edges.delete(k);ring.push(nx);cur=nx;if(cur[0]===sp[0]&&cur[1]===sp[1])break;}if(ring.length>=4){let simp=dp(ring,Math.max(.15,(100-d.fidelity)/80));if(simp.length<4)simp=ring;rings.push(simp);}}
+    if(!rings.length)continue;rings.sort((a,b)=>b.length-a.length);let ring=rings[0].map(p=>[d.xmin+p[0]*d.px,d.ymax-p[1]*d.py]);if(ring[0][0]!==ring[ring.length-1][0]||ring[0][1]!==ring[ring.length-1][1])ring.push(ring[0]);let mu=sum/count,sdz=Math.sqrt(Math.max(0,sum2/count-mu*mu));features.push({type:'Feature',properties:{ZG:features.length+1,classe:cz+1,iv_medio:mu,iv_dp:sdz,pixels:count},geometry:{type:'Polygon',coordinates:[ring]}});}
+  post('Finalizando a prévia…',94);
+  self.postMessage({type:'done',features:features,metrics:{coverage,classes:best.k,inputSd:sd,lo,hi}});
+};`}
+
+function _satZonasAutoCriarWorker(){
+  const blob=new Blob([_satZonasAutoWorkerSource()],{type:'application/javascript'});
+  return new Worker(URL.createObjectURL(blob));
+}
+function _satZonasAutoExtrair(gr,idx){
+  const srcBand=(idx==='ndmi')?1:0, b=gr.values[srcBand], bv=gr.values[5];
+  const fullMask=_satMascaraTalhao(gr); if(!fullMask) throw new Error('Não encontrei um perímetro válido para limitar as zonas.');
+  const sw=gr.width,sh=gr.height,maxSide=320,step=Math.max(1,Math.ceil(Math.max(sw,sh)/maxSide));
+  const w=Math.ceil(sw/step),h=Math.ceil(sh/step),values=new Float32Array(w*h),inside=new Uint8Array(w*h),valid=new Uint8Array(w*h);
+  let k=0;for(let y=0;y<h;y++){let sy=Math.min(sh-1,Math.floor((y+.5)*step));for(let x=0;x<w;x++,k++){let sx=Math.min(sw-1,Math.floor((x+.5)*step)),si=sy*sw+sx;inside[k]=fullMask[si]?1:0;let val=b[sy][sx];if(inside[k]&&(!bv||bv[sy][sx]===1)&&val!=null&&isFinite(val)){valid[k]=1;values[k]=val;}else values[k]=NaN;}}
+  return{w,h,values,inside,valid,xmin:gr.xmin,ymax:gr.ymax,px:(gr.xmax-gr.xmin)/w,py:(gr.ymax-gr.ymin)/h};
+}
+function _satZonasAutoClip(features){
+  const perims=_satZonasAutoPerimetros(); if(!perims.length) return features;
+  const out=[];
+  features.forEach(f=>{let pieces=[];perims.forEach(p=>{try{const r=turf.intersect(f,p);if(r&&r.geometry){if(r.geometry.type==='Polygon')pieces.push(r.geometry);else if(r.geometry.type==='MultiPolygon')r.geometry.coordinates.forEach(c=>pieces.push({type:'Polygon',coordinates:c}));}}catch(e){}});pieces.forEach(g=>{try{if(turf.area({type:'Feature',properties:{},geometry:g})>20)out.push({type:'Feature',properties:Object.assign({},f.properties),geometry:g});}catch(e){}});});
+  out.sort((a,b)=>(a.properties.classe-b.properties.classe)||(b.properties.iv_medio-a.properties.iv_medio));
+  out.forEach((f,i)=>{f.properties.ZG=i+1;f.properties.area_ha=+(turf.area(f)/10000).toFixed(2);});
+  return out;
+}
+async function satZonasAutoGerar(){
+  if(S.satZonasAuto.rodando)return;const c=S.sat.capturas[S.sat.atual],st=document.getElementById('satz-auto-status'),btn=document.getElementById('satz-auto-gerar');
+  if(!c)return;const idx=_satIdxEfetivo(c);if(idx==='rgb'){if(st)st.textContent='Selecione EVI ou NDMI.';return;}
+  try{
+    S.satZonasAuto.rodando=true;if(btn){btn.disabled=true;btn.textContent='Gerando…';}_satZonasAutoLimparPreview();
+    const gr=await _satRasterDaCaptura(c),d=_satZonasAutoExtrair(gr,idx),areaHa=_satZonasAutoAreaHa();
+    if(!(areaHa>0))throw new Error('Não consegui calcular a área do perímetro.');
+    const modo=document.getElementById('satz-auto-modo').value,areaAlvo=Math.max(.2,+document.getElementById('satz-auto-area').value||5),num=Math.max(2,+document.getElementById('satz-auto-numero').value||6);
+    const nAlvo=modo==='numero'?num:Math.max(2,Math.round(areaHa/areaAlvo));
+    const insideN=d.inside.reduce((s,x)=>s+x,0),targetCells=Math.max(8,insideN/nAlvo);
+    const worker=_satZonasAutoCriarWorker();S.satZonasAuto.worker=worker;
+    const result=await new Promise((resolve,reject)=>{worker.onmessage=e=>{if(e.data.type==='progress'){if(st)st.textContent=e.data.stage+' '+e.data.p+'%';}else resolve(e.data);};worker.onerror=e=>reject(new Error(e.message||'Falha no motor de zonas.'));worker.postMessage({w:d.w,h:d.h,inside:d.inside.buffer,valid:d.valid.buffer,values:d.values.buffer,xmin:d.xmin,ymax:d.ymax,px:d.px,py:d.py,targetCells,maxClasses:+document.getElementById('satz-auto-complexidade').value||4,fidelity:+document.getElementById('satz-auto-fid').value||70,minCoverage:80},[d.inside.buffer,d.valid.buffer,d.values.buffer]);});
+    worker.terminate();S.satZonasAuto.worker=null;
+    const feats=_satZonasAutoClip(result.features);if(!feats.length)throw new Error('O processamento não produziu polígonos válidos.');
+    const gj={type:'FeatureCollection',features:feats};S.satZonasAuto.resultado={geojson:gj,metrics:result.metrics,fonte:_satZonasAutoNomeCaptura(c)};
+    const pal=['#2e7dd6','#6cb32d','#f2cf3a','#f6990d','#e0392b'];
+    S.satZonasAuto.preview=L.geoJSON(gj,{style:f=>({color:'#24271f',weight:1.5,fillColor:pal[Math.max(0,Math.min(pal.length-1,(f.properties.classe||1)-1))],fillOpacity:.5}),onEachFeature:(f,l)=>l.bindTooltip('Zona '+f.properties.ZG+' · '+f.properties.area_ha.toFixed(2)+' ha · IV '+f.properties.iv_medio.toFixed(3))}).addTo(S.map);
+    try{S.satZonasAuto.preview.bringToFront();}catch(e){}
+    const areas=feats.map(f=>f.properties.area_ha),meanA=areas.reduce((s,x)=>s+x,0)/areas.length,hom=feats.reduce((s,f)=>s+f.properties.iv_dp,0)/feats.length;
+    const met=document.getElementById('satz-auto-metricas');if(met){met.innerHTML='<b>'+feats.length+' zonas operacionais</b><br>'+result.metrics.classes+' classes de variabilidade · cobertura útil '+result.metrics.coverage.toFixed(0)+'%<br>Área mín. '+Math.min(...areas).toFixed(2)+' ha · média '+meanA.toFixed(2)+' ha · máx. '+Math.max(...areas).toFixed(2)+' ha<br>Dispersão média interna do IV: '+hom.toFixed(3);met.style.display='block';}
+    if(st)st.textContent='Prévia pronta. Revise os limites no mapa antes de aceitar.';const ac=document.getElementById('satz-auto-aceitar');if(ac)ac.style.display='';
+  }catch(e){console.warn('[satZonasAuto]',e);if(st)st.textContent=String((e&&e.message)||e).slice(0,220);}
+  finally{S.satZonasAuto.rodando=false;if(btn){btn.disabled=false;btn.textContent=S.satZonasAuto.resultado?'Gerar novamente':'Gerar prévia';}}
+}
+function satZonasAutoAceitar(){
+  const r=S.satZonasAuto.resultado;if(!r||!r.geojson||!r.geojson.features.length)return;
+  if(!S.satZonas.ativo)satZonasIniciar();
+  _satZonasEmpilharHistorico();
+  const snap=r.geojson.features.map((f,i)=>({nome:String(i+1),cor:SATZ_CORES[i%SATZ_CORES.length],geometry:f.geometry}));
+  _satZonasAplicarSnapshot(snap);S.satZonas._importTentado=true;_satZonasReferenciaEsconder();
+  _satZonasAutoLimparPreview();const m=document.getElementById('satz-auto-modal');if(m)m.style.display='none';
+  toast(snap.length+' zonas carregadas para revisão. Nada foi salvo ainda.','ok',6000);
+}
+
 </script>
+  <div id="satz-auto-modal" style="display:none;position:fixed;inset:0;z-index:8995;background:rgba(20,22,17,.45);align-items:center;justify-content:center;padding:18px;">
+    <div style="background:var(--surface);border-radius:14px;width:min(520px,96vw);max-height:90vh;overflow:auto;box-shadow:0 18px 60px rgba(0,0,0,.28);">
+      <div style="padding:17px 20px;background:var(--accent);color:#fff;display:flex;justify-content:space-between;align-items:center;">
+        <div><div style="font-size:17px;font-weight:700;">Gerar zonas automaticamente</div><div id="satz-auto-fonte" style="font-size:10.5px;opacity:.75;margin-top:3px;">Imagem selecionada</div></div>
+        <button type="button" onclick="satZonasAutoFechar()" aria-label="Fechar" style="border:0;background:transparent;color:#fff;font-size:20px;cursor:pointer;">×</button>
+      </div>
+      <div style="padding:18px 20px;display:flex;flex-direction:column;gap:14px;">
+        <div>
+          <label style="display:block;font-size:10px;color:var(--muted);margin-bottom:6px;">DEFINIR POR</label>
+          <select id="satz-auto-modo" onchange="satZonasAutoAtualizarModo()">
+            <option value="area">Tamanho médio das zonas</option>
+            <option value="numero">Número de zonas</option>
+          </select>
+        </div>
+        <div id="satz-auto-area-row">
+          <label style="display:block;font-size:10px;color:var(--muted);margin-bottom:6px;">TAMANHO MÉDIO (HA)</label>
+          <input id="satz-auto-area" type="number" min="0.2" max="500" step="0.1" value="5" style="width:100%;background:var(--panel);border:1.5px solid var(--border);color:var(--ink);border-radius:8px;padding:9px 11px;font-size:12px;">
+        </div>
+        <div id="satz-auto-numero-row" style="display:none;">
+          <label style="display:block;font-size:10px;color:var(--muted);margin-bottom:6px;">NÚMERO DE ZONAS</label>
+          <input id="satz-auto-numero" type="number" min="2" max="200" step="1" value="6" style="width:100%;background:var(--panel);border:1.5px solid var(--border);color:var(--ink);border-radius:8px;padding:9px 11px;font-size:12px;">
+        </div>
+        <div>
+          <label style="display:block;font-size:10px;color:var(--muted);margin-bottom:6px;">COMPLEXIDADE DAS ZONAS</label>
+          <select id="satz-auto-complexidade"><option value="3">Baixa</option><option value="4" selected>Média</option><option value="5">Alta</option></select>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px;"><span>FIDELIDADE AO IV</span><strong id="satz-auto-fid-val" style="color:var(--accent2);">70%</strong></div>
+          <input id="satz-auto-fid" type="range" min="30" max="95" step="5" value="70" oninput="document.getElementById('satz-auto-fid-val').textContent=this.value+'%'">
+        </div>
+        <div id="satz-auto-status" style="font-size:11.5px;color:var(--muted);line-height:1.5;min-height:18px;"></div>
+        <div id="satz-auto-metricas" style="display:none;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:11px;font-size:11px;line-height:1.65;"></div>
+      </div>
+      <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+        <button type="button" class="mbtn cancel" onclick="satZonasAutoCancelar()">Cancelar</button>
+        <button type="button" id="satz-auto-gerar" class="mbtn go" onclick="satZonasAutoGerar()">Gerar prévia</button>
+        <button type="button" id="satz-auto-aceitar" class="mbtn go" onclick="satZonasAutoAceitar()" style="display:none;">Aceitar e editar</button>
+      </div>
+    </div>
+  </div>
+
 <div id="sat-media-modal" style="display:none;position:fixed;inset:0;z-index:8990;background:rgba(20,22,17,.45);align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:14px;max-width:420px;width:93%;max-height:88vh;overflow-y:auto;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.3);">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
