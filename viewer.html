@@ -6582,7 +6582,7 @@ async function satCalEscolherDia(iso, eviVazio){
   S.satCal.diaEmCurso=iso;
   if(status) status.textContent='Carregando '+iso.split('-').reverse().join('/')+'… (pode levar até 30s se ainda não tiver sido processada)';
   try{
-    const { data, error } = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'data', data:iso } });
+    const { data, error } = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'data', data:iso, nuvem_max:S.satCal.nuvemMax } });
     if(error) throw error;
     if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao processar essa data.');
 
@@ -7228,7 +7228,7 @@ async function satReprocessarData(iso){
   try{
     // limpa qualquer cache local dessa imagem antes de repuxar
     S.sat._gr=null; S.sat._url=null;
-    const { data, error } = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'data', data:iso, force:true } });
+    const { data, error } = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'data', data:iso, force:true, nuvem_max:S.satCal.nuvemMax } });
     if(error) throw error;
     if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao reprocessar essa data.');
 
