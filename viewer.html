@@ -872,9 +872,10 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
   <!-- Zonas de manejo — desenho manual sobre a imagem de satélite (Fase 1) -->
   <div class="sec-label"><span class="txt"><span class="sec-num"></span>Zonas de manejo</span></div>
   <button type="button" id="btn-satz-perimetro" onclick="satZonasPerimetroCriar()" style="width:100%;padding:10px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12.5px;cursor:pointer">Criar perímetro</button>
-  <div id="satz-perimetro-acoes" style="display:none;gap:7px;margin-top:7px;">
+  <div id="satz-perimetro-acoes" style="display:none;gap:7px;margin-top:7px;flex-wrap:wrap;">
     <button type="button" id="btn-satz-perimetro-editar" onclick="satZonasPerimetroEditar()" style="flex:1;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12px;cursor:pointer">Editar perímetro</button>
     <button type="button" id="btn-satz-perimetro-salvar" onclick="satZonasPerimetroSalvar()" style="flex:1;padding:9px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12px;cursor:pointer">Salvar perímetro</button>
+    <button type="button" id="btn-satz-perimetro-excluir" onclick="satZonasPerimetroExcluir()" style="flex-basis:100%;padding:9px;border:1.5px solid var(--danger);border-radius:9px;background:#fff;color:var(--danger);font-weight:700;font-size:12px;cursor:pointer">Excluir perímetro</button>
   </div>
   <div id="satz-perimetro-status" style="font-size:10.5px;color:var(--muted);line-height:1.4;margin:5px 0 8px;">Sem desenho novo: será usado o perímetro cadastrado.</div>
   <button type="button" id="btn-satz-auto" onclick="satZonasAutoAbrir()" style="width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">Gerar automaticamente</button>
@@ -7334,7 +7335,7 @@ function _pontosZonasFonte(){
   if(perim&&perim.features){
     return perim.features
       .filter(f=>f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'))
-      .map((f,i)=>({nome:String(i+1),geometry:f.geometry}));
+      .map(f=>({nome:'',geometry:f.geometry,semId:true}));
   }
   return [];
 }
@@ -7699,7 +7700,7 @@ async function pontosGerar(){
       S.pontos.seq++;
       totalGerados++;
       const [lng,lat]=_utmToWgs84(c[0], c[1], utmRef.zone, utmRef.south);
-      const nome = (modoNum==='zona') ? String(zona.nome) : String(seqGlobal++);
+      const nome = (modoNum==='zona' && zona.nome) ? String(zona.nome) : String(seqGlobal++);
       _pontosAdicionar(lng, lat, nome, zona.nome, false);
     });
   }
@@ -8942,14 +8943,16 @@ function _satZonasCarregarDeGeoData(){
       // dividido em várias peças, primeira peça mantém o nome original,
       // demais recebem o PRÓXIMO número sequencial (não mais 22a/22b/22c).
       let nome;
-      if(pecas.length===1){
+      if(usandoPerimetro){
+        nome = '';
+      } else if(pecas.length===1){
         nome = nomeBase || String(S.satZonas.seq);
       } else {
         nome = (i===0)
           ? (nomeBase || String(S.satZonas.seq))
           : _satZonasProximoNumero();
       }
-      const item={ id:'z'+S.satZonas.seq, nome, cor, layer };
+      const item={ id:'z'+S.satZonas.seq, nome, cor, layer, semId:usandoPerimetro };
       layer._satzId=item.id;
       S.satZonas.itens.push(item);
       _satZonasAnexarEventos(item);
@@ -9029,7 +9032,7 @@ function satZonasIniciar(){
 // vez. Quando a pilha esvazia, o próximo reverter volta pro que está
 // oficialmente salvo (S.geoData) — a base de tudo.
 function _satZonasSnapshot(){
-  return S.satZonas.itens.map(it=>({ nome:it.nome, cor:it.cor, geometry: JSON.parse(JSON.stringify(_satzGeometryDeLayer(it.layer))) }));
+  return S.satZonas.itens.map(it=>({ nome:it.nome, cor:it.cor, semId:!!it.semId, geometry: JSON.parse(JSON.stringify(_satzGeometryDeLayer(it.layer))) }));
 }
 function _satZonasEmpilharHistorico(){
   S.satZonas.historico.push(_satZonasSnapshot());
@@ -9055,7 +9058,7 @@ function _satZonasAplicarSnapshot(snap){
       S.satZonas.grupo.addLayer(layer);
       S.satZonas.seq++;
       layer.setStyle && layer.setStyle({ color:s.cor, weight:2, fillColor:s.cor, fillOpacity:0.28 });
-      const item={ id:'z'+S.satZonas.seq, nome:s.nome, cor:s.cor, layer };
+      const item={ id:'z'+S.satZonas.seq, nome:s.nome, cor:s.cor, semId:!!s.semId, layer };
       layer._satzId=item.id;
       S.satZonas.itens.push(item);
       _satZonasAnexarEventos(item);
@@ -9570,7 +9573,7 @@ function _satzRemoverVerticesRedundantes(feat){
 // que a lista re-renderiza (criação, edição de vértice, renomeação).
 function _satZonasAtualizarTooltip(item){
   const ha=_polyHa(_satzGeometryDeLayer(item.layer));
-  const html='<div class="sat-zona-label"><b>'+item.nome+'</b><br>'+ha.toFixed(2)+' ha</div>';
+  const html='<div class="sat-zona-label">'+(item.semId?'':('<b>'+item.nome+'</b><br>'))+ha.toFixed(2)+' ha</div>';
   try{
     const centro=item.layer.getBounds().getCenter();
     if(item.labelMarker){
@@ -9634,7 +9637,7 @@ function renderSatzLista(){
     const tituloDup = duplicada ? ' title="⚠️ Nome duplicado: existe mais de uma zona com este nome"' : '';
     return '<div class="satz-item'+(editando?' editando':'')+(selecionada?' selecionada':'')+'"'+estiloDup+tituloDup+' onclick="_satZonasCliqueNaLista(event,\''+it.id+'\')">'+
       '<span class="satz-cor" style="background:'+it.cor+'"></span>'+
-      '<input type="text" value="'+it.nome.replace(/"/g,'&quot;')+'" onclick="event.stopPropagation()" onchange="satZonasRenomear(\''+it.id+'\',this.value)">'+
+      (it.semId ? '<span style="flex:1;font-size:11px;color:var(--muted);font-weight:700">Zona sem ID</span>' : '<input type="text" value="'+it.nome.replace(/"/g,'&quot;')+'" onclick="event.stopPropagation()" onchange="satZonasRenomear(\''+it.id+'\',this.value)">')+
       (duplicada ? '<span style="color:#e0392b;font-size:13px;" title="Nome duplicado">⚠️</span>' : '')+
       '<span class="satz-area">'+ha.toFixed(2)+' ha</span>'+
       '<span class="satz-icone'+(editando?' editando':'')+'" onclick="event.stopPropagation();satZonasEditarToggle(\''+it.id+'\')" title="'+(editando?'Concluir edição desta zona':'Arrastar vértices desta zona')+'">'+(editando?'💾':'✎')+'</span>'+
@@ -9811,7 +9814,9 @@ function _satZonasParaGeoJSON(){
       const geometry=_satzGeometryDeLayer(it.layer);
       return {
         type:'Feature',
-        properties:{ ZG: it.nome || String(i+1), area_ha: +_polyHa(geometry).toFixed(2) },
+        properties:it.semId
+          ? { area_ha: +_polyHa(geometry).toFixed(2) }
+          : { ZG: it.nome || String(i+1), area_ha: +_polyHa(geometry).toFixed(2) },
         geometry,
       };
     }),
@@ -12903,7 +12908,10 @@ function _satZonasPerimetroGeoJSONDaCamada(){
 }
 function _satZonasPerimetroExibir(gj){
   if(S.satZonasAuto.perimetroLayer){try{S.map.removeLayer(S.satZonasAuto.perimetroLayer);}catch(e){}}
-  S.satZonasAuto.perimetroLayer=L.geoJSON(gj,{style:{color:'#e0392b',weight:3,fillOpacity:.14,fillColor:'#e0392b'},interactive:true}).addTo(S.map);
+  S.satZonasAuto.perimetroLayer=L.geoJSON(gj,{style:{color:'#e0392b',weight:3,fillOpacity:.14,fillColor:'#e0392b'},interactive:true,onEachFeature:(f,l)=>{
+    const ha=_polyHa(f.geometry);
+    l.bindTooltip('<div class="sat-zona-label">'+ha.toFixed(2)+' ha</div>',{permanent:true,direction:'center',className:'sat-zona-label-wrap'});
+  }}).addTo(S.map);
 }
 function _satZonasAutoAtualizarPerimetroStatus(){
   const el=document.getElementById('satz-perimetro-status'),btn=document.getElementById('btn-satz-perimetro'),acoes=document.getElementById('satz-perimetro-acoes'),salvar=document.getElementById('btn-satz-perimetro-salvar');
@@ -12957,6 +12965,7 @@ async function satZonasPerimetroSalvar(){
   if(S.satZonasAuto.perimetroEditando)satZonasPerimetroEditar();
   const gj=S.satZonasAuto.perimetro||_satZonasPerimetroGeoJSONDaCamada();
   if(!gj||!gj.features||!gj.features.length){toast('Crie um perímetro primeiro.','wrn');return;}
+  gj.features.forEach(f=>{if(f&&f.geometry)f.properties={area_ha:+_polyHa(f.geometry).toFixed(2)};});
   const btn=document.getElementById('btn-satz-perimetro-salvar');if(btn){btn.disabled=true;btn.textContent='Salvando…';}
   try{
     const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:gj});
@@ -12968,9 +12977,31 @@ async function satZonasPerimetroSalvar(){
     // importe agora o perímetro recém-salvo como uma zona única.
     if(S.satZonas&&!S.satZonas.itens.length&&!(S.geoData&&S.geoData.features&&S.geoData.features.length))S.satZonas._importTentado=false;
     _satZonasAutoAtualizarPerimetroStatus();_renderRelStatus();
-    toast('Perímetro salvo. As próximas buscas de imagens usarão esta área.','ok',6000);
+    toast('Perímetro salvo como zona sem ID. As próximas buscas usarão esta área.','ok',6000);
   }catch(e){toast('Não foi possível salvar o perímetro: '+((e&&e.message)||e),'err',7000);}
   finally{if(btn){btn.disabled=false;btn.textContent='Salvar perímetro';}}
+}
+async function satZonasPerimetroExcluir(){
+  const existe=!!((S.satZonasAuto.perimetro&&S.satZonasAuto.perimetro.features&&S.satZonasAuto.perimetro.features.length)||(S.modeloB&&S.modeloB.perimetro&&S.modeloB.perimetro.features&&S.modeloB.perimetro.features.length));
+  if(!existe){toast('Nenhum perímetro para excluir.','wrn');return;}
+  const ok=await cgConfirm('Excluir o perímetro deste talhão?\n\nA zona sem ID também será removida e as buscas deixarão de usar esta área.',{titulo:'Excluir perímetro?',tipo:'danger',okLabel:'Sim, excluir',okDanger:true});
+  if(!ok)return;
+  if(!sb||!S.tokenAtual){toast('Sem conexão para excluir.','err');return;}
+  try{
+    const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:null});
+    if(r&&r.error)throw new Error(r.error.message);
+    if(S.satZonasAuto.perimetroLayer){try{S.map.removeLayer(S.satZonasAuto.perimetroLayer);}catch(e){}}
+    S.satZonasAuto.perimetroLayer=null;S.satZonasAuto.perimetro=null;S.satZonasAuto.perimetroSujo=false;S.satZonasAuto.perimetroEditando=false;
+    if(S.modeloB)S.modeloB.perimetro=null;
+    if(S.satZonas&&S.satZonas.itens){
+      S.satZonas.itens.filter(it=>it.semId).forEach(it=>{try{S.satZonas.grupo.removeLayer(it.layer);}catch(e){}if(it.labelMarker&&S.satZonas.labelGrupo){try{S.satZonas.labelGrupo.removeLayer(it.labelMarker);}catch(e){}}});
+      S.satZonas.itens=S.satZonas.itens.filter(it=>!it.semId);S.satZonas._importTentado=false;
+      if(S.satZonas.ativo)renderSatzLista();
+    }
+    S.sat._mask=null;S.sat._maskKey=null;S.satCal._statsCache={};
+    _satZonasAutoAtualizarPerimetroStatus();_renderRelStatus();
+    toast('Perímetro excluído.','ok');
+  }catch(e){toast('Não foi possível excluir o perímetro: '+((e&&e.message)||e),'err',7000);}
 }
 function _satZonasAutoLimparPreview(){
   if(S.satZonasAuto.preview){ try{ S.map.removeLayer(S.satZonasAuto.preview); }catch(e){} S.satZonasAuto.preview=null; }
