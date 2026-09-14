@@ -963,11 +963,10 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <div id="pontos-lista" style="display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto;"></div>
     <div id="pontos-vazio" style="font-size:11.5px;color:var(--muted);margin-top:4px;">Nenhum ponto criado ainda.</div>
 
-    <!-- FASE 6/9: rodapé — botões "Limpar" e "Confirmar" só aparecem com pontos -->
+    <!-- FASE 6/9: rodapé de edição e persistência dos pontos -->
     <div id="pontos-rodape" style="display:none;margin-top:10px;">
       <button type="button" onclick="pontosLimparTodos()" style="width:100%;margin-top:0;padding:8px;border:1.5px solid #e0c8c4;border-radius:8px;background:#fff;font-weight:700;font-size:11.5px;color:var(--danger);cursor:pointer;">🗑️ Limpar todos</button>
-      <!-- FASE 9: botão "Confirmar/Salvar Pontos" (verde, igual "Salvar zonas oficiais") -->
-      <button type="button" id="btn-pontos-confirmar" onclick="pontosConfirmarSalvar()" style="width:100%;margin-top:8px;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;">Confirmar Pontos</button>
+      <button type="button" id="btn-pontos-confirmar" onclick="pontosConfirmarSalvar()" style="width:100%;margin-top:8px;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;">Sair e salvar edição</button>
     </div>
     <!-- botão legado (oculto) — mantido pra não quebrar código antigo que ainda referencia -->
     <button type="button" id="btn-pontos-legenda" onclick="pontosLegendaToggle()" style="display:none;"></button>
@@ -6447,7 +6446,7 @@ async function satCalCarregarMes(){
 
   const anoReq=S.satCal.ano, mesReq=S.satCal.mes; // trava contra troca de mês durante o await
   try{
-    const resp = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'listar', ano:anoReq, mes:mesReq } });
+    const resp = await sb.functions.invoke(SAT_FN, { body:Object.assign({ token:S.tokenAtual, action:'listar', ano:anoReq, mes:mesReq },_satPerimetroBuscaPayload()) });
     if(resp.error){
       // FunctionsFetchError = não conseguiu nem chamar (função não existe, nome
       // errado, CORS). FunctionsHttpError = chamou, mas a função devolveu !=2xx.
@@ -6500,7 +6499,7 @@ async function satCalCarregarStats(ano, mes){
     st.textContent = txt ? (base+' · EVI '+txt) : base;
   };
   try{
-    const resp = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'stats', ano, mes } });
+    const resp = await sb.functions.invoke(SAT_FN, { body:Object.assign({ token:S.tokenAtual, action:'stats', ano, mes },_satPerimetroBuscaPayload()) });
     if(resp.error){
       const nome=(resp.error && resp.error.name)||'';
       console.warn('[sat] estatísticas indisponíveis:', resp.error);
@@ -6589,7 +6588,7 @@ async function satCalEscolherDia(iso, eviVazio){
   S.satCal.diaEmCurso=iso;
   if(status) status.textContent='Carregando '+iso.split('-').reverse().join('/')+'… (pode levar até 30s se ainda não tiver sido processada)';
   try{
-    const { data, error } = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'data', data:iso, nuvem_max:S.satCal.nuvemMax } });
+    const { data, error } = await sb.functions.invoke(SAT_FN, { body:Object.assign({ token:S.tokenAtual, action:'data', data:iso, nuvem_max:S.satCal.nuvemMax },_satPerimetroBuscaPayload()) });
     if(error) throw error;
     if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao processar essa data.');
 
@@ -6712,6 +6711,7 @@ async function satMediaExecutar(){
     cobertura_min:+(document.getElementById('sm-cob')||{}).value||80,
     datas:manual.length?manual:null
   };
+  Object.assign(corpo,_satPerimetroBuscaPayload());
   S.satMedia.rodando=true;
   if(btn){ btn.disabled=true; btn.style.opacity='.6'; }
   if(rel) rel.style.display='none';
@@ -7239,7 +7239,7 @@ async function satReprocessarData(iso){
   try{
     // limpa qualquer cache local dessa imagem antes de repuxar
     S.sat._gr=null; S.sat._url=null;
-    const { data, error } = await sb.functions.invoke(SAT_FN, { body:{ token:S.tokenAtual, action:'data', data:iso, force:true, nuvem_max:S.satCal.nuvemMax } });
+    const { data, error } = await sb.functions.invoke(SAT_FN, { body:Object.assign({ token:S.tokenAtual, action:'data', data:iso, force:true, nuvem_max:S.satCal.nuvemMax },_satPerimetroBuscaPayload()) });
     if(error) throw error;
     if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao reprocessar essa data.');
 
@@ -7302,7 +7302,7 @@ function satOverlayToggle(){
 // Estado guardado em S.pontos = { itens:[], modoManual:false, mostrarLabels:true,
 //                                  layer, labelLayer, clickHandler }
 // ═════════════════════════════════════════════════════════════════════════
-S.pontos = { itens:[], modoManual:false, mostrarLabels:true, mostrarPontos:true, layer:null, labelLayer:null, clickHandler:null, seq:0, modo:'auto', salvoConfirmado:false, _painelAberto:true };
+S.pontos = { itens:[], modoManual:false, mostrarLabels:true, mostrarPontos:true, layer:null, labelLayer:null, clickHandler:null, seq:0, modo:'auto', salvoConfirmado:false, _painelAberto:true, _edicaoSuja:false };
 
 function _pontosCorLegivel(){ return '#e0392b'; } // vermelho vibrante em cima do satélite
 
@@ -7337,6 +7337,12 @@ function _pontosZonasFonte(){
       .map((f,i)=>({nome:String(i+1),geometry:f.geometry}));
   }
   return [];
+}
+function _satPerimetroBuscaPayload(){
+  const p=(S.satZonasAuto&&S.satZonasAuto.perimetro&&S.satZonasAuto.perimetro.features&&S.satZonasAuto.perimetro.features.length)
+    ? S.satZonasAuto.perimetro
+    : (S.modeloB&&S.modeloB.perimetro);
+  return p&&p.features&&p.features.length?{perimetro_geojson:p}:{};
 }
 
 // Gera N pontos aleatórios dentro de um polígono (com limite de tentativas
@@ -7701,6 +7707,8 @@ async function pontosGerar(){
   _pontosRedesenhar();
   _pontosRenderLista();
   _pontosSincronizarColeta(); // reflete os novos pontos na aba Coleta de Solo
+  S.pontos._edicaoSuja=true;
+  _pontosAtualizarRodape();
   if(status){
     let msg = totalGerados+' ponto(s) gerado(s) em '+zonas.length+' zona(s).';
     if(zonasComProblema.length) msg += ' Poucos candidatos em: '+zonasComProblema.join(', ')+'.';
@@ -7713,6 +7721,7 @@ async function pontosGerar(){
 function _pontosAdicionar(lng, lat, nome, zonaNome, redesenhar){
   const item = { id:'p'+(Date.now())+'_'+Math.random().toString(36).slice(2,6), lng, lat, nome:String(nome), zona:zonaNome||null };
   S.pontos.itens.push(item);
+  S.pontos._edicaoSuja=true;
   if(redesenhar){ _pontosRedesenhar(); _pontosRenderLista(); }
   return item;
 }
@@ -7871,6 +7880,7 @@ function pontosModoManualToggle(){
 // Remove um ponto específico (chamado pelo botão ✕ da lista)
 function pontosRemover(id){
   S.pontos.itens = S.pontos.itens.filter(p=>p.id!==id);
+  S.pontos._edicaoSuja=true;
   _pontosRedesenhar();
   _pontosRenderLista();
   _pontosSincronizarColeta();
@@ -7891,6 +7901,7 @@ async function pontosLimparTodos(){
 function pontosLimparInterno(){
   S.pontos.itens=[];
   S.pontos.seq=0;
+  S.pontos._edicaoSuja=true;
   _pontosRedesenhar();
   _pontosRenderLista();
   _pontosSincronizarColeta();
@@ -7923,7 +7934,9 @@ function pontosMostrarToggle(){
 function _pontosAtualizarRodape(){
   const rod=document.getElementById('pontos-rodape');
   // só aparece se há pontos E o painel de coordenadas está aberto
-  if(rod) rod.style.display = (S.pontos.itens.length && S.pontos._painelAberto!==false) ? '' : 'none';
+  if(rod) rod.style.display = ((S.pontos.itens.length || S.pontos._edicaoSuja) && S.pontos._painelAberto!==false) ? '' : 'none';
+  const limpar=rod&&rod.querySelector('button');
+  if(limpar) limpar.style.display=S.pontos.itens.length?'':'none';
   // Os toggles de exibição seguem outra regra: bastam existir pontos no mapa
   // (continuam úteis mesmo com o painel de coordenadas fechado).
   const vis=document.getElementById('pontos-vis-box');
@@ -7983,6 +7996,7 @@ function _pontosRedesenhar(){
         p.lat = ll.lat;
         p.lng = ll.lng;
         p.zona = _pontosZonaEm(p.lng, p.lat);
+        S.pontos._edicaoSuja=true;
         _pontosRenderLista();     // atualiza a lista lateral com as novas coords/zona
         _pontosSincronizarColeta();
         toast('Ponto '+p.nome+' movido.','ok',1500);
@@ -8082,6 +8096,7 @@ async function _pontosRealocarPrompt(id){
     p.lng = e.latlng.lng;
     p.lat = e.latlng.lat;
     p.zona = _pontosZonaEm(p.lng, p.lat);
+    S.pontos._edicaoSuja=true;
     _pontosRedesenhar();
     _pontosRenderLista();
     _pontosSincronizarColeta();
@@ -8158,6 +8173,7 @@ async function pontosEditarCoords(id){
   p.lat = latN;
   p.lng = lngN;
   p.zona = _pontosZonaEm(p.lng, p.lat);
+  S.pontos._edicaoSuja=true;
   _pontosRedesenhar();
   _pontosRenderLista();
   _pontosSincronizarColeta();
@@ -8173,6 +8189,7 @@ function pontosMoverNoMapa(id){
     p.lng = e.latlng.lng;
     p.lat = e.latlng.lat;
     p.zona = _pontosZonaEm(p.lng, p.lat);
+    S.pontos._edicaoSuja=true;
     _pontosRedesenhar();
     _pontosRenderLista();
     _pontosSincronizarColeta();
@@ -8185,10 +8202,12 @@ function pontosMoverNoMapa(id){
 // da Coleta de Solo). Semelhante ao satZonasSalvarOficial, mas para pontos.
 async function pontosConfirmarSalvar(){
   const status=document.getElementById('pontos-status');
-  if(!S.pontos.itens.length){ toast('Sem pontos para salvar.','wrn'); return; }
   if(!sb || !S.tokenAtual){ if(status) status.textContent='Sem conexão para salvar.'; return; }
-  const ok=await cgConfirm('Confirmar '+S.pontos.itens.length+' ponto(s) de coleta?\n\nEles serão salvos como oficiais e ficarão disponíveis nas outras abas (Coleta de Solo, Exportação).',{
-    titulo:'Confirmar pontos de coleta?', tipo:'info', okLabel:'Sim, salvar'
+  const removendoTudo=!S.pontos.itens.length;
+  const ok=await cgConfirm(removendoTudo
+    ? 'Salvar a exclusão de todos os pontos de coleta?\n\nAo sair e voltar, eles continuarão excluídos.'
+    : 'Salvar a edição de '+S.pontos.itens.length+' ponto(s) de coleta?\n\nEles ficarão disponíveis nas outras abas (Coleta de Solo, Exportação).',{
+    titulo:removendoTudo?'Salvar exclusão dos pontos?':'Salvar edição dos pontos?', tipo:removendoTudo?'danger':'info', okLabel:'Sair e salvar', okDanger:removendoTudo
   });
   if(!ok) return;
   try{
@@ -8203,9 +8222,10 @@ async function pontosConfirmarSalvar(){
     const r=await sb.rpc('atualizar_coleta', { p_token:S.tokenAtual, p_pontos_url:url });
     if(r && r.error) throw new Error(r.error.message);
     S.pontos.salvoConfirmado=true;
+    S.pontos._edicaoSuja=false;
     if(S.coleta) S.coleta.pontos = url;
-    if(status) status.textContent='✅ Pontos salvos como oficiais.';
-    toast('Pontos confirmados e salvos.','ok');
+    if(status) status.textContent=removendoTudo?'✅ Exclusão dos pontos salva.':'✅ Pontos salvos como oficiais.';
+    toast(removendoTudo?'Pontos excluídos e alteração salva.':'Edição dos pontos salva.','ok');
     _pontosSincronizarColeta();
     // Fecha o painel com a lista de coordenadas. Os pontos continuam no mapa;
     // pra editar de novo é só clicar em "Criar/Editar".
@@ -8241,7 +8261,8 @@ function _pontosParaGeoJSON(){
 // estudo — sem isso, S.pontos.itens ficava vazio, os pontos não apareciam no
 // mapa da Satélite e o "Criar/Editar" gerava tudo de novo.
 function _pontosCarregarDeGeoJSON(gj){
-  if(!gj || !Array.isArray(gj.features) || !gj.features.length) return 0;
+  if(!gj || !Array.isArray(gj.features)) return 0;
+  if(!gj.features.length){ S.pontos.itens=[]; S.pontos.seq=0; S.pontos._edicaoSuja=false; return 0; }
   const itens=[];
   let maxSeq=0;
   for(const f of gj.features){
@@ -8273,6 +8294,7 @@ function _pontosCarregarDeGeoJSON(gj){
   // Esses pontos vieram da própria Coleta (shapefile salvo) — se depois forem
   // limpos por aqui, a Coleta precisa refletir o esvaziamento também.
   S.pontos._sincronizouColeta=true;
+  S.pontos._edicaoSuja=false;
   return itens.length;
 }
 
@@ -10432,6 +10454,7 @@ function setMapMode(mode){
     }
     if(S.pontos && S.pontos.layer){ try{ S.map.removeLayer(S.pontos.layer); }catch(e){} S.pontos.layer=null; }
     if(S.pontos && S.pontos.labelLayer){ try{ S.map.removeLayer(S.pontos.labelLayer); }catch(e){} S.pontos.labelLayer=null; }
+    if(S.satZonasAuto&&S.satZonasAuto.perimetroLayer){ try{S.map.removeLayer(S.satZonasAuto.perimetroLayer);}catch(e){} }
   }
   else {
     // BUG FIX (item 4): a aba Satélite NÃO deve mostrar o overlay opaco
@@ -10454,6 +10477,10 @@ function setMapMode(mode){
     }catch(e){ console.warn('[sat] não consegui trocar basemap:', e); }
 
     _satZonasDesenhar();
+    const perimAtivo=(S.satZonasAuto&&S.satZonasAuto.perimetro&&S.satZonasAuto.perimetro.features&&S.satZonasAuto.perimetro.features.length)
+      ? S.satZonasAuto.perimetro
+      : (S.modeloB&&S.modeloB.perimetro);
+    if(perimAtivo&&perimAtivo.features&&perimAtivo.features.length) _satZonasPerimetroExibir(perimAtivo);
     // FIX (rótulos duplicados + zonas coloridas ao voltar pra aba):
     // os grupos S.satZonas.grupo/labelGrupo são as camadas do MODO DE EDIÇÃO
     // (polígonos coloridos + rótulo com área em 2 casas). Eles só podem voltar
@@ -12133,6 +12160,12 @@ async function loadFromToken(token, params){
 
     // modelo B (layout do consultor): flag (consultor) + níveis ideais (cliente)
     S.modeloB={on:false,niveis:{},zonas:(data.rasters_relatorio||{}),perimetro:(data.perimetro_geojson||null)};
+    if(!S.modeloB.perimetro && data.talhao_id){
+      try{
+        const q=await sb.from('talhoes').select('perimetro_geojson').eq('id',data.talhao_id).maybeSingle();
+        if(q&&!q.error&&q.data&&q.data.perimetro_geojson) S.modeloB.perimetro=typeof q.data.perimetro_geojson==='string'?JSON.parse(q.data.perimetro_geojson):q.data.perimetro_geojson;
+      }catch(e){ console.warn('[perimetro] fallback de carregamento indisponível:',e); }
+    }
     try{ _renderRelStatus(); }catch(e){}
     sb.rpc('get_modelo_b_config',{p_token:token}).then(({data})=>{
       const d=(typeof data==='string')?JSON.parse(data):data;
