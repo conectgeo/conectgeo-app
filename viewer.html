@@ -7326,6 +7326,16 @@ function _pontosZonasFonte(){
         geometry: f.geometry
       }));
   }
+  // Sem zonas oficiais, o perímetro salvo é uma zona operacional única.
+  // Isso libera imediatamente pontos automáticos/manuais dentro da área.
+  const perim=(S.satZonasAuto&&S.satZonasAuto.perimetro&&S.satZonasAuto.perimetro.features&&S.satZonasAuto.perimetro.features.length)
+    ? S.satZonasAuto.perimetro
+    : (S.modeloB&&S.modeloB.perimetro);
+  if(perim&&perim.features){
+    return perim.features
+      .filter(f=>f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'))
+      .map((f,i)=>({nome:String(i+1),geometry:f.geometry}));
+  }
   return [];
 }
 
@@ -8884,10 +8894,18 @@ function _satZonasProximoNumero(){
 // sequencial pura, e sufixos só voltavam a aparecer aqui quando uma zona
 // cortada era salva como MultiPolygon).
 function _satZonasCarregarDeGeoData(){
-  if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return;
-  const fields=S.geoFields||Object.keys(S.geoData.features[0].properties||{});
-  const campoZona=_pickZoneField(fields, _amostraProps(S.geoData.features,8));
-  S.geoData.features.forEach(f=>{
+  // Zonas oficiais têm prioridade. Se ainda não existem, importa o perímetro
+  // salvo como uma única zona editável; o usuário decide se a oficializa.
+  const fonte=(S.geoData&&S.geoData.features&&S.geoData.features.length)
+    ? S.geoData
+    : ((S.satZonasAuto&&S.satZonasAuto.perimetro&&S.satZonasAuto.perimetro.features&&S.satZonasAuto.perimetro.features.length)
+      ? S.satZonasAuto.perimetro
+      : (S.modeloB&&S.modeloB.perimetro));
+  if(!fonte || !fonte.features || !fonte.features.length) return;
+  const usandoPerimetro=!(S.geoData&&S.geoData.features&&S.geoData.features.length);
+  const fields=Object.keys((fonte.features[0]&&fonte.features[0].properties)||{});
+  const campoZona=usandoPerimetro?null:_pickZoneField(fields, _amostraProps(fonte.features,8));
+  fonte.features.forEach(f=>{
     const g=f.geometry; if(!g) return;
     const nomeBase = campoZona ? String((f.properties||{})[campoZona]??'').trim() : '';
     const pecas = g.type==='Polygon' ? [g] : (g.type==='MultiPolygon' ? g.coordinates.map(c=>({ type:'Polygon', coordinates:c })) : []);
@@ -8967,7 +8985,10 @@ function satZonasIniciar(){
     _satZonasCarregarDeGeoData();
     if(S.satZonas.itens.length){
       renderSatzLista();
-      toast(S.satZonas.itens.length+' zona(s) oficiais carregadas — edite, corte ou desenhe mais.','ok',5000);
+      const temOficiais=!!(S.geoData&&S.geoData.features&&S.geoData.features.length);
+      toast(temOficiais
+        ? S.satZonas.itens.length+' zona(s) oficiais carregadas — edite, corte ou desenhe mais.'
+        : 'Perímetro carregado como uma zona única — edite, corte ou salve como zona oficial.','ok',6000);
     }
   }
 
@@ -12910,6 +12931,9 @@ async function satZonasPerimetroSalvar(){
     S.modeloB=S.modeloB||{on:false,niveis:{},zonas:{}};S.modeloB.perimetro=JSON.parse(JSON.stringify(gj));
     S.satZonasAuto.perimetro=JSON.parse(JSON.stringify(gj));S.satZonasAuto.perimetroSujo=false;
     S.sat._mask=null;S.sat._maskKey=null;S.satCal._statsCache={};
+    // Se o editor manual já foi aberto vazio nesta sessão, permite que ele
+    // importe agora o perímetro recém-salvo como uma zona única.
+    if(S.satZonas&&!S.satZonas.itens.length&&!(S.geoData&&S.geoData.features&&S.geoData.features.length))S.satZonas._importTentado=false;
     _satZonasAutoAtualizarPerimetroStatus();_renderRelStatus();
     toast('Perímetro salvo. As próximas buscas de imagens usarão esta área.','ok',6000);
   }catch(e){toast('Não foi possível salvar o perímetro: '+((e&&e.message)||e),'err',7000);}
