@@ -4754,10 +4754,10 @@ async function _removerPerimetro(){
   if(!ok) return;
   const el=document.getElementById('nut-rel-status');
   try{
-    const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:null});
-    if(r&&r.error) throw new Error(r.error.message);
-    if(S.modeloB) S.modeloB.perimetro=null;
+    const resultado=await _perimetroPersistir(null);
+    _perimetroLimparEstadoSatelite();
     _renderRelStatus();
+    if(resultado.aviso&&el)el.textContent=resultado.aviso;
   }catch(e){ if(el) el.innerHTML='<span style="color:#c0392b">Erro ao remover: '+e.message+'</span>'; }
 }
 async function _removerRaster(tipo){
@@ -9920,8 +9920,9 @@ async function satZonasSalvarOficial(){
       // shapefile (Area/AREA/area_ha/…) quando existe e é válida, porque é o
       // número que o agrônomo vê no atributo; só caímos para o cálculo
       // geodésico (turf.area) quando a zona não traz área no atributo.
-      let totalHa = 0;
-      for(const f of geojson.features){
+      const perimetroOficial=S.modeloB&&S.modeloB.perimetro;
+      let totalHa = perimetroOficial?_perimetroAreaOficial(perimetroOficial):0;
+      for(const f of (perimetroOficial?[]:geojson.features)){
         let ha = NaN;
         const p = (f && f.properties) || {};
         for(const k of Object.keys(p)){
@@ -11159,9 +11160,8 @@ function wireColetaControls(){
           let gj=await shp(buf);
           if(Array.isArray(gj)) gj={type:'FeatureCollection',features:gj.reduce((a,c)=>a.concat(c.features||[]),[])};
           if(!gj||!gj.features||!gj.features.length) throw new Error('shapefile sem polígonos');
-          const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:gj});
-          if(r&&r.error) throw new Error(r.error.message);
-          S.modeloB=S.modeloB||{on:false,niveis:{},zonas:{}}; S.modeloB.perimetro=gj;
+          const resultado=await _perimetroPersistir(gj);
+          if(resultado.aviso)pulou.push(f.name+' ('+resultado.aviso+')');
           ok.push('Perímetro');
         }catch(e){ pulou.push(f.name+' (perímetro: '+e.message+')'); }
         continue;
@@ -12194,6 +12194,20 @@ async function loadFromToken(token, params){
         if(q&&!q.error&&q.data&&q.data.perimetro_geojson) S.modeloB.perimetro=typeof q.data.perimetro_geojson==='string'?JSON.parse(q.data.perimetro_geojson):q.data.perimetro_geojson;
       }catch(e){ console.warn('[perimetro] fallback de carregamento indisponível:',e); }
     }
+    try{
+      S.modeloB.perimetro=_perimetroNormalizar(S.modeloB.perimetro);
+      S.satZonasAuto.perimetro=null;S.satZonasAuto.perimetroSujo=false;
+      if(S.modeloB.perimetro){
+        const ha=_perimetroAreaOficial(S.modeloB.perimetro);
+        const atual=Number(data.hectares);
+        S.linkData.hectares=ha;
+        // Repara também talhões sem zonas, mantendo as permissões existentes.
+        if(S.consultorMode&&(!Number.isFinite(atual)||Math.abs(atual-ha)>0.005)){
+          try{await _perimetroAtualizarArea(S.modeloB.perimetro);}catch(e){toast('Perímetro carregado, mas a área cadastrada não foi atualizada: '+e.message,'wrn',9000);}
+        }
+      }
+      _satZonasAutoAtualizarPerimetroStatus();
+    }catch(e){toast('Não foi possível validar o perímetro cadastrado: '+e.message,'wrn',9000);}
     try{ _renderRelStatus(); }catch(e){}
     sb.rpc('get_modelo_b_config',{p_token:token}).then(({data})=>{
       const d=(typeof data==='string')?JSON.parse(data):data;
@@ -12244,7 +12258,7 @@ async function loadFromToken(token, params){
     // atual está claramente errado (zerado ou fora por mais de 1%).
     try{
       const feats=(S.geoData&&S.geoData.features)||[];
-      if(feats.length){
+      if(feats.length&&!(S.modeloB&&S.modeloB.perimetro)){
         let totalHa=0;
         for(const f of feats){
           let ha=NaN; const p=(f&&f.properties)||{};
@@ -12986,24 +13000,84 @@ function satZonasPerimetroEditar(){
     toast('Edição concluída. Salve o perímetro para ativá-lo nas buscas.','ok',5000);
   }
 }
+// Área cadastral: somente o perímetro SALVO; rascunhos e zonas não o substituem.
+function _perimetroNormalizar(gj){
+  if(typeof gj==='string') gj=JSON.parse(gj);
+  if(!gj)return null;
+  if(gj.type==='Feature')gj={type:'FeatureCollection',features:[gj]};
+  else if(gj.type==='Polygon'||gj.type==='MultiPolygon')gj={type:'FeatureCollection',features:[{type:'Feature',properties:{},geometry:gj}]};
+  if(gj.type!=='FeatureCollection'||!Array.isArray(gj.features)||!gj.features.length)throw new Error('Perímetro sem polígonos.');
+  const out=JSON.parse(JSON.stringify(gj));
+  out.features.forEach(f=>{
+    const g=f&&f.geometry;
+    if(!g||(g.type!=='Polygon'&&g.type!=='MultiPolygon'))throw new Error('O perímetro deve conter apenas polígonos.');
+    const polys=g.type==='Polygon'?[g.coordinates]:g.coordinates;
+    if(!Array.isArray(polys)||!polys.length)throw new Error('Perímetro sem coordenadas.');
+    polys.forEach(poly=>{
+      if(!Array.isArray(poly)||!poly.length)throw new Error('Polígono vazio.');
+      poly.forEach(ring=>{
+        if(!Array.isArray(ring)||ring.length<4)throw new Error('Contorno incompleto.');
+        ring.forEach(c=>{if(!Array.isArray(c)||!Number.isFinite(c[0])||!Number.isFinite(c[1])||Math.abs(c[0])>180||Math.abs(c[1])>90)throw new Error('Coordenadas inválidas; use longitude/latitude WGS84.');});
+        const a=ring[0],b=ring[ring.length-1];
+        if(a[0]!==b[0]||a[1]!==b[1])throw new Error('O contorno do perímetro não está fechado.');
+      });
+    });
+    const ha=_polyHa(g);
+    if(!Number.isFinite(ha)||ha<=0)throw new Error('Área do perímetro inválida.');
+    if(typeof turf!=='undefined'&&turf.kinks&&turf.kinks(f).features.length)throw new Error('O perímetro possui contornos cruzados.');
+    f.properties=Object.assign({},f.properties||{},{area_ha:Math.round(ha*100)/100});
+  });
+  return out;
+}
+function _perimetroAreaOficial(gj){
+  const p=_perimetroNormalizar(gj);
+  if(!p)return null;
+  let unico=p.features[0];
+  for(let i=1;i<p.features.length;i++){
+    if(typeof turf==='undefined'||!turf.union)throw new Error('Ferramenta de união do perímetro indisponível.');
+    unico=turf.union(unico,p.features[i]);
+    if(!unico)throw new Error('Não foi possível unir o perímetro.');
+  }
+  return Math.round(_polyHa(unico.geometry)*100)/100;
+}
+async function _perimetroAtualizarArea(gj){
+  const ha=gj?_perimetroAreaOficial(gj):0;
+  const id=await _resolverTalhaoId();
+  if(!id)throw new Error('Não foi possível identificar o talhão para atualizar sua área.');
+  // O retorno confirma que a política existente autorizou e gravou a linha.
+  const q=await sb.from('talhoes').update({hectares:ha}).eq('id',id).select('id,hectares').maybeSingle();
+  if(q&&q.error)throw new Error(q.error.message);
+  if(!q||!q.data||q.data.id!==id||!Number.isFinite(Number(q.data.hectares))||Math.abs(Number(q.data.hectares)-ha)>0.005)throw new Error('A gravação da área do talhão não foi confirmada.');
+  if(S.linkData)S.linkData.hectares=Number(q.data.hectares);
+  return ha;
+}
+async function _perimetroPersistir(gj){
+  const p=gj?_perimetroNormalizar(gj):null;
+  if(p)_perimetroAreaOficial(p); // valida a união antes de qualquer gravação
+  const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:p});
+  if(!r||r.error||(r.data&&(r.data.erro||r.data.ok===false)))throw new Error((r&&r.error&&r.error.message)||(r&&r.data&&r.data.erro)||'O salvamento do perímetro não foi confirmado.');
+  S.modeloB=S.modeloB||{on:false,niveis:{},zonas:{}};
+  S.modeloB.perimetro=p;
+  S.satZonasAuto.perimetro=p?JSON.parse(JSON.stringify(p)):null;
+  S.satZonasAuto.perimetroSujo=false;
+  if(S.linkData)S.linkData.perimetro_geojson=p;
+  S.sat._mask=null;S.sat._maskKey=null;S.satCal._statsCache={};
+  if(S.satZonas&&!S.satZonas.itens.length&&!(S.geoData&&S.geoData.features&&S.geoData.features.length))S.satZonas._importTentado=false;
+  let aviso=null;
+  try{await _perimetroAtualizarArea(p);}catch(e){aviso='Perímetro '+(p?'salvo':'excluído')+', mas a área do talhão não foi atualizada: '+e.message;toast(aviso,'wrn',9000);}
+  _satZonasAutoAtualizarPerimetroStatus();_renderRelStatus();
+  return {perimetro:p,aviso};
+}
+
 async function satZonasPerimetroSalvar(){
   if(!sb||!S.tokenAtual){toast('Sem conexão para salvar.','err');return;}
   if(S.satZonasAuto.perimetroEditando)satZonasPerimetroEditar();
   const gj=S.satZonasAuto.perimetro||_satZonasPerimetroGeoJSONDaCamada();
   if(!gj||!gj.features||!gj.features.length){toast('Crie um perímetro primeiro.','wrn');return;}
-  gj.features.forEach(f=>{if(f&&f.geometry)f.properties={area_ha:+_polyHa(f.geometry).toFixed(2)};});
   const btn=document.getElementById('btn-satz-perimetro-salvar');if(btn){btn.disabled=true;btn.textContent='Salvando…';}
   try{
-    const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:gj});
-    if(r&&r.error)throw new Error(r.error.message);
-    S.modeloB=S.modeloB||{on:false,niveis:{},zonas:{}};S.modeloB.perimetro=JSON.parse(JSON.stringify(gj));
-    S.satZonasAuto.perimetro=JSON.parse(JSON.stringify(gj));S.satZonasAuto.perimetroSujo=false;
-    S.sat._mask=null;S.sat._maskKey=null;S.satCal._statsCache={};
-    // Se o editor manual já foi aberto vazio nesta sessão, permite que ele
-    // importe agora o perímetro recém-salvo como uma zona única.
-    if(S.satZonas&&!S.satZonas.itens.length&&!(S.geoData&&S.geoData.features&&S.geoData.features.length))S.satZonas._importTentado=false;
-    _satZonasAutoAtualizarPerimetroStatus();_renderRelStatus();
-    toast('Perímetro salvo como zona sem ID. As próximas buscas usarão esta área.','ok',6000);
+    const resultado=await _perimetroPersistir(gj);
+    if(!resultado.aviso)toast('Perímetro salvo e área do talhão atualizada. As próximas buscas usarão esta área.','ok',6000);
   }catch(e){toast('Não foi possível salvar o perímetro: '+((e&&e.message)||e),'err',7000);}
   finally{if(btn){btn.disabled=false;btn.textContent='Salvar perímetro';}}
 }
@@ -13014,8 +13088,12 @@ async function satZonasPerimetroExcluir(){
   if(!ok)return;
   if(!sb||!S.tokenAtual){toast('Sem conexão para excluir.','err');return;}
   try{
-    const r=await sb.rpc('atualizar_perimetro_relatorio',{p_token:S.tokenAtual,p_geojson:null});
-    if(r&&r.error)throw new Error(r.error.message);
+    const resultado=await _perimetroPersistir(null);
+    _perimetroLimparEstadoSatelite();
+    if(!resultado.aviso)toast('Perímetro excluído.','ok');
+  }catch(e){toast('Não foi possível excluir o perímetro: '+((e&&e.message)||e),'err',7000);}
+}
+function _perimetroLimparEstadoSatelite(){
     if(S.satZonasAuto.perimetroLayer){try{S.map.removeLayer(S.satZonasAuto.perimetroLayer);}catch(e){}}
     S.satZonasAuto.perimetroLayer=null;S.satZonasAuto.perimetro=null;S.satZonasAuto.perimetroSujo=false;S.satZonasAuto.perimetroEditando=false;
     if(S.modeloB)S.modeloB.perimetro=null;
@@ -13026,8 +13104,6 @@ async function satZonasPerimetroExcluir(){
     }
     S.sat._mask=null;S.sat._maskKey=null;S.satCal._statsCache={};
     _satZonasAutoAtualizarPerimetroStatus();_renderRelStatus();
-    toast('Perímetro excluído.','ok');
-  }catch(e){toast('Não foi possível excluir o perímetro: '+((e&&e.message)||e),'err',7000);}
 }
 function _satZonasAutoLimparPreview(){
   if(S.satZonasAuto.preview){ try{ S.map.removeLayer(S.satZonasAuto.preview); }catch(e){} S.satZonasAuto.preview=null; }
