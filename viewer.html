@@ -7499,6 +7499,17 @@ function _pontosCandidatosUtm(ringsUtm, bbox, num){
   }
   return out;
 }
+function _pontosCandidatosUtmPartes(parts, bbox, num){
+  const out=[]; const maxTent=num*500; let t=0;
+  const [xmin,ymin,xmax,ymax]=bbox;
+  while(out.length<num && t<maxTent){
+    const x=xmin+Math.random()*(xmax-xmin);
+    const y=ymin+Math.random()*(ymax-ymin);
+    for(const q of parts){ if(x>=q.bbox[0]&&x<=q.bbox[2]&&y>=q.bbox[1]&&y<=q.bbox[3]&&_pontoEmAneisUtm(x,y,q.rings)){ out.push([x,y]); break; } }
+    t++;
+  }
+  return out;
+}
 // ── fim projeção UTM ──
 
 function _pontosKMeans(pontos, k, maxIter){
@@ -7682,13 +7693,18 @@ async function pontosGerar(){
     if(gtype==='Polygon') polys=[geometry.coordinates];
     else if(gtype==='MultiPolygon') polys=geometry.coordinates;
     else return null;
-    // usa o maior polígono (por nº de vértices do anel externo) se for MultiPolygon
-    let best=polys[0], bestN=(polys[0][0]||[]).length;
-    for(const p of polys){ const n=(p[0]||[]).length; if(n>bestN){ best=p; bestN=n; } }
-    const rings=best.map(ring=>ring.map(([lon,lat])=>_wgs84ToUtm(lon,lat,utmRef.zone,utmRef.south)));
-    let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
-    for(const [x,y] of rings[0]){ if(x<xmin)xmin=x; if(y<ymin)ymin=y; if(x>xmax)xmax=x; if(y>ymax)ymax=y; }
-    return { rings, bbox:[xmin,ymin,xmax,ymax] };
+    // FIX-PTS01: MultiPolygon usa TODAS as partes (antes só a de mais vértices,
+    // o que concentrava os pontos num só pedaço de zonas divididas).
+    const parts=polys.filter(p=>p&&p[0]&&p[0].length>=4).map(p=>{
+      const rings=p.map(ring=>ring.map(([lon,lat])=>_wgs84ToUtm(lon,lat,utmRef.zone,utmRef.south)));
+      let xmin=Infinity,ymin=Infinity,xmax=-Infinity,ymax=-Infinity;
+      for(const [x,y] of rings[0]){ if(x<xmin)xmin=x; if(y<ymin)ymin=y; if(x>xmax)xmax=x; if(y>ymax)ymax=y; }
+      return { rings, bbox:[xmin,ymin,xmax,ymax] };
+    });
+    if(!parts.length) return null;
+    let bx=[Infinity,Infinity,-Infinity,-Infinity];
+    for(const q of parts){ bx=[Math.min(bx[0],q.bbox[0]),Math.min(bx[1],q.bbox[1]),Math.max(bx[2],q.bbox[2]),Math.max(bx[3],q.bbox[3])]; }
+    return { rings:parts[0].rings, bbox:bx, parts };
   }
 
   for(let z=0; z<zonas.length; z++){
@@ -7700,7 +7716,7 @@ async function pontosGerar(){
     if(!zonaUtm || !zonaUtm.rings || !zonaUtm.rings[0] || zonaUtm.rings[0].length<4){
       zonasComProblema.push(zona.nome); continue;
     }
-    let ringsUtm=zonaUtm.rings, bboxUtm=zonaUtm.bbox;
+    let ringsUtm=zonaUtm.rings, bboxUtm=zonaUtm.bbox, partsUtm=zonaUtm.parts;
 
     // 2) Buffer negativo EM METROS (afasta da borda), feito em UTM com turf.
     //    turf opera em lat/lng, então bufferizamos no espaço WGS e reprojetamos.
@@ -7709,13 +7725,17 @@ async function pontosGerar(){
         const buff=turf.buffer(turf.feature(zona.geometry), -buffer, { units:'meters' });
         if(buff && buff.geometry && turf.area(buff)>=1){
           const zb=_zonaParaUtm(buff.geometry);
-          if(zb && zb.rings && zb.rings[0] && zb.rings[0].length>=4){ ringsUtm=zb.rings; bboxUtm=zb.bbox; }
+          if(zb && zb.rings && zb.rings[0] && zb.rings[0].length>=4){ ringsUtm=zb.rings; bboxUtm=zb.bbox; partsUtm=zb.parts; }
         }
       }catch(e){ /* mantém a zona sem buffer */ }
     }
 
     // 3) Candidatos aleatórios EM UTM — k*100 como o plugin (10x mais que antes)
-    const candidatos = _pontosCandidatosUtm(ringsUtm, bboxUtm, nPorZona*100);
+    // FIX-PTS01: sorteio no bbox conjunto, aceitando qualquer parte — densidade
+    // uniforme, então cada pedaço recebe pontos proporcionais à sua área.
+    const candidatos = (partsUtm&&partsUtm.length>1)
+      ? _pontosCandidatosUtmPartes(partsUtm, bboxUtm, nPorZona*100)
+      : _pontosCandidatosUtm(ringsUtm, bboxUtm, nPorZona*100);
     if(candidatos.length < nPorZona){
       zonasComProblema.push(zona.nome);
       if(!candidatos.length) continue;
@@ -7727,6 +7747,16 @@ async function pontosGerar(){
     //    dentro de cada zona, igual ao plugin.
     const k = Math.min(nPorZona, candidatos.length);
     let centroidesUtm = _pontosKMeans(candidatos, k);
+    // FIX-PTS02: em zonas côncavas (forma de C/anel em volta de outra zona) a
+    // média de um grupo pode cair FORA da zona. Nesses casos o ponto vai para
+    // o candidato válido mais próximo, que está sempre dentro da zona.
+    const _partesChk=(partsUtm&&partsUtm.length)?partsUtm:[{rings:ringsUtm}];
+    centroidesUtm = centroidesUtm.map(c=>{
+      if(_partesChk.some(q=>_pontoEmAneisUtm(c[0],c[1],q.rings))) return c;
+      let best=candidatos[0], dmin=Infinity;
+      for(const p of candidatos){ const dx=p[0]-c[0], dy=p[1]-c[1], d=dx*dx+dy*dy; if(d<dmin){ dmin=d; best=p; } }
+      return best.slice();
+    });
 
     // 5) Espaçamento mínimo (metros) — opera em UTM plano (euclidiano direto)
     if(espaco>0){
