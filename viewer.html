@@ -12908,10 +12908,13 @@ function _satZonasPerimetroGeoJSONDaCamada(){
 }
 function _satZonasPerimetroExibir(gj){
   if(S.satZonasAuto.perimetroLayer){try{S.map.removeLayer(S.satZonasAuto.perimetroLayer);}catch(e){}}
-  S.satZonasAuto.perimetroLayer=L.geoJSON(gj,{style:{color:'#e0392b',weight:3,fillOpacity:.14,fillColor:'#e0392b'},interactive:true,onEachFeature:(f,l)=>{
+  S.satZonasAuto.perimetroLayer=L.geoJSON(gj,{style:{color:'#e0392b',weight:3,fillOpacity:.14,fillColor:'#e0392b'},interactive:false,onEachFeature:(f,l)=>{
     const ha=_polyHa(f.geometry);
     l.bindTooltip('<div class="sat-zona-label">'+ha.toFixed(2)+' ha</div>',{permanent:true,direction:'center',className:'sat-zona-label-wrap'});
   }}).addTo(S.map);
+  // O perímetro é apenas a base das zonas: fica abaixo delas e não captura cliques.
+  // Os marcadores de vértice do modo "Editar perímetro" continuam interativos.
+  try{S.satZonasAuto.perimetroLayer.bringToBack();}catch(e){}
 }
 function _satZonasAutoAtualizarPerimetroStatus(){
   const el=document.getElementById('satz-perimetro-status'),btn=document.getElementById('btn-satz-perimetro'),acoes=document.getElementById('satz-perimetro-acoes'),salvar=document.getElementById('btn-satz-perimetro-salvar');
@@ -13038,81 +13041,119 @@ function _satZonasAutoWorkerSource(){ return `
 self.onmessage=function(ev){
   const d=ev.data,w=d.w,h=d.h,n=w*h,inside=new Uint8Array(d.inside),valid=new Uint8Array(d.valid),v=new Float32Array(d.values);
   const post=(stage,p)=>self.postMessage({type:'progress',stage:stage,p:p});
+  const dirs=[-1,1,-w,w],insideAt=(x,y)=>x>=0&&x<w&&y>=0&&y<h&&inside[y*w+x];
   post('Preparando a imagem…',8);
   let validN=0,insideN=0,vals=[];
-  for(let i=0;i<n;i++){ if(inside[i])insideN++; if(inside[i]&&valid[i]&&isFinite(v[i])){validN++;vals.push(v[i]);} }
-  if(insideN<20||validN<20) throw new Error('Poucos pixels válidos dentro do perímetro.');
+  for(let i=0;i<n;i++){if(inside[i])insideN++;if(inside[i]&&valid[i]&&isFinite(v[i])){validN++;vals.push(v[i]);}}
+  if(insideN<20||validN<20)throw new Error('Poucos pixels válidos dentro do perímetro.');
   const coverage=100*validN/insideN;
-  if(coverage<d.minCoverage) throw new Error('Cobertura útil de '+coverage.toFixed(0)+'%. O mínimo para gerar zonas é '+d.minCoverage+'%.');
-  vals.sort((a,b)=>a-b); const q=p=>vals[Math.max(0,Math.min(vals.length-1,Math.floor(p*(vals.length-1))))];
+  if(coverage<d.minCoverage)throw new Error('Cobertura útil de '+coverage.toFixed(0)+'%. O mínimo para gerar zonas é '+d.minCoverage+'%.');
+  vals.sort((a,b)=>a-b);const q=p=>vals[Math.max(0,Math.min(vals.length-1,Math.floor(p*(vals.length-1))))];
   const lo=q(.02),hi=q(.98),mean=vals.reduce((s,x)=>s+x,0)/vals.length;
   const sd=Math.sqrt(vals.reduce((s,x)=>s+(x-mean)*(x-mean),0)/vals.length);
-  if(!(hi>lo)||sd<0.008) throw new Error('A imagem está praticamente homogênea; não há variabilidade suficiente para zonas confiáveis.');
-  // Preenche nuvens/sombras internas pela vizinhança mais próxima, somente após validar cobertura.
-  let cur=new Float32Array(v), known=new Uint8Array(valid);
-  for(let pass=0;pass<Math.max(w,h);pass++){
-    let changed=0,next=new Float32Array(cur),nk=new Uint8Array(known);
+  if(!(hi>lo)||sd<.008)throw new Error('A imagem está praticamente homogênea; não há variabilidade suficiente para zonas confiáveis.');
+
+  // Preenchimento determinístico de nuvens/sombras: todo pixel do perímetro recebe IV.
+  let cur=new Float32Array(v),known=new Uint8Array(valid);
+  for(let pass=0;pass<Math.max(w,h);pass++){let changed=0,next=new Float32Array(cur),nk=new Uint8Array(known);
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(!inside[i]||known[i])continue;let s=0,c=0;
-      for(let yy=Math.max(0,y-1);yy<=Math.min(h-1,y+1);yy++)for(let xx=Math.max(0,x-1);xx<=Math.min(w-1,x+1);xx++){const j=yy*w+xx;if(known[j]){s+=cur[j];c++;}}
-      if(c){next[i]=s/c;nk[i]=1;changed++;}
-    }
+      for(let yy=Math.max(0,y-1);yy<=Math.min(h-1,y+1);yy++)for(let xx=Math.max(0,x-1);xx<=Math.min(w-1,x+1);xx++){const j=yy*w+xx;if(inside[j]&&known[j]){s+=cur[j];c++;}}
+      if(c){next[i]=s/c;nk[i]=1;changed++;}}
     cur=next;known=nk;if(!changed)break;
   }
-  // Mediana 3x3 preservadora de borda.
-  let smooth=new Float32Array(cur);
+  for(let i=0;i<n;i++)if(inside[i]&&!known[i])cur[i]=mean;
+
+  // Mediana 3x3 seguida de Gaussiana leve [1 2 1], apenas para segmentação.
+  let med=new Float32Array(cur);
   for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(!inside[i])continue;let a=[];
     for(let yy=Math.max(0,y-1);yy<=Math.min(h-1,y+1);yy++)for(let xx=Math.max(0,x-1);xx<=Math.min(w-1,x+1);xx++){const j=yy*w+xx;if(inside[j])a.push(cur[j]);}
-    a.sort((p,q)=>p-q);smooth[i]=a[a.length>>1];
-  }
-  post('Identificando faixas de variabilidade…',28);
-  // Fuzzy c-means 1D; a complexidade também define o desvio-padrão máximo
-  // aceito dentro de cada zona (alta = mais homogênea e mais subdividida).
+    a.sort((p,q)=>p-q);med[i]=a[a.length>>1];}
+  let smooth=new Float32Array(med),tmp=new Float32Array(med),kw=[1,2,1];
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(!inside[i])continue;let s=0,ws=0;for(let k=-1;k<=1;k++){let xx=x+k;if(xx>=0&&xx<w&&inside[y*w+xx]){s+=med[y*w+xx]*kw[k+1];ws+=kw[k+1];}}tmp[i]=s/ws;}
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(!inside[i])continue;let s=0,ws=0;for(let k=-1;k<=1;k++){let yy=y+k;if(yy>=0&&yy<h&&inside[yy*w+x]){s+=tmp[yy*w+x]*kw[k+1];ws+=kw[k+1];}}smooth[i]=s/ws;}
+
+  post('Identificando faixas de variabilidade…',26);
   function fcm(k){let centers=[];for(let z=0;z<k;z++)centers.push(q((z+.5)/k));let U=new Float32Array(n*k),m=2;
-    for(let it=0;it<35;it++){
-      for(let i=0;i<n;i++){if(!inside[i])continue;let exact=-1;for(let z=0;z<k;z++)if(Math.abs(smooth[i]-centers[z])<1e-9)exact=z;
-        if(exact>=0){for(let z=0;z<k;z++)U[i*k+z]=z===exact?1:0;continue;}
-        for(let z=0;z<k;z++){let den=0,dz=Math.max(1e-9,Math.abs(smooth[i]-centers[z]));for(let t=0;t<k;t++){let dt=Math.max(1e-9,Math.abs(smooth[i]-centers[t]));den+=Math.pow(dz/dt,2/(m-1));}U[i*k+z]=1/den;}
-      }
-      let delta=0;for(let z=0;z<k;z++){let num=0,den=0;for(let i=0;i<n;i++){if(!inside[i])continue;let u=U[i*k+z];num+=u*u*smooth[i];den+=u*u;}let nc=den?num/den:centers[z];delta=Math.max(delta,Math.abs(nc-centers[z]));centers[z]=nc;}if(delta<1e-5)break;
-    }
+    for(let it=0;it<35;it++){for(let i=0;i<n;i++){if(!inside[i])continue;let exact=-1;for(let z=0;z<k;z++)if(Math.abs(smooth[i]-centers[z])<1e-9)exact=z;
+      if(exact>=0){for(let z=0;z<k;z++)U[i*k+z]=z===exact?1:0;continue;}
+      for(let z=0;z<k;z++){let den=0,dz=Math.max(1e-9,Math.abs(smooth[i]-centers[z]));for(let t=0;t<k;t++){let dt=Math.max(1e-9,Math.abs(smooth[i]-centers[t]));den+=Math.pow(dz/dt,2/(m-1));}U[i*k+z]=1/den;}}
+      let delta=0;for(let z=0;z<k;z++){let num=0,den=0;for(let i=0;i<n;i++){if(!inside[i])continue;let u=U[i*k+z];num+=u*u*smooth[i];den+=u*u;}let nc=den?num/den:centers[z];delta=Math.max(delta,Math.abs(nc-centers[z]));centers[z]=nc;}if(delta<1e-5)break;}
     let sumsq=0,ent=0;for(let i=0;i<n;i++){if(!inside[i])continue;for(let z=0;z<k;z++){let u=U[i*k+z];sumsq+=u*u;if(u>0)ent+=u*Math.log(u);}}
-    const fpi=1-(k*sumsq/insideN-1)/(k-1),nce=-ent/(insideN*Math.log(k));return{centers,U,score:fpi+nce,k};
-  }
+    const fpi=1-(k*sumsq/insideN-1)/(k-1),nce=-ent/(insideN*Math.log(k));return{centers,U,score:fpi+nce,k};}
   let maxK=Math.max(3,Math.min(5,d.maxClasses));if(sd<.035)maxK=3;else if(sd<.065)maxK=Math.min(maxK,4);
   let best=null;for(let k=3;k<=maxK;k++){let r=fcm(k);if(!best||r.score<best.score)best=r;}
   best.centers=best.centers.map((c,i)=>({c,i})).sort((a,b)=>a.c-b.c);
   let cls=new Int16Array(n);cls.fill(-1);
   for(let i=0;i<n;i++){if(!inside[i])continue;let bz=0,bu=-1;for(let rank=0;rank<best.k;rank++){let old=best.centers[rank].i,u=best.U[i*best.k+old];if(u>bu){bu=u;bz=rank;}}cls[i]=bz;}
-  // Regularização espacial proporcional ao inverso da fidelidade.
-  const passes=d.fidelity>=85?0:(d.fidelity>=65?1:2);
-  for(let pass=0;pass<passes;pass++){let out=new Int16Array(cls);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(cls[i]<0)continue;let counts=new Int16Array(best.k);
+  const classPasses=d.fidelity>=85?0:(d.fidelity>=65?1:2);
+  for(let pass=0;pass<classPasses;pass++){let out=new Int16Array(cls);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;if(cls[i]<0)continue;let counts=new Int16Array(best.k);
     for(let yy=Math.max(0,y-1);yy<=Math.min(h-1,y+1);yy++)for(let xx=Math.max(0,x-1);xx<=Math.min(w-1,x+1);xx++){let c=cls[yy*w+xx];if(c>=0)counts[c]++;}
     let bc=cls[i],bn=counts[bc];for(let c=0;c<best.k;c++)if(counts[c]>bn+1){bc=c;bn=counts[c];}out[i]=bc;}cls=out;}
-  post('Formando zonas operacionais…',52);
-  // Componentes por classe; componentes grandes são divididos por Voronoi geodésico aproximado.
-  let seen=new Uint8Array(n),components=[];const dirs=[-1,1,-w,w];
-  for(let i=0;i<n;i++){if(cls[i]<0||seen[i])continue;let c=cls[i],arr=[],queue=[i];seen[i]=1;for(let qi=0;qi<queue.length;qi++){let p=queue[qi];arr.push(p),x=p%w;for(let di=0;di<4;di++){let j=p+dirs[di];if(j<0||j>=n||(di===0&&x===0)||(di===1&&x===w-1)||seen[j]||cls[j]!==c)continue;seen[j]=1;queue.push(j);}}components.push({c,arr});}
+
+  post('Formando zonas operacionais…',48);
+  let seen=new Uint8Array(n),components=[];
+  for(let i=0;i<n;i++){if(cls[i]<0||seen[i])continue;let c=cls[i],arr=[],queue=[i];seen[i]=1;for(let qi=0;qi<queue.length;qi++){let p=queue[qi];arr.push(p);let x=p%w;
+    for(let di=0;di<4;di++){let j=p+dirs[di];if(j<0||j>=n||(di===0&&x===0)||(di===1&&x===w-1)||seen[j]||cls[j]!==c)continue;seen[j]=1;queue.push(j);}}components.push({c,arr});}
   const target=Math.max(8,d.targetCells),zones=new Int32Array(n);zones.fill(-1);let zid=0;
   components.sort((a,b)=>b.arr.length-a.arr.length);
-  for(const comp of components){let csum=0,csum2=0;for(const p of comp.arr){csum+=smooth[p];csum2+=smooth[p]*smooth[p];}let cm=csum/comp.arr.length,csd=Math.sqrt(Math.max(0,csum2/comp.arr.length-cm*cm));let nz=Math.max(1,Math.round(comp.arr.length/target),Math.ceil(csd/Math.max(.001,d.maxZoneSd)));if(comp.arr.length<target*.35&&csd<=d.maxZoneSd)nz=1;nz=Math.min(nz,Math.max(1,Math.floor(comp.arr.length/5)));
+  for(const comp of components){let csum=0,csum2=0;for(const p of comp.arr){csum+=smooth[p];csum2+=smooth[p]*smooth[p];}let cm=csum/comp.arr.length,csd=Math.sqrt(Math.max(0,csum2/comp.arr.length-cm*cm));
+    let nz=Math.max(1,Math.round(comp.arr.length/target),Math.ceil(csd/Math.max(.001,d.maxZoneSd)));if(comp.arr.length<target*.35&&csd<=d.maxZoneSd)nz=1;nz=Math.min(nz,Math.max(1,Math.floor(comp.arr.length/5)));
     let seeds=[comp.arr[Math.floor(comp.arr.length/2)]];while(seeds.length<nz){let bp=comp.arr[0],bd=-1;for(const p of comp.arr){let x=p%w,y=(p/w)|0,md=1e30;for(const s of seeds){let sx=s%w,sy=(s/w)|0,dd=(x-sx)*(x-sx)+(y-sy)*(y-sy);if(dd<md)md=dd;}if(md>bd){bd=md;bp=p;}}seeds.push(bp);}
-    for(const p of comp.arr){let x=p%w,y=(p/w)|0,b=0,bd=1e30;for(let s=0;s<seeds.length;s++){let sx=seeds[s]%w,sy=(seeds[s]/w)|0,dist=(x-sx)*(x-sx)+(y-sy)*(y-sy);let iv=Math.abs(smooth[p]-smooth[seeds[s]])/(sd||1);let cost=dist*(1+(d.fidelity/100)*iv);if(cost<bd){bd=cost;b=s;}}zones[p]=zid+b;}zid+=nz;
-  }
-  // Absorve zonas pequenas pelo vizinho com IV médio mais semelhante.
-  function stats(){let count=new Int32Array(zid),sum=new Float64Array(zid);for(let i=0;i<n;i++)if(zones[i]>=0){count[zones[i]]++;sum[zones[i]]+=smooth[i];}return{count,sum};}
-  let st=stats(),minCells=Math.max(3,Math.floor(target*.35));
-  for(let z=0;z<zid;z++){if(!st.count[z]||st.count[z]>=minCells)continue;let cand=new Map();for(let i=0;i<n;i++)if(zones[i]===z){let x=i%w;for(let di=0;di<4;di++){let j=i+dirs[di];if(j<0||j>=n||(di===0&&x===0)||(di===1&&x===w-1))continue;let qz=zones[j];if(qz>=0&&qz!==z)cand.set(qz,(cand.get(qz)||0)+1);}}let bestZ=-1,bestCost=1e30,mz=st.sum[z]/st.count[z];for(const [qz,border] of cand){let mq=st.sum[qz]/st.count[qz],cost=Math.abs(mz-mq)-border*1e-5;if(cost<bestCost){bestCost=cost;bestZ=qz;}}if(bestZ>=0)for(let i=0;i<n;i++)if(zones[i]===z)zones[i]=bestZ;}
-  // Renumera e extrai contornos pelas arestas externas das células.
-  let remap=new Map(),next=0;for(let i=0;i<n;i++)if(zones[i]>=0){if(!remap.has(zones[i]))remap.set(zones[i],next++);zones[i]=remap.get(zones[i]);}
-  post('Arredondando contornos…',76);
-  function key(x,y){return x+','+y}function dp(pts,eps){if(pts.length<4)return pts;let first=pts[0],last=pts[pts.length-1],max=0,idx=0,dx=last[0]-first[0],dy=last[1]-first[1],den=dx*dx+dy*dy;for(let i=1;i<pts.length-1;i++){let t=den?((pts[i][0]-first[0])*dx+(pts[i][1]-first[1])*dy)/den:0;t=Math.max(0,Math.min(1,t));let ex=first[0]+t*dx,ey=first[1]+t*dy,dd=Math.hypot(pts[i][0]-ex,pts[i][1]-ey);if(dd>max){max=dd;idx=i;}}if(max>eps){let a=dp(pts.slice(0,idx+1),eps),b=dp(pts.slice(idx),eps);return a.slice(0,-1).concat(b);}return[first,last];}
-  let features=[];for(let z=0;z<next;z++){let edges=new Map(),count=0,sum=0,sum2=0,cz=-1;function add(a,b){let k=key(a[0],a[1]);if(!edges.has(k))edges.set(k,[]);edges.get(k).push(b);}
-    for(let y=0;y<h;y++)for(let x=0;x<w;x++){let i=y*w+x;if(zones[i]!==z)continue;count++;sum+=smooth[i];sum2+=smooth[i]*smooth[i];cz=cls[i];if(y===0||zones[i-w]!==z)add([x,y],[x+1,y]);if(x===w-1||zones[i+1]!==z)add([x+1,y],[x+1,y+1]);if(y===h-1||zones[i+w]!==z)add([x+1,y+1],[x,y+1]);if(x===0||zones[i-1]!==z)add([x,y+1],[x,y]);}
-    let rings=[];while(edges.size){let sk=edges.keys().next().value,sp=sk.split(',').map(Number),ring=[sp],cur=sp,guard=0;while(guard++<n*4){let k=key(cur[0],cur[1]),list=edges.get(k);if(!list||!list.length)break;let nx=list.pop();if(!list.length)edges.delete(k);ring.push(nx);cur=nx;if(cur[0]===sp[0]&&cur[1]===sp[1])break;}if(ring.length>=4)rings.push(ring);}
-    if(!rings.length)continue;rings.sort((a,b)=>b.length-a.length);let ring=rings[0].map(p=>[d.xmin+p[0]*d.px,d.ymax-p[1]*d.py]);if(ring[0][0]!==ring[ring.length-1][0]||ring[0][1]!==ring[ring.length-1][1])ring.push(ring[0]);let mu=sum/count,sdz=Math.sqrt(Math.max(0,sum2/count-mu*mu));features.push({type:'Feature',properties:{ZG:features.length+1,classe:cz+1,iv_medio:mu,iv_dp:sdz,pixels:count},geometry:{type:'Polygon',coordinates:[ring]}});}
+    for(const p of comp.arr){let x=p%w,y=(p/w)|0,b=0,bd=1e30;for(let s=0;s<seeds.length;s++){let sx=seeds[s]%w,sy=(seeds[s]/w)|0,dist=(x-sx)*(x-sx)+(y-sy)*(y-sy),iv=Math.abs(smooth[p]-smooth[seeds[s]])/(sd||1),cost=dist*(1+(d.fidelity/100)*iv);if(cost<bd){bd=cost;b=s;}}zones[p]=zid+b;}zid+=nz;}
+
+  function compact(){let map=new Map(),next=0;for(let i=0;i<n;i++)if(inside[i]&&zones[i]>=0){if(!map.has(zones[i]))map.set(zones[i],next++);zones[i]=map.get(zones[i]);}zid=next;}
+  function zoneStats(){let count=new Int32Array(zid),sum=new Float64Array(zid),sum2=new Float64Array(zid),minx=new Int32Array(zid),maxx=new Int32Array(zid),miny=new Int32Array(zid),maxy=new Int32Array(zid);minx.fill(w);miny.fill(h);maxx.fill(-1);maxy.fill(-1);
+    for(let i=0;i<n;i++){let z=zones[i];if(z<0)continue;let x=i%w,y=(i/w)|0;count[z]++;sum[z]+=smooth[i];sum2[z]+=smooth[i]*smooth[i];if(x<minx[z])minx[z]=x;if(x>maxx[z])maxx[z]=x;if(y<miny[z])miny[z]=y;if(y>maxy[z])maxy[z]=y;}return{count,sum,sum2,minx,maxx,miny,maxy};}
+  function stats(){return zoneStats();}
+  function splitDisconnected(){let mark=new Uint8Array(n),out=new Int32Array(n);out.fill(-1);let next=0;
+    for(let i=0;i<n;i++){if(!inside[i]||zones[i]<0||mark[i])continue;let old=zones[i],queue=[i];mark[i]=1;out[i]=next;for(let qi=0;qi<queue.length;qi++){let p=queue[qi],x=p%w;for(let di=0;di<4;di++){let j=p+dirs[di];if(j<0||j>=n||(di===0&&x===0)||(di===1&&x===w-1)||mark[j]||zones[j]!==old)continue;mark[j]=1;out[j]=next;queue.push(j);}}next++;}
+    zones.set(out);zid=next;}
+  function fillCoverage(){let missing=0;for(let i=0;i<n;i++)if(inside[i]&&zones[i]<0)missing++;if(!missing)return;
+    for(let pass=0;pass<Math.max(w,h)&&missing;pass++){let out=new Int32Array(zones),changed=0;for(let y=0;y<h;y++)for(let x=0;x<w;x++){let i=y*w+x;if(!inside[i]||zones[i]>=0)continue;let pick=-1;for(let di=0;di<4;di++){let j=i+dirs[di];if(j>=0&&j<n&&!(di===0&&x===0)&&!(di===1&&x===w-1)&&zones[j]>=0){pick=zones[j];break;}}if(pick>=0){out[i]=pick;changed++;}}
+      zones.set(out);missing-=changed;if(!changed)break;}}
+  function mergeSmall(){compact();let minCells=Math.max(3,Math.floor(target*.30));for(let round=0;round<12;round++){let st=zoneStats(),small=-1;
+      for(let z=0;z<zid;z++)if(st.count[z]>0&&st.count[z]<minCells&&(small<0||st.count[z]<st.count[small]))small=z;if(small<0)break;
+      let cand=new Map();for(let i=0;i<n;i++)if(zones[i]===small){let x=i%w;for(let di=0;di<4;di++){let j=i+dirs[di];if(j<0||j>=n||(di===0&&x===0)||(di===1&&x===w-1))continue;let qz=zones[j];if(qz>=0&&qz!==small)cand.set(qz,(cand.get(qz)||0)+1);}}
+      let pick=-1,costBest=1e30,ma=st.sum[small]/st.count[small];for(const [z,border] of cand){let merged=st.count[small]+st.count[z],bw=Math.max(st.maxx[small],st.maxx[z])-Math.min(st.minx[small],st.minx[z])+1,bh=Math.max(st.maxy[small],st.maxy[z])-Math.min(st.miny[small],st.miny[z])+1,aspect=Math.max(bw/bh,bh/bw),fill=merged/(bw*bh),shape=(Math.max(0,aspect-3)/3)+(1-fill),iv=Math.abs(ma-st.sum[z]/st.count[z])/(sd||1),over=Math.max(0,merged-target*2.25)/target,cost=(d.fidelity/100)*iv+(1-d.fidelity/100)*shape+over-border/Math.max(20,minCells*4);if(cost<costBest){costBest=cost;pick=z;}}
+      if(pick<0)break;for(let i=0;i<n;i++)if(zones[i]===small)zones[i]=pick;compact();}}
+  function smoothLabels(){for(let pass=0;pass<d.labelSmooth;pass++){let st=zoneStats(),out=new Int32Array(zones),changed=0;
+      for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){let i=y*w+x,own=zones[i];if(own<0)continue;let scores=new Map();for(let yy=y-2;yy<=y+2;yy++)for(let xx=x-2;xx<=x+2;xx++){if(xx<0||xx>=w||yy<0||yy>=h)continue;let z=zones[yy*w+xx];if(z<0)continue;let wt=(Math.abs(xx-x)+Math.abs(yy-y)<=1)?3:1;scores.set(z,(scores.get(z)||0)+wt);}
+        let pick=own,bestScore=scores.get(own)||0;for(const [z,spatial] of scores){if(z===own||!st.count[z])continue;let mz=st.sum[z]/st.count[z],ivPenalty=(d.fidelity/100)*Math.abs(smooth[i]-mz)/(sd||1)*5,score=spatial-ivPenalty;if(score>bestScore+2){pick=z;bestScore=score;}}if(pick!==own){out[i]=pick;changed++;}}
+      zones.set(out);if(!changed)break;splitDisconnected();mergeSmall();}}
+  function pruneThin(){for(let pass=0;pass<d.prunePasses;pass++){let st=zoneStats(),out=new Int32Array(zones),changed=0;
+      for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){let i=y*w+x,z=zones[i];if(z<0||st.count[z]<Math.max(8,target*.45))continue;let same=0,cand=new Map();for(let yy=y-1;yy<=y+1;yy++)for(let xx=x-1;xx<=x+1;xx++){if(xx===x&&yy===y)continue;let qz=zones[yy*w+xx];if(qz===z)same++;else if(qz>=0)cand.set(qz,(cand.get(qz)||0)+1);}if(same>2||!cand.size)continue;
+        let pick=-1,best=-1;for(const [qz,border] of cand){let iv=Math.abs(smooth[i]-st.sum[qz]/st.count[qz])/(sd||1),score=border-(d.fidelity/100)*iv*2;if(score>best){best=score;pick=qz;}}if(pick>=0){out[i]=pick;changed++;}}
+      zones.set(out);if(!changed)break;}splitDisconnected();mergeSmall();}
+
+  fillCoverage();splitDisconnected();mergeSmall();
+  post('Suavizando limites compartilhados…',68);
+  smoothLabels();pruneThin();fillCoverage();splitDisconnected();mergeSmall();compact();
+
+  // Grafo único das divisas: os mesmos vértices suavizados são usados pelos dois lados.
+  post('Arredondando contornos…',82);
+  const nk=(x,y)=>x+','+y,nodeAdj=new Map(),fixed=new Set();
+  function edgeNode(ax,ay,bx,by,isOuter){let ka=nk(ax,ay),kb=nk(bx,by);if(!nodeAdj.has(ka))nodeAdj.set(ka,new Set());if(!nodeAdj.has(kb))nodeAdj.set(kb,new Set());nodeAdj.get(ka).add(kb);nodeAdj.get(kb).add(ka);if(isOuter){fixed.add(ka);fixed.add(kb);}}
+  for(let y=0;y<=h;y++)for(let x=0;x<w;x++){let a=y>0&&insideAt(x,y-1)?zones[(y-1)*w+x]:-1,b=y<h&&insideAt(x,y)?zones[y*w+x]:-1;if(a!==b)edgeNode(x,y,x+1,y,a<0||b<0);}
+  for(let x=0;x<=w;x++)for(let y=0;y<h;y++){let a=x>0&&insideAt(x-1,y)?zones[y*w+x-1]:-1,b=x<w&&insideAt(x,y)?zones[y*w+x]:-1;if(a!==b)edgeNode(x,y,x,y+1,a<0||b<0);}
+  let nodePos=new Map();for(const k of nodeAdj.keys()){let a=k.split(',').map(Number);nodePos.set(k,a);}
+  for(let pass=0;pass<d.boundarySmooth;pass++){let nextPos=new Map(nodePos);for(const [k,adj] of nodeAdj){if(fixed.has(k)||adj.size!==2)continue;let p=nodePos.get(k),aa=Array.from(adj),p1=nodePos.get(aa[0]),p2=nodePos.get(aa[1]),alpha=.34;nextPos.set(k,[p[0]*(1-alpha)+(p1[0]+p2[0])*.5*alpha,p[1]*(1-alpha)+(p1[1]+p2[1])*.5*alpha]);}nodePos=nextPos;}
+
+  function key(x,y){return x+','+y;}
+  function dp(pts){return pts;}
+  function ringArea(r){let a=0;for(let i=0,j=r.length-1;i<r.length;j=i++)a+=r[j][0]*r[i][1]-r[i][0]*r[j][1];return a/2;}
+  let features=[],finalSt=zoneStats();
+  for(let z=0;z<zid;z++){let edges=new Map(),count=0,sum=0,sum2=0,classCounts=new Int32Array(best.k);function add(a,b){let k=key(a[0],a[1]);if(!edges.has(k))edges.set(k,[]);edges.get(k).push(b);}
+    for(let y=0;y<h;y++)for(let x=0;x<w;x++){let i=y*w+x;if(zones[i]!==z)continue;count++;sum+=cur[i];sum2+=cur[i]*cur[i];if(cls[i]>=0)classCounts[cls[i]]++;if(y===0||zones[i-w]!==z)add([x,y],[x+1,y]);if(x===w-1||zones[i+1]!==z)add([x+1,y],[x+1,y+1]);if(y===h-1||zones[i+w]!==z)add([x+1,y+1],[x,y+1]);if(x===0||zones[i-1]!==z)add([x,y+1],[x,y]);}
+    let rings=[];while(edges.size){let sk=edges.keys().next().value,sp=sk.split(',').map(Number),ring=[sp],curp=sp,guard=0;while(guard++<n*4){let k=key(curp[0],curp[1]),list=edges.get(k);if(!list||!list.length)break;let nx=list.pop();if(!list.length)edges.delete(k);ring.push(nx);curp=nx;if(curp[0]===sp[0]&&curp[1]===sp[1])break;}if(ring.length>=4)rings.push(ring);}
+    if(!rings.length||!count)continue;rings.sort((a,b)=>Math.abs(ringArea(b))-Math.abs(ringArea(a)));
+    let coords=rings.map(r=>r.map(p=>{let sm=nodePos.get(key(p[0],p[1]))||p;return[d.xmin+sm[0]*d.px,d.ymax-sm[1]*d.py];}));
+    coords=coords.filter(r=>r.length>=4);if(!coords.length)continue;let cz=0;for(let c=1;c<best.k;c++)if(classCounts[c]>classCounts[cz])cz=c;
+    let mu=sum/count,sdz=Math.sqrt(Math.max(0,sum2/count-mu*mu));features.push({type:'Feature',properties:{ZG:features.length+1,classe:cz+1,iv_medio:mu,iv_dp:sdz,pixels:count},geometry:{type:'Polygon',coordinates:coords}});}
+  let assigned=0;for(let i=0;i<n;i++)if(inside[i]&&zones[i]>=0)assigned++;
   post('Finalizando a prévia…',94);
-  self.postMessage({type:'done',features:features,metrics:{coverage,classes:best.k,inputSd:sd,lo,hi}});
+  self.postMessage({type:'done',features:features,metrics:{coverage,classes:best.k,inputSd:sd,lo,hi,assignedPixels:assigned,insidePixels:insideN,coverageLabels:100*assigned/insideN}});
 };`}
+
 
 function _satZonasAutoCriarWorker(){
   const blob=new Blob([_satZonasAutoWorkerSource()],{type:'application/javascript'});
@@ -13147,9 +13188,9 @@ async function satZonasAutoGerar(){
     const modo=document.getElementById('satz-auto-modo').value,areaAlvo=Math.max(.2,+document.getElementById('satz-auto-area').value||5),num=Math.max(2,+document.getElementById('satz-auto-numero').value||6);
     const nAlvo=modo==='numero'?num:Math.max(2,Math.round(areaHa/areaAlvo));
     const insideN=d.inside.reduce((s,x)=>s+x,0),targetCells=Math.max(8,insideN/nAlvo);
-    const complexidade=(document.getElementById('satz-auto-complexidade')||{}).value||'media',cfg={baixa:{classes:3,maxSd:.10},media:{classes:4,maxSd:.08},alta:{classes:5,maxSd:.05}}[complexidade]||{classes:4,maxSd:.08};
+    const complexidade=(document.getElementById('satz-auto-complexidade')||{}).value||'media',cfg={baixa:{classes:3,maxSd:.10,labelSmooth:2,prunePasses:3,boundarySmooth:3},media:{classes:4,maxSd:.08,labelSmooth:2,prunePasses:2,boundarySmooth:2},alta:{classes:5,maxSd:.05,labelSmooth:1,prunePasses:1,boundarySmooth:1}}[complexidade]||{classes:4,maxSd:.08,labelSmooth:2,prunePasses:2,boundarySmooth:2};
     const worker=_satZonasAutoCriarWorker();S.satZonasAuto.worker=worker;
-    const result=await new Promise((resolve,reject)=>{worker.onmessage=e=>{if(e.data.type==='progress'){if(st)st.textContent=e.data.stage+' '+e.data.p+'%';}else resolve(e.data);};worker.onerror=e=>reject(new Error(e.message||'Falha no motor de zonas.'));worker.postMessage({w:d.w,h:d.h,inside:d.inside.buffer,valid:d.valid.buffer,values:d.values.buffer,xmin:d.xmin,ymax:d.ymax,px:d.px,py:d.py,targetCells,maxClasses:cfg.classes,maxZoneSd:cfg.maxSd,fidelity:+document.getElementById('satz-auto-fid').value||70,minCoverage:80},[d.inside.buffer,d.valid.buffer,d.values.buffer]);});
+    const result=await new Promise((resolve,reject)=>{worker.onmessage=e=>{if(e.data.type==='progress'){if(st)st.textContent=e.data.stage+' '+e.data.p+'%';}else resolve(e.data);};worker.onerror=e=>reject(new Error(e.message||'Falha no motor de zonas.'));worker.postMessage({w:d.w,h:d.h,inside:d.inside.buffer,valid:d.valid.buffer,values:d.values.buffer,xmin:d.xmin,ymax:d.ymax,px:d.px,py:d.py,targetCells,maxClasses:cfg.classes,maxZoneSd:cfg.maxSd,labelSmooth:cfg.labelSmooth,prunePasses:cfg.prunePasses,boundarySmooth:cfg.boundarySmooth,fidelity:+document.getElementById('satz-auto-fid').value||70,minCoverage:80},[d.inside.buffer,d.valid.buffer,d.values.buffer]);});
     worker.terminate();S.satZonasAuto.worker=null;
     const feats=_satZonasAutoClip(result.features);if(!feats.length)throw new Error('O processamento não produziu polígonos válidos.');
     const gj={type:'FeatureCollection',features:feats};S.satZonasAuto.resultado={geojson:gj,metrics:result.metrics,fonte:_satZonasAutoNomeCaptura(c)};
