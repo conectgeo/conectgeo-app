@@ -10027,16 +10027,38 @@ async function satZonasSalvarOficial(){
       else if(S.coleta) S.coleta.zonas=url;
     }catch(e){ console.warn('[satZonas] atualizar_coleta lançou:', e); }
 
-    // A recomendação tem zonas próprias (recomendacao_zonas_url), mas o RPC
-    // atualizar_recomendacao conhecido só grava a PLANILHA (p_url). Tentamos o
-    // parâmetro de zonas por simetria com atualizar_coleta; se a função não
-    // aceitar esse parâmetro, o erro é capturado e a aba continua coberta pela
-    // flag de sessão + fallback de recGeo() para S.geoData.
+    // Recomendação: arquivo próprio de zonas, nunca a planilha de doses (p_url).
+    // Confirma persistência; o fallback usa o mesmo cliente/RLS dos hectares.
+    let avisoRec='';
     try{
-      const rr=await sb.rpc('atualizar_recomendacao', { p_token:S.tokenAtual, p_zonas_url:url });
-      if(rr && rr.error) console.warn('[satZonas] atualizar_recomendacao(p_zonas_url) não aceito:', rr.error.message);
-      else if(S.linkData) S.linkData.recomendacao_zonas_url=url;
-    }catch(e){ console.warn('[satZonas] atualizar_recomendacao(p_zonas_url) lançou:', e); }
+      const pathRec='recomendacao/'+S.tokenAtual+'/zonas_'+Date.now()+'.geojson';
+      const upRec=await sb.storage.from('arquivos').upload(pathRec, blob, { upsert:true, contentType:'application/json' });
+      if(upRec && upRec.error) throw new Error(upRec.error.message);
+      const urlRec=sb.storage.from('arquivos').getPublicUrl(pathRec).data.publicUrl+'?v='+Date.now();
+      let confirmou=false;
+      try{
+        const rr=await sb.rpc('atualizar_recomendacao', { p_token:S.tokenAtual, p_zonas_url:urlRec });
+        if(rr && !rr.error){
+          const leitura=await sb.rpc('get_recomendacao_zonas_url', { p_token:S.tokenAtual });
+          confirmou=!!(leitura && !leitura.error && leitura.data && leitura.data.recomendacao_zonas_url===urlRec);
+        }
+      }catch(e){ console.warn('[satZonas] RPC de zonas de recomendação indisponível:', e); }
+      if(!confirmou){
+        const id=await _resolverTalhaoId();
+        if(!id) throw new Error('Não foi possível identificar o talhão.');
+        const gravacao=await sb.from('talhoes').update({recomendacao_zonas_url:urlRec})
+          .eq('id',id).select('id,recomendacao_zonas_url').maybeSingle();
+        if(gravacao && gravacao.error) throw new Error(gravacao.error.message);
+        if(!gravacao || !gravacao.data || gravacao.data.id!==id || gravacao.data.recomendacao_zonas_url!==urlRec){
+          throw new Error('O cadastro não confirmou a gravação das zonas de recomendação.');
+        }
+      }
+      if(S.linkData) S.linkData.recomendacao_zonas_url=urlRec;
+    }catch(e){
+      console.warn('[satZonas] zonas de recomendação não persistidas:', e);
+      avisoRec='Zonas salvas em Nutrientes, mas o cadastro das zonas de Recomendação não foi confirmado: '+String((e&&e.message)||e).slice(0,160);
+      toast(avisoRec,'wrn');
+    }
 
     // FIX-SAT02: limpeza do GeoJSON órfão. O path usa Date.now(), então cada
     // salvamento cria um arquivo novo e o antigo ficava para sempre no bucket.
@@ -10044,7 +10066,7 @@ async function satZonasSalvarOficial(){
     // arquivo. Falha aqui é inofensiva (só deixa o lixo), então é silenciosa.
     try{
       const _pathAnt=_storagePathFromPublicUrl(_urlAnterior);
-      if(_pathAnt && _pathAnt!==path && /\.geojson$/i.test(_pathAnt) && _pathAnt.indexOf('nutrientes/'+S.tokenAtual+'/')===0){
+      if(!avisoRec && _pathAnt && _pathAnt!==path && /\.geojson$/i.test(_pathAnt) && _pathAnt.indexOf('nutrientes/'+S.tokenAtual+'/')===0){
         const rm=await sb.storage.from('arquivos').remove([_pathAnt]);
         if(rm && rm.error) console.warn('[satZonas] não removeu geojson antigo:', rm.error.message);
       }
@@ -10080,10 +10102,11 @@ async function satZonasSalvarOficial(){
 
       if(status){
         let msgOk = vazio ? '✅ Zonas removidas.' : '✅ Zonas salvas como oficiais.';
+        if(avisoRec) msgOk += ' ⚠️ '+avisoRec;
         if(fora>0) msgOk += ' ⚠️ '+fora+' ponto(s) de coleta ficaram fora das novas zonas.';
         status.textContent = msgOk;
       }
-      toast(vazio ? 'Zonas removidas.' : 'Zonas salvas.', 'ok');
+      if(!avisoRec) toast(vazio ? 'Zonas removidas.' : 'Zonas salvas.', 'ok');
       if(fora>0){
         toast(fora+' ponto(s) de coleta agora estão fora das zonas — revise antes de exportar.', 'wrn');
       }
