@@ -6453,7 +6453,7 @@ async function satCalCarregarMes(){
       // errado, CORS). FunctionsHttpError = chamou, mas a função devolveu !=2xx.
       const nome=resp.error.name||'';
       if(/FetchError/i.test(nome)) throw new Error("A função '"+SAT_FN+"' não respondeu. Confirme que ela está implantada no Supabase com esse nome exato e com a versão nova (que tem as ações listar/data).");
-      throw resp.error;
+      throw await _satErroResposta(resp.error);
     }
     const data=resp.data;
     if(!data || !data.ok) throw new Error((data&&data.erro)||'A função respondeu, mas sem dados. Provavelmente é a versão antiga, sem a ação "listar".');
@@ -6504,7 +6504,8 @@ async function satCalCarregarStats(ano, mes){
     if(resp.error){
       const nome=(resp.error && resp.error.name)||'';
       console.warn('[sat] estatísticas indisponíveis:', resp.error);
-      _notaStats(/FetchError/i.test(nome) ? 'indisponível (serviço não respondeu)' : 'indisponível (erro no serviço)');
+      const erroDetalhado=await _satErroResposta(resp.error);
+      _notaStats('indisponível: '+erroDetalhado.message);
       return;
     }
     if(!resp.data || !resp.data.ok){
@@ -6590,7 +6591,7 @@ async function satCalEscolherDia(iso, eviVazio){
   if(status) status.textContent='Carregando '+iso.split('-').reverse().join('/')+'… (pode levar até 30s se ainda não tiver sido processada)';
   try{
     const { data, error } = await sb.functions.invoke(SAT_FN, { body:Object.assign({ token:S.tokenAtual, action:'data', data:iso, nuvem_max:S.satCal.nuvemMax },_satPerimetroBuscaPayload()) });
-    if(error) throw error;
+    if(error) throw await _satErroResposta(error);
     if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao processar essa data.');
 
     // adiciona (ou atualiza) a captura na lista local e seleciona ela
@@ -6611,7 +6612,7 @@ async function satCalEscolherDia(iso, eviVazio){
     renderSatelite();
   }catch(e){
     console.warn('[sat] falha ao processar data escolhida:', e);
-    if(status) status.textContent='Não consegui carregar essa data: '+String((e&&e.message)||e).slice(0,120);
+    if(status) status.textContent='Não consegui carregar essa data: '+String((e&&e.message)||e).slice(0,800);
   }finally{
     S.satCal.diaEmCurso=null;
   }
@@ -6719,7 +6720,7 @@ async function satMediaExecutar(){
   if(status) status.textContent='Processando cenas… isso pode levar alguns minutos dependendo do período.';
   try{
     const { data, error } = await sb.functions.invoke(SAT_FN, { body:corpo });
-    if(error) throw error;
+    if(error) throw await _satErroResposta(error);
     if(!data || !data.ok){
       const msg=String((data&&data.erro)||'');
       if(/ação|acao|action|desconhec|unknown/i.test(msg)) throw new Error("A Edge Function '"+SAT_FN+"' ainda não tem a ação 'mediaSafras' implantada. Publique a versão nova da função e tente de novo.");
@@ -6732,7 +6733,7 @@ async function satMediaExecutar(){
     if(status) status.textContent='Imagem média gerada e carregada no mapa.';
   }catch(e){
     console.warn('[satMedia] falha:', e);
-    if(status) status.textContent='Não consegui gerar a média: '+String((e&&e.message)||e).slice(0,200);
+    if(status) status.textContent='Não consegui gerar a média: '+String((e&&e.message)||e).slice(0,800);
   }finally{
     S.satMedia.rodando=false;
     if(btn){ btn.disabled=false; btn.style.opacity=''; }
@@ -7234,6 +7235,28 @@ async function renderSatelite(){
 // GeoTIFF corrompido ou não gerado). Chama a Edge Function de novo para essa
 // data — o servidor regenera e atualiza a URL. Depois recarrega o raster
 // ignorando o cache local.
+// FIX-124: preserva o motivo retornado pelo serviço nas respostas não-2xx.
+async function _satErroResposta(error){
+  const contexto=error&&error.context;
+  const status=contexto&&Number(contexto.status);
+  let detalhe='';
+  if(contexto&&typeof contexto.clone==='function'){
+    try{
+      const payload=await contexto.clone().json();
+      const msg=payload&&(payload.erro||payload.message||payload.error);
+      if(typeof msg==='string') detalhe=msg.trim();
+    }catch(_e){}
+  }
+  if(!detalhe){
+    const nome=String((error&&error.name)||'');
+    if(/FetchError/i.test(nome)) detalhe='Não foi possível conectar ao serviço de imagens. Tente novamente.';
+    else if(/RelayError/i.test(nome)) detalhe='O serviço de imagens não conseguiu concluir a solicitação. Tente novamente.';
+    else detalhe=String((error&&error.message)||error||'Falha no serviço de imagens.');
+  }
+  detalhe=detalhe.slice(0,800);
+  return new Error(detalhe+(status?' (HTTP '+status+')':''));
+}
+
 async function satReprocessarData(iso){
   const info=document.getElementById('sat-info');
   if(info) info.textContent='Reprocessando '+String(iso).split('-').reverse().join('/')+'… (pode levar até 30s)';
@@ -7241,7 +7264,7 @@ async function satReprocessarData(iso){
     // limpa qualquer cache local dessa imagem antes de repuxar
     S.sat._gr=null; S.sat._url=null;
     const { data, error } = await sb.functions.invoke(SAT_FN, { body:Object.assign({ token:S.tokenAtual, action:'data', data:iso, force:true, nuvem_max:S.satCal.nuvemMax },_satPerimetroBuscaPayload()) });
-    if(error) throw error;
+    if(error) throw await _satErroResposta(error);
     if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao reprocessar essa data.');
 
     // atualiza a captura na lista local com a URL nova
@@ -7254,7 +7277,7 @@ async function satReprocessarData(iso){
     renderSatelite();
   }catch(e){
     console.warn('[sat] falha ao reprocessar:', e);
-    if(info) info.innerHTML='<span style="color:var(--danger)">Não consegui reprocessar: '+String((e&&e.message)||e).slice(0,120)+'</span>';
+    if(info) info.textContent='Não consegui reprocessar: '+String((e&&e.message)||e).slice(0,800);
   }
 }
 
