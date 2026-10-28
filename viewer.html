@@ -6595,7 +6595,7 @@ async function satCalEscolherDia(iso, eviVazio){
     if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao processar essa data.');
 
     // adiciona (ou atualiza) a captura na lista local e seleciona ela
-    const idx=S.sat.capturas.findIndex(c=>c.data===data.data_captura);
+    const idx=S.sat.capturas.findIndex(c=>!c.media&&c.data===data.data_captura);
     const entrada={ data:data.data_captura, nuvem:data.cobertura_nuvem, url:data.raw_url, versao:(data.versao||SAT_VERSAO) };
     if(idx>=0) S.sat.capturas[idx]=entrada; else S.sat.capturas.unshift(entrada);
     S.sat.capturas.sort((a,b)=> a.data<b.data?1:-1);
@@ -6604,7 +6604,7 @@ async function satCalEscolherDia(iso, eviVazio){
     if(sel){
       sel.innerHTML=S.sat.capturas.map((c,i)=>{ if(c.rotulo) return '<option value="'+i+'">'+c.rotulo+'</option>'; const [a,m,dd]=String(c.data).split('-'); const nuv=(c.nuvem==null)?'':' · '+Math.round(c.nuvem)+'% nuvem'; return '<option value="'+i+'">'+dd+'/'+m+'/'+a+nuv+'</option>'; }).join('');
     }
-    S.sat.atual=S.sat.capturas.findIndex(c=>c.data===data.data_captura);
+    S.sat.atual=S.sat.capturas.findIndex(c=>!c.media&&c.data===data.data_captura);
     const btnAba=document.getElementById('mode-satelite'); if(btnAba) btnAba.style.display='';
     const vazio=document.getElementById('sat-empty'); if(vazio) vazio.style.display='none';
 
@@ -7124,6 +7124,7 @@ function _satPintarCanvas(gr, idx, modo, saturacao){
 // imagem e a legenda mostrarem outro índice que não o da média.
 function _satIdxEfetivo(c){
   if(c && c.media){
+    if(c._verRgb) return 'rgb'; // RGB mediano por banda (bandas 2,3,4 do mesmo GeoTIFF)
     const im=(c.meta&&c.meta.indice)||'';
     return (im==='evi')?'evi':'iv';
   }
@@ -7136,7 +7137,17 @@ function _satRotuloIdx(idx){
 // escolher) e mostra de volta nas capturas normais.
 function _satAplicarUIIndice(c){
   const sec=document.getElementById('sec-sat-idx');
-  if(sec) sec.style.display=(c&&c.media)?'none':'';
+  if(sec) sec.style.display='';
+  const sel=document.getElementById('sel-sat-idx'); if(!sel) return;
+  if(!sel._optsOrig) sel._optsOrig=sel.innerHTML;
+  if(c&&c.media){
+    const im=((c.meta&&c.meta.indice)==='evi')?'Média EVI':'Média IV composto — EVI + NDMI';
+    sel.innerHTML='<option value="media">'+im+'</option><option value="rgb">RGB — Cor natural (média)</option>';
+    sel.value=c._verRgb?'rgb':'media';
+  }else{
+    if(sel.innerHTML!==sel._optsOrig) sel.innerHTML=sel._optsOrig;
+    sel.value=S.sat.idx;
+  }
 }
 
 async function renderSatelite(){
@@ -7268,12 +7279,12 @@ async function satReprocessarData(iso){
     if(!data || !data.ok) throw new Error((data&&data.erro)||'Falha ao reprocessar essa data.');
 
     // atualiza a captura na lista local com a URL nova
-    const idx=S.sat.capturas.findIndex(c=>c.data===data.data_captura);
+    const idx=S.sat.capturas.findIndex(c=>!c.media&&c.data===data.data_captura);
     const entrada={ data:data.data_captura, nuvem:data.cobertura_nuvem, url:data.raw_url, versao:(data.versao||SAT_VERSAO) };
     if(idx>=0) S.sat.capturas[idx]=entrada; else S.sat.capturas.unshift(entrada);
     // limpa médias em cache dessa captura (serão recalculadas no render)
     delete entrada._eviMedio; delete entrada._ndmiMedio;
-    S.sat.atual=S.sat.capturas.findIndex(c=>c.data===data.data_captura);
+    S.sat.atual=S.sat.capturas.findIndex(c=>!c.media&&c.data===data.data_captura);
     renderSatelite();
   }catch(e){
     console.warn('[sat] falha ao reprocessar:', e);
@@ -10437,7 +10448,10 @@ function _satLimparCamada(){
 (function _satLigarControles(){
   const on=(id,ev,fn)=>{ const el=document.getElementById(id); if(el) el.addEventListener(ev,fn); };
   on('sel-sat-data','change',function(){ S.sat.atual=+this.value; S.sat._renderPendente=true; renderSatelite(); });
-  on('sel-sat-idx','change',function(){ S.sat.idx=this.value; renderSatelite(); });
+  on('sel-sat-idx','change',function(){
+    const _c=S.sat.capturas[S.sat.atual];
+    if(_c&&_c.media){ _c._verRgb=(this.value==='rgb'); renderSatelite(); return; }
+    S.sat.idx=this.value; renderSatelite(); });
   on('sel-sat-modo','change',function(){ S.sat.modo=this.value; renderSatelite(); });
   const satLblTgl=document.getElementById('sat-labels-toggle');
   if(satLblTgl) satLblTgl.addEventListener('click',function(){
@@ -10540,6 +10554,7 @@ function setMapMode(mode){
     setTimeout(()=>{
       if(S.mapMode!=='satelite') return; // usuário pode ter saído nesse meio-tempo
       try{ S.map.invalidateSize(true); }catch(e){}
+      _satEnquadrarPerimetro();
       // Se tinha capturas, redispara o render pra garantir que o overlay
       // vá pros bounds corretos com o container já no tamanho definitivo.
       if(S.sat.capturas.length && S.sat.atual!=null && !S.sat.carregando){
@@ -12196,6 +12211,7 @@ async function loadFromToken(token, params){
     }
     try{
       S.modeloB.perimetro=_perimetroNormalizar(S.modeloB.perimetro);
+      if(S.modeloB.perimetro&&S.mapMode==='satelite') setTimeout(()=>{ if(S.mapMode==='satelite') _satEnquadrarPerimetro(); },150);
       S.satZonasAuto.perimetro=null;S.satZonasAuto.perimetroSujo=false;
       if(S.modeloB.perimetro){
         const ha=_perimetroAreaOficial(S.modeloB.perimetro);
@@ -12943,9 +12959,27 @@ function _satZonasPerimetroGeoJSONDaCamada(){
   if(S.satZonasAuto.perimetroLayer) S.satZonasAuto.perimetroLayer.eachLayer(l=>{if(l&&l.toGeoJSON)fs.push(l.toGeoJSON());});
   return {type:'FeatureCollection',features:fs};
 }
+function _satTemZonasComId(){
+  return !!(S.satZonas&&S.satZonas.itens&&S.satZonas.itens.some(it=>!it.semId));
+}
+function _satZonasPerimetroOcultarRotulo(){
+  const l=S.satZonasAuto&&S.satZonasAuto.perimetroLayer; if(!l) return;
+  l.eachLayer(x=>{ try{ if(x.getTooltip&&x.getTooltip()) x.unbindTooltip(); }catch(e){} });
+}
+function _satEnquadrarPerimetro(){
+  if(S.pdfMode||!S.map) return;
+  const ok=b=>!!(b&&b.isValid&&b.isValid());
+  let b=null;
+  try{ const l=S.satZonasAuto&&S.satZonasAuto.perimetroLayer; if(l&&S.map.hasLayer(l)) b=l.getBounds(); }catch(e){}
+  if(!ok(b)){ const p=S.modeloB&&S.modeloB.perimetro; if(p&&p.features&&p.features.length){ try{ b=L.geoJSON(p).getBounds(); }catch(e){} } }
+  if(!ok(b)){ try{ if(S.satZonas&&S.satZonas.grupo&&S.satZonas.itens&&S.satZonas.itens.length) b=S.satZonas.grupo.getBounds(); }catch(e){} }
+  if(!ok(b)){ try{ if(S.layer) b=S.layer.getBounds(); }catch(e){} }
+  if(ok(b)){ try{ S.map.fitBounds(b,{padding:[24,24]}); }catch(e){} }
+}
 function _satZonasPerimetroExibir(gj){
   if(S.satZonasAuto.perimetroLayer){try{S.map.removeLayer(S.satZonasAuto.perimetroLayer);}catch(e){}}
   S.satZonasAuto.perimetroLayer=L.geoJSON(gj,{style:{color:'#e0392b',weight:3,fillOpacity:.14,fillColor:'#e0392b'},interactive:false,onEachFeature:(f,l)=>{
+    if(_satTemZonasComId()) return; // com zonas criadas, o rótulo de área do perímetro polui o mapa
     const ha=_polyHa(f.geometry);
     l.bindTooltip('<div class="sat-zona-label">'+ha.toFixed(2)+' ha</div>',{permanent:true,direction:'center',className:'sat-zona-label-wrap'});
   }}).addTo(S.map);
@@ -13269,11 +13303,53 @@ function _satZonasAutoExtrair(gr,idx){
   let k=0;for(let y=0;y<h;y++){let sy=Math.min(sh-1,Math.floor((y+.5)*step));for(let x=0;x<w;x++,k++){let sx=Math.min(sw-1,Math.floor((x+.5)*step)),si=sy*sw+sx;inside[k]=fullMask[si]?1:0;let val=b[sy][sx];if(inside[k]&&(!bv||bv[sy][sx]===1)&&val!=null&&isFinite(val)){valid[k]=1;values[k]=val;}else values[k]=NaN;}}
   return{w,h,values,inside,valid,xmin:gr.xmin,ymax:gr.ymax,px:(gr.xmax-gr.xmin)/w,py:(gr.ymax-gr.ymin)/h};
 }
+// Numeração sequencial por vizinhança: cada zona seguinte compartilha divisa
+// com a anterior sempre que possível; sem vizinho livre, salta para a zona
+// mais próxima que faz divisa com alguma já numerada (menor salto possível).
+function _satZonasOrdemVizinhanca(feats){
+  const n=feats.length; if(n<2) return feats.slice();
+  const key=c=>c[0].toFixed(7)+','+c[1].toFixed(7);
+  const viz=feats.map(()=>new Set()), dono=new Map(), bb=[], cen=[];
+  feats.forEach((f,i)=>{
+    const g=f.geometry, polys=g.type==='Polygon'?[g.coordinates]:g.coordinates;
+    const vs=new Set(); polys.forEach(p=>p.forEach(r=>r.forEach(c=>vs.add(key(c)))));
+    const comum=new Map(); // divisa = 2+ vértices em comum (toque só na quina não conta)
+    vs.forEach(k=>{ const l=dono.get(k); if(l){ l.forEach(j=>comum.set(j,(comum.get(j)||0)+1)); l.push(i); } else dono.set(k,[i]); });
+    comum.forEach((q,j)=>{ if(q>=2){ viz[i].add(j); viz[j].add(i); } });
+    try{ bb[i]=turf.bbox(f); }catch(e){ bb[i]=null; }
+    try{ cen[i]=turf.pointOnFeature(f).geometry.coordinates; }catch(e){ cen[i]=[0,0]; }
+  });
+  // complemento: divisas sem vértices coincidentes (após o recorte)
+  for(let i=0;i<n;i++) for(let j=i+1;j<n;j++){
+    if(viz[i].has(j)||!bb[i]||!bb[j]) continue;
+    const a=bb[i], b=bb[j]; if(a[0]>b[2]||b[0]>a[2]||a[1]>b[3]||b[1]>a[3]) continue;
+    try{ const x=turf.intersect(turf.buffer(feats[i],0.5,{units:'meters'}),feats[j]); if(x&&turf.area(x)>1){ viz[i].add(j); viz[j].add(i); } }catch(e){}
+  }
+  const d2=(i,j)=>{ const dx=(cen[i][0]-cen[j][0])*Math.cos(cen[i][1]*Math.PI/180), dy=cen[i][1]-cen[j][1]; return dx*dx+dy*dy; };
+  const livres=i=>{ let c=0; viz[i].forEach(j=>{ if(!usado[j]) c++; }); return c; };
+  const usado=new Array(n).fill(false), seq=[];
+  // início: zona mais a noroeste
+  let cur=0; for(let i=1;i<n;i++){ if((cen[i][1]-cen[i][0])>(cen[cur][1]-cen[cur][0])) cur=i; }
+  while(true){
+    usado[cur]=true; seq.push(cur); if(seq.length===n) break;
+    let cand=[...viz[cur]].filter(j=>!usado[j]), prox=-1;
+    if(cand.length){
+      // Warnsdorff: prefere o vizinho com menos saídas livres (evita becos); empate pela distância
+      cand.sort((a,b)=>(livres(a)-livres(b))||(d2(cur,a)-d2(cur,b))); prox=cand[0];
+    }else{
+      let best=Infinity;
+      for(let j=0;j<n;j++){ if(usado[j]) continue; const front=[...viz[j]].some(k=>usado[k]); const d=d2(cur,j)*(front?1:4); if(d<best){ best=d; prox=j; } }
+    }
+    cur=prox;
+  }
+  return seq.map(i=>feats[i]);
+}
 function _satZonasAutoClip(features){
   const perim=_satZonasAutoPerimetroUnico(); if(!perim) return features;
   const out=[];
   features.forEach(f=>{let pieces=[];try{const r=turf.intersect(f,perim);if(r&&r.geometry){if(r.geometry.type==='Polygon')pieces.push(r.geometry);else if(r.geometry.type==='MultiPolygon')r.geometry.coordinates.forEach(c=>pieces.push({type:'Polygon',coordinates:c}));}}catch(e){}pieces.forEach(g=>{try{if(turf.area({type:'Feature',properties:{},geometry:g})>0)out.push({type:'Feature',properties:Object.assign({},f.properties),geometry:g});}catch(e){}});});
-  out.sort((a,b)=>(a.properties.classe-b.properties.classe)||(b.properties.iv_medio-a.properties.iv_medio));
+  const ordem=_satZonasOrdemVizinhanca(out);
+  out.length=0; ordem.forEach(f=>out.push(f));
   out.forEach((f,i)=>{f.properties.ZG=i+1;f.properties.area_ha=+(turf.area(f)/10000).toFixed(2);});
   return out;
 }
@@ -13308,7 +13384,7 @@ function satZonasAutoAceitar(){
   if(!S.satZonas.ativo)satZonasIniciar();
   _satZonasEmpilharHistorico();
   const snap=r.geojson.features.map((f,i)=>({nome:String(i+1),cor:SATZ_CORES[i%SATZ_CORES.length],geometry:f.geometry}));
-  _satZonasAplicarSnapshot(snap);S.satZonas._importTentado=true;_satZonasReferenciaEsconder();
+  _satZonasAplicarSnapshot(snap);S.satZonas._importTentado=true;_satZonasReferenciaEsconder();_satZonasPerimetroOcultarRotulo();
   _satZonasAutoLimparPreview();const m=document.getElementById('satz-auto-modal');if(m)m.style.display='none';
   toast(snap.length+' zonas carregadas para revisão. Nada foi salvo ainda.','ok',6000);
 }
