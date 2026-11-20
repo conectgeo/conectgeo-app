@@ -4542,7 +4542,7 @@ const MB_DEFS=[
   {key:'v',         re:/v\s*%|sat.*base/i,         depth:'00-20', nome:'V%',         uni:'',          uid:'%',         inv:false, l3:false, pair:1, slot:1},
   {key:'hal',       re:/h\s*\+\s*al/i,             depth:'00-20', nome:'H+Al',       uni:'cmolc/dm³', uid:'cmolc/dm³', inv:true,  l3:false, pair:2, slot:0},
   {key:'al',        re:/^al[\s³²3(]|al\s*cmol/i,   depth:'00-20', nome:'Al³',        uni:'cmolc/dm³', uid:'cmolc/dm³', inv:true,  l3:false, pair:2, slot:0},
-  {key:'ph',        re:/ph/i,                      depth:'00-20', nome:'pH',         uni:'CaCl²',     uid:'CaCl²',     inv:false, l3:false, pair:2, slot:1},
+  {key:'ph',        re:/^(?!.*\bctc\b).*ph/i,                      depth:'00-20', nome:'pH',         uni:'CaCl²',     uid:'CaCl²',     inv:false, l3:false, pair:2, slot:1},
   {key:'boro',      re:/boro/i,                    depth:'00-20', nome:'Boro',       uni:'mg/dm³',    uid:'mg/dm³',    inv:false, l3:false, pair:3, slot:0},
   {key:'mo',        re:/m\.?o%?|mat[eé]ria/i,      depth:'00-20', nome:'M.O%',       uni:'',          uid:'%',         inv:false, l3:false, pair:3, slot:1},
   {key:'pmehlich',  re:/mehlich/i,                 depth:'00-20', nome:'P-Mehlich 1',uni:'mg/dm³',    uid:'mg/dm³',    inv:false, l3:false, pair:4, slot:0},
@@ -4553,6 +4553,7 @@ const MB_DEFS=[
   {key:'satal2040', re:/satura.*alum|sat.*al|\bm\s*%/i, depth:'20-40', nome:'Saturação de Alumínio', uni:'(m%)', uid:'%', inv:true, l3:true, pair:6, slot:2},
   {key:'al2040',    re:/alum[ií]n|^al[\s³²3(]|al\s*cmol/i, depth:'20-40', nome:'Alumínio',   uni:'cmol/dm³',  uid:'cmolc/dm³', inv:true,  l3:true,  pair:6, slot:1},
   {key:'cat2040',   re:/ca\s*%\s*t|sat.*c[aá]lcio/i,depth:'20-40',nome:'Ca%t',       uni:'',          uid:'%',         inv:false, l3:false, pair:7, slot:0},
+  {key:'ctc',       re:/\bctc\b/i,               depth:'00-20', nome:'CTC a pH 7,0', uni:'cmolc/dm³', uid:'cmolc/dm³', inv:false, l3:false, pair:8, slot:0},
 ];
 
 // layouts fixos por variante de relatório (escolhidos pelo cliente na modal)
