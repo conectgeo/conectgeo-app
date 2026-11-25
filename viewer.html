@@ -329,8 +329,8 @@ body.mode-coleta #view-banner{display:none!important;}
 #view-banner{display:none!important;}
 body.mode-coleta #painel-coleta{display:block!important;}
 /* ── modo Satélite (índices Sentinel-2) ── */
-#sec-sat-src,#sec-sat-idx,#sec-sat-app,#sec-sat-leg,#sec-sat-zonas,#sec-sat-pontos,#sec-sat-exportar{display:none;}
-body.mode-sat #sec-sat-src,body.mode-sat #sec-sat-idx,body.mode-sat #sec-sat-app,body.mode-sat #sec-sat-leg,body.mode-sat #sec-sat-zonas,body.mode-sat #sec-sat-pontos,body.mode-sat #sec-sat-exportar{display:block;}
+#sec-sat-src,#sec-sat-idx,#sec-sat-app,#sec-sat-leg,#sec-sat-zonas,#sec-sat-pontos,#sec-sat-coletas,#sec-sat-exportar{display:none;}
+body.mode-sat #sec-sat-src,body.mode-sat #sec-sat-idx,body.mode-sat #sec-sat-app,body.mode-sat #sec-sat-leg,body.mode-sat #sec-sat-zonas,body.mode-sat #sec-sat-pontos,body.mode-sat #sec-sat-coletas,body.mode-sat #sec-sat-exportar{display:block;}
 body.mode-sat #sec-depth,body.mode-sat #sec-nut-add,body.mode-sat #sec-join,body.mode-sat #sec-viz,
 body.mode-sat #sec-pal,body.mode-sat #sec-app,body.mode-sat #sec-leg,body.mode-sat #sec-stat,
 body.mode-sat #sec-pdf,body.mode-sat #sec-upload-geo,body.mode-sat #sec-upload-csv,
@@ -1020,6 +1020,60 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
       <button type="button" id="btn-sat-dl-gerar" onclick="satDownloadGerar()" style="width:100%;padding:11px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:13px;cursor:pointer;margin-top:6px;">Gerar e baixar</button>
       <div id="sat-dl-status" style="font-size:11.5px;color:var(--muted);margin-top:10px;min-height:16px;"></div>
     </div>
+  </div>
+
+  <!-- ═══ COLETAS PONTUAIS (v35) — campanhas foliares/tecido/pragas, à parte das zonas e pontos de solo ═══ -->
+  <div class="sec" id="sec-sat-coletas">
+    <div class="sec-label"><span class="txt"><span class="sec-num"></span>Coletas pontuais</span></div>
+    <div style="display:flex;gap:6px;margin-bottom:8px;">
+      <select id="cp-campanha-sel" onchange="cpSelecionar(this.value)" style="flex:1;padding:7px;border:1px solid var(--border);border-radius:7px;font-size:12px;"></select>
+      <button type="button" onclick="cpNovaAbrir()" style="padding:7px 10px;border:none;border-radius:7px;background:var(--leaf);color:#fff;font-weight:700;font-size:12px;cursor:pointer;">+ Nova coleta</button>
+    </div>
+    <div id="cp-nova" style="display:none;background:var(--panel);border-radius:8px;padding:9px;margin-bottom:8px;font-size:11px;">
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 8px;align-items:center;">
+        <label>Nome:</label><input id="cp-nome" placeholder="Foliar R1 – Safra 26/27" style="padding:4px 6px;border:1px solid var(--border);border-radius:5px;">
+        <label>Tipo:</label><select id="cp-tipo" style="padding:4px;border:1px solid var(--border);border-radius:5px;"><option value="foliar">Foliar</option><option value="tecido">Tecido</option><option value="pragas">Pragas e doenças</option><option value="outro">Outro</option></select>
+        <label>Data:</label><input id="cp-data" type="date" style="padding:4px 6px;border:1px solid var(--border);border-radius:5px;">
+        <label>Estádio:</label><input id="cp-estadio" placeholder="V6, R1…" style="padding:4px 6px;border:1px solid var(--border);border-radius:5px;">
+        <label>Cor:</label><input id="cp-cor" type="color" value="#7b3fe4" style="width:48px;height:24px;border:none;">
+      </div>
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <button type="button" onclick="cpNovaCancelar()" class="satz-btn" style="flex:1">Cancelar</button>
+        <button type="button" onclick="cpNovaCriar()" style="flex:1;padding:7px;border:none;border-radius:7px;background:var(--leaf);color:#fff;font-weight:700;cursor:pointer;">Criar</button>
+      </div>
+    </div>
+    <div id="cp-ativa" style="display:none;">
+      <div id="cp-resumo" style="font-size:11px;color:var(--muted);margin-bottom:6px;"></div>
+      <div class="invert-row" style="margin-top:0;"><span class="label">Mostrar esta coleta</span><div class="toggle on" id="cp-mostrar" onclick="cpMostrarToggle()"></div></div>
+      <div style="font-size:10.5px;font-weight:700;margin:8px 0 4px;">Pontos livres</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button type="button" id="cp-btn-clicar" onclick="cpPontoClicar()" class="satz-btn" title="Cada clique no mapa adiciona um ponto">📍 Clicar no mapa</button>
+        <button type="button" onclick="cpSugerir()" class="satz-btn" title="Marca as áreas de menor e maior vigor da imagem aberta">✨ Sugerir pelo satélite</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:4px 8px;align-items:center;font-size:11px;margin-top:6px;">
+        <label>Pontos sugeridos (fracos + fortes):</label><input type="number" id="cp-n-sug" value="3" min="1" max="20" style="width:52px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right;">
+      </div>
+      <div style="font-size:10.5px;font-weight:700;margin:10px 0 4px;">Micro zonas</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button type="button" onclick="cpMicroPoligono()" class="satz-btn">▢ Polígono</button>
+        <button type="button" onclick="cpMicroCirculo()" class="satz-btn">⭕ Círculo</button>
+        <button type="button" onclick="cpMicroAuto()" class="satz-btn" title="Cria micro zonas em volta das áreas fracas e fortes da imagem">✨ Automáticas</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr auto;gap:4px 8px;align-items:center;font-size:11px;margin-top:6px;">
+        <label>Raio da micro zona automática (m):</label><input type="number" id="cp-raio" value="30" min="5" max="500" style="width:52px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right;">
+        <label>Subamostras por micro zona:</label><input type="number" id="cp-sub" value="5" min="1" max="50" style="width:52px;padding:3px 5px;border:1px solid var(--border);border-radius:5px;text-align:right;">
+        <label>Caminhada:</label><select id="cp-padrao" style="padding:3px;border:1px solid var(--border);border-radius:5px;"><option value="w">W</option><option value="z">Z</option><option value="esp">Espaçado</option></select>
+      </div>
+      <div id="cp-lista" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;font-size:11px;"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+        <button type="button" onclick="cpDesfazer()" class="satz-btn">↺ Desfazer</button>
+        <button type="button" onclick="cpExportar('kml')" class="satz-btn">⬇ KML</button>
+        <button type="button" onclick="cpExportar('geojson')" class="satz-btn">⬇ GeoJSON</button>
+        <button type="button" onclick="cpExcluirCampanha()" class="satz-btn satz-btn-perigo">Excluir coleta</button>
+      </div>
+      <button type="button" onclick="cpSalvar()" style="margin-top:8px;width:100%;padding:10px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12.5px;cursor:pointer;">Salvar coletas pontuais</button>
+    </div>
+    <div id="cp-status" style="font-size:11px;color:var(--muted);margin-top:6px;min-height:14px;">Nenhuma coleta pontual. Clique em "+ Nova coleta".</div>
   </div>
 
   <div class="sec" id="sec-sat-leg">
@@ -13788,6 +13842,248 @@ function satZonasAutoAceitar(){
     <div id="sat-cal-status" style="font-size:11.5px;color:var(--muted);margin-top:10px;min-height:16px;"></div>
   </div>
 </div>
+
+<script>
+// ═══ COLETAS PONTUAIS (v35) ═══════════════════════════════════════════════
+// Módulo isolado: guarda campanhas em CP.campanhas e numa camada própria.
+// Não lê nem grava S.pontos, S.satZonas, S.geoData ou zonas de recomendação —
+// essas estruturas só são LIDAS para o perímetro e a imagem do satélite.
+const CP={campanhas:[],ativa:null,grupo:null,clicando:false,clickFn:null,hist:[],token:null,carregando:false,sujo:false};
+const CP_TIPO={foliar:'FOL',tecido:'TEC',pragas:'PRG',outro:'OUT'};
+function _cpEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function _cpCamp(){return CP.campanhas.find(c=>c.id===CP.ativa)||null;}
+function _cpStatus(t){const e=document.getElementById('cp-status');if(e)e.textContent=t;}
+function _cpEmpilhar(){const c=_cpCamp();if(!c)return;CP.hist.push(JSON.stringify(c));if(CP.hist.length>30)CP.hist.shift();CP.sujo=true;}
+function _cpPerimetro(){
+  try{const p=_satPerimetroAtual();if(p&&p.features&&p.features.length)return p;}catch(e){}
+  try{const d=_satPerimetroDasZonas();if(d)return d;}catch(e){}
+  return null;
+}
+function _cpDentroPerim(lng,lat){
+  const p=_cpPerimetro();if(!p)return true;
+  return p.features.some(f=>{try{return turf.booleanPointInPolygon(turf.point([lng,lat]),f);}catch(e){return false;}});
+}
+// Numeração em ordem de caminhada (vizinho mais próximo, começando a noroeste).
+function cpRotaOrdenar(pts){
+  if(pts.length<2)return pts.slice();
+  const rest=pts.slice();let i0=0;
+  rest.forEach((p,i)=>{if(p.lat-p.lng>rest[i0].lat-rest[i0].lng)i0=i;});
+  const out=[rest.splice(i0,1)[0]];
+  while(rest.length){const u=out[out.length-1];let b=0,bd=Infinity;
+    rest.forEach((p,i)=>{const d=(p.lng-u.lng)**2+(p.lat-u.lat)**2;if(d<bd){bd=d;b=i;}});out.push(rest.splice(b,1)[0]);}
+  return out;
+}
+function _cpRenumerar(c){
+  const pref=CP_TIPO[c.tipo]||'OUT';
+  // pontos livres e micro zonas formam as "amostras"; cada uma vira F1, F2… na ordem da rota
+  const amostras=c.pontos.map(p=>({k:'p',o:p,lng:p.lng,lat:p.lat})).concat(c.micro.map(m=>{const ct=turf.centroid(turf.feature(m.geometry)).geometry.coordinates;return{k:'m',o:m,lng:ct[0],lat:ct[1]};}));
+  cpRotaOrdenar(amostras).forEach((a,i)=>{a.o.n=i+1;a.o.rotulo='F'+(i+1);a.o.codigo=pref+'-'+c.codigo+'-'+String(i+1).padStart(2,'0');});
+}
+// Subamostras dentro de uma micro zona: W, Z ou espaçado.
+function cpSubamostras(geom,n,padrao){
+  const f=turf.feature(geom),bb=turf.bbox(f);const [x0,y0,x1,y1]=bb;
+  const inside=(x,y)=>{try{return turf.booleanPointInPolygon(turf.point([x,y]),f);}catch(e){return false;}};
+  let cand=[];
+  if(padrao==='esp'){
+    const g=24;for(let i=0;i<g;i++)for(let j=0;j<g;j++){const x=x0+(i+.5)*(x1-x0)/g,y=y0+(j+.5)*(y1-y0)/g;if(inside(x,y))cand.push([x,y]);}
+    if(!cand.length)return[turf.centroid(f).geometry.coordinates];
+    const ct=turf.centroid(f).geometry.coordinates;let first=0,bd=Infinity;cand.forEach((p,i)=>{const d=(p[0]-ct[0])**2+(p[1]-ct[1])**2;if(d<bd){bd=d;first=i;}});
+    const out=[cand[first]];
+    while(out.length<Math.min(n,cand.length)){let b=-1,bv=-1;cand.forEach(p=>{const m=Math.min(...out.map(q=>(p[0]-q[0])**2+(p[1]-q[1])**2));if(m>bv){bv=m;b=p;}});out.push(b);}
+    return out;
+  }
+  // vértices do caminho, em frações do retângulo (encolhido 15% para fugir da borda)
+  const V=padrao==='z'?[[0,1],[1,1],[0,0],[1,0]]:[[0,1],[.25,0],[.5,.6],[.75,0],[1,1]];
+  const m=.15,P=V.map(([a,b])=>[x0+(m+a*(1-2*m))*(x1-x0),y0+(m+b*(1-2*m))*(y1-y0)]);
+  const dens=[];for(let s=0;s<P.length-1;s++)for(let t=0;t<40;t++){const k=t/40;const x=P[s][0]+(P[s+1][0]-P[s][0])*k,y=P[s][1]+(P[s+1][1]-P[s][1])*k;if(inside(x,y))dens.push([x,y]);}
+  if(!dens.length)return[turf.centroid(f).geometry.coordinates];
+  if(n===1)return[dens[Math.floor(dens.length/2)]];
+  const out=[];for(let i=0;i<n;i++)out.push(dens[Math.round(i*(dens.length-1)/(n-1))]);
+  return out;
+}
+// Pixels do índice exibido (dentro do talhão, sem nuvem) → [lng,lat,valor].
+async function _cpPixels(){
+  const c=S.sat&&S.sat.capturas&&S.sat.capturas[S.sat.atual];
+  if(!c)throw new Error('Abra uma imagem de satélite primeiro.');
+  const gr=await _satRasterDaCaptura(c);
+  const idx=_satIdxEfetivo(c);if(idx==='rgb')throw new Error('Troque o índice para EVI ou NDMI para sugerir pelo vigor.');
+  const banda=idx==='ndmi'?1:0,mask=_satMascaraTalhao(gr),w=gr.width,h=gr.height;
+  const px=gr.pixelWidth||(gr.xmax-gr.xmin)/w,py=gr.pixelHeight||(gr.ymax-gr.ymin)/h;
+  const out=[];
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    if(mask&&mask[y*w+x]!==1)continue;if(gr.values[5][y][x]!==1)continue;
+    const v=gr.values[banda][y][x];if(v==null||!isFinite(v))continue;
+    out.push([gr.xmin+(x+.5)*px,gr.ymax-(y+.5)*py,v]);
+  }
+  if(!out.length)throw new Error('A imagem não tem pixels válidos dentro do talhão.');
+  return{pix:out,idx:idx.toUpperCase()};
+}
+// Escolhe n locais de menor e n de maior valor, afastados entre si.
+function cpEscolherExtremos(pix,n,distMin){
+  const ord=pix.slice().sort((a,b)=>a[2]-b[2]);
+  const pega=(lista,cls)=>{const ok=[];for(const p of lista){if(ok.length>=n)break;
+    if(ok.every(q=>turf.distance(turf.point([p[0],p[1]]),turf.point([q[0],q[1]]),{units:'meters'})>=distMin))ok.push(p);}
+    return ok.map(p=>({lng:p[0],lat:p[1],valor:p[2],classe:cls}));};
+  const corte=Math.max(1,Math.ceil(ord.length*0.15));
+  return pega(ord.slice(0,corte),'fraco').concat(pega(ord.slice(-corte).reverse(),'forte'));
+}
+function cpDesenhar(){
+  if(!S.map)return;
+  if(!CP.grupo)CP.grupo=L.layerGroup();
+  CP.grupo.clearLayers();
+  const naSat=document.body.classList.contains('mode-sat');
+  if(!naSat){try{S.map.removeLayer(CP.grupo);}catch(e){}return;}
+  if(!S.map.hasLayer(CP.grupo))CP.grupo.addTo(S.map);
+  CP.campanhas.forEach(c=>{
+    if(c.oculta)return;const cor=c.cor||'#7b3fe4',at=c.id===CP.ativa;
+    c.micro.forEach(m=>{
+      L.geoJSON(m.geometry,{style:{color:cor,weight:at?2.5:1.5,fillColor:cor,fillOpacity:.18,dashArray:'4 3'}}).addTo(CP.grupo);
+      (m.sub||[]).forEach(s=>L.circleMarker([s[1],s[0]],{radius:3,color:'#fff',weight:1,fillColor:cor,fillOpacity:1}).addTo(CP.grupo));
+      const ct=turf.centroid(turf.feature(m.geometry)).geometry.coordinates;
+      L.marker([ct[1],ct[0]],{icon:L.divIcon({className:'',html:'<div style="background:'+cor+';color:#fff;font:700 11px sans-serif;padding:1px 5px;border-radius:9px;border:1.5px solid #fff;white-space:nowrap;transform:translate(-50%,-50%);display:inline-block">'+_cpEsc(m.rotulo||'')+'</div>'})}).addTo(CP.grupo);
+    });
+    c.pontos.forEach(p=>{
+      const mk=L.marker([p.lat,p.lng],{draggable:at,icon:L.divIcon({className:'',html:'<div style="background:'+cor+';color:#fff;font:700 11px sans-serif;padding:2px 6px;border-radius:9px;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4);white-space:nowrap;transform:translate(-50%,-50%);display:inline-block">'+_cpEsc(p.rotulo||'')+'</div>'})});
+      if(at)mk.on('dragend',e=>{_cpEmpilhar();const ll=e.target.getLatLng();p.lng=ll.lng;p.lat=ll.lat;_cpRenumerar(c);cpAtualizarUI();});
+      mk.bindTooltip(_cpEsc(p.codigo||'')+(p.valor!=null?' · '+(p.classe==='fraco'?'vigor baixo':'vigor alto')+' '+p.valor.toFixed(2):''));
+      mk.addTo(CP.grupo);
+    });
+  });
+}
+function cpAtualizarUI(){
+  const sel=document.getElementById('cp-campanha-sel');
+  if(sel){sel.innerHTML=CP.campanhas.length?CP.campanhas.map(c=>'<option value="'+_cpEsc(c.id)+'"'+(c.id===CP.ativa?' selected':'')+'>'+_cpEsc(c.nome)+'</option>').join(''):'<option value="">Nenhuma coleta</option>';}
+  const c=_cpCamp(),box=document.getElementById('cp-ativa');
+  if(box)box.style.display=c?'block':'none';
+  if(c){
+    const r=document.getElementById('cp-resumo');
+    if(r)r.textContent=({foliar:'Foliar',tecido:'Tecido',pragas:'Pragas e doenças',outro:'Outro'}[c.tipo]||c.tipo)+(c.data?' · '+c.data.split('-').reverse().join('/'):'')+(c.estadio?' · '+c.estadio:'')+' — '+c.pontos.length+' ponto(s), '+c.micro.length+' micro zona(s)';
+    const t=document.getElementById('cp-mostrar');if(t)t.classList.toggle('on',!c.oculta);
+    const l=document.getElementById('cp-lista');
+    if(l){const it=c.pontos.map(p=>({o:p,k:'p'})).concat(c.micro.map(m=>({o:m,k:'m'}))).sort((a,b)=>(a.o.n||0)-(b.o.n||0));
+      l.innerHTML=it.length?it.map(x=>'<div style="display:flex;align-items:center;gap:6px;padding:4px 6px;border:1px solid var(--border);border-radius:6px;"><b style="color:'+_cpEsc(c.cor)+'">'+_cpEsc(x.o.rotulo)+'</b><span style="flex:1;color:var(--muted)">'+_cpEsc(x.o.codigo)+' · '+(x.k==='p'?'ponto'+(x.o.classe?' ('+(x.o.classe==='fraco'?'fraco':'forte')+')':''):'micro zona, '+(x.o.sub||[]).length+' subamostras')+'</span><button type="button" onclick="cpRemover(\''+x.k+'\','+x.o.n+')" style="border:none;background:none;color:var(--danger);cursor:pointer;font-weight:700">✕</button></div>').join(''):'<div style="color:var(--muted)">Sem pontos ainda.</div>';}
+    const b=document.getElementById('cp-btn-clicar');if(b)b.textContent=CP.clicando?'✔ Parar de clicar':'📍 Clicar no mapa';
+  }
+  cpDesenhar();
+}
+function cpNovaAbrir(){const n=document.getElementById('cp-nova');if(n)n.style.display='block';const d=document.getElementById('cp-data');if(d&&!d.value)d.value=new Date().toISOString().slice(0,10);}
+function cpNovaCancelar(){const n=document.getElementById('cp-nova');if(n)n.style.display='none';}
+function cpNovaCriar(){
+  const g=id=>(document.getElementById(id)||{}).value||'';
+  const nome=g('cp-nome').trim();if(!nome){toast('Dê um nome para a coleta.','wrn');return;}
+  const c={id:'cp'+Date.now(),nome,tipo:g('cp-tipo')||'foliar',data:g('cp-data'),estadio:g('cp-estadio').trim(),cor:g('cp-cor')||'#7b3fe4',codigo:String(CP.campanhas.length+1).padStart(2,'0'),criada:new Date().toISOString(),pontos:[],micro:[],oculta:false};
+  CP.campanhas.push(c);CP.ativa=c.id;CP.hist=[];CP.sujo=true;cpNovaCancelar();
+  _cpStatus('Coleta criada. Adicione pontos ou micro zonas e depois salve.');cpAtualizarUI();
+}
+function cpSelecionar(id){cpPararClique();CP.ativa=id||null;CP.hist=[];cpAtualizarUI();}
+function cpMostrarToggle(){const c=_cpCamp();if(!c)return;c.oculta=!c.oculta;cpAtualizarUI();}
+function cpPararClique(){if(CP.clickFn&&S.map)S.map.off('click',CP.clickFn);CP.clickFn=null;CP.clicando=false;}
+function cpPontoClicar(){
+  const c=_cpCamp();if(!c)return;
+  if(CP.clicando){cpPararClique();cpAtualizarUI();return;}
+  if(S.pontos&&S.pontos.modoManual){toast('Desligue primeiro o modo manual dos Pontos de Coleta.','wrn');return;}
+  CP.clicando=true;
+  CP.clickFn=e=>{if(!_cpDentroPerim(e.latlng.lng,e.latlng.lat)){toast('Ponto fora do perímetro do talhão.','wrn');return;}
+    _cpEmpilhar();c.pontos.push({lng:e.latlng.lng,lat:e.latlng.lat});_cpRenumerar(c);cpAtualizarUI();};
+  S.map.on('click',CP.clickFn);toast('Clique no mapa para adicionar pontos. Arraste para mover.','ok');cpAtualizarUI();
+}
+async function cpSugerir(){
+  const c=_cpCamp();if(!c)return;
+  try{const n=Math.max(1,Math.min(20,+(document.getElementById('cp-n-sug')||{}).value||3));
+    const{pix,idx}=await _cpPixels();const ex=cpEscolherExtremos(pix,n,40);
+    _cpEmpilhar();ex.forEach(p=>c.pontos.push(p));_cpRenumerar(c);cpAtualizarUI();
+    toast(ex.length+' ponto(s) sugeridos pelo '+idx+'. Mova ou apague à vontade.','ok');
+  }catch(e){toast(String(e.message||e),'err');}
+}
+function _cpAddMicro(geom){
+  const c=_cpCamp();if(!c)return;
+  const n=Math.max(1,Math.min(50,+(document.getElementById('cp-sub')||{}).value||5));
+  const pad=(document.getElementById('cp-padrao')||{}).value||'w';
+  _cpEmpilhar();c.micro.push({geometry:geom,sub:cpSubamostras(geom,n,pad),padrao:pad});_cpRenumerar(c);cpAtualizarUI();
+}
+function _cpDesenhar(Tipo,opts){
+  if(!_cpCamp())return;cpPararClique();
+  const fn=e=>{S.map.off('draw:created',fn);let g=e.layer.toGeoJSON().geometry;
+    if(e.layer instanceof L.Circle){const ll=e.layer.getLatLng();g=turf.circle([ll.lng,ll.lat],e.layer.getRadius(),{steps:48,units:'meters'}).geometry;}
+    _cpAddMicro(g);};
+  S.map.on('draw:created',fn);new Tipo(S.map,opts).enable();
+}
+function cpMicroPoligono(){_cpDesenhar(L.Draw.Polygon,{shapeOptions:{color:(_cpCamp()||{}).cor||'#7b3fe4'},showArea:true,metric:['ha','m']});toast('Desenhe a micro zona e feche no primeiro ponto.','ok');}
+function cpMicroCirculo(){_cpDesenhar(L.Draw.Circle,{shapeOptions:{color:(_cpCamp()||{}).cor||'#7b3fe4'}});toast('Clique no centro e arraste até a borda.','ok');}
+async function cpMicroAuto(){
+  const c=_cpCamp();if(!c)return;
+  try{const n=Math.max(1,Math.min(20,+(document.getElementById('cp-n-sug')||{}).value||3));
+    const raio=Math.max(5,+(document.getElementById('cp-raio')||{}).value||30);
+    const{pix,idx}=await _cpPixels();const ex=cpEscolherExtremos(pix,n,raio*2.5);
+    const sub=Math.max(1,+(document.getElementById('cp-sub')||{}).value||5),pad=(document.getElementById('cp-padrao')||{}).value||'w';
+    const perim=_cpPerimetro();_cpEmpilhar();
+    ex.forEach(p=>{let g=turf.circle([p.lng,p.lat],raio,{steps:48,units:'meters'});
+      if(perim){try{const i=turf.intersect(g,perim.features[0]);if(i)g=i;}catch(e){}}
+      c.micro.push({geometry:g.geometry,sub:cpSubamostras(g.geometry,sub,pad),padrao:pad,classe:p.classe,valor:p.valor});});
+    _cpRenumerar(c);cpAtualizarUI();toast(ex.length+' micro zona(s) criadas pelo '+idx+'.','ok');
+  }catch(e){toast(String(e.message||e),'err');}
+}
+function cpRemover(k,n){const c=_cpCamp();if(!c)return;_cpEmpilhar();if(k==='p')c.pontos=c.pontos.filter(p=>p.n!==n);else c.micro=c.micro.filter(m=>m.n!==n);_cpRenumerar(c);cpAtualizarUI();}
+function cpDesfazer(){const s=CP.hist.pop();if(!s){toast('Nada para desfazer.','wrn');return;}const o=JSON.parse(s);const i=CP.campanhas.findIndex(c=>c.id===o.id);if(i>=0)CP.campanhas[i]=o;cpAtualizarUI();}
+async function cpExcluirCampanha(){const c=_cpCamp();if(!c)return;
+  const ok=await cgConfirm('Excluir a coleta "'+c.nome+'"? Zonas e pontos de solo não são afetados. A exclusão vale depois de salvar.',{titulo:'Excluir coleta?',tipo:'danger',okLabel:'Excluir',okDanger:true});
+  if(!ok)return;CP.campanhas=CP.campanhas.filter(x=>x!==c);CP.ativa=CP.campanhas.length?CP.campanhas[0].id:null;CP.sujo=true;cpAtualizarUI();_cpStatus('Coleta excluída. Clique em salvar para confirmar.');}
+function cpParaGeoJSON(c){
+  const fs=[];
+  c.pontos.forEach(p=>fs.push({type:'Feature',geometry:{type:'Point',coordinates:[p.lng,p.lat]},properties:{campanha:c.nome,tipo:c.tipo,data:c.data,estadio:c.estadio,rotulo:p.rotulo,codigo:p.codigo,forma:'ponto',classe:p.classe||'',valor:p.valor==null?null:+p.valor.toFixed(4)}}));
+  c.micro.forEach(m=>{fs.push({type:'Feature',geometry:m.geometry,properties:{campanha:c.nome,tipo:c.tipo,data:c.data,estadio:c.estadio,rotulo:m.rotulo,codigo:m.codigo,forma:'micro_zona',padrao:m.padrao}});
+    (m.sub||[]).forEach((s,i)=>fs.push({type:'Feature',geometry:{type:'Point',coordinates:s},properties:{campanha:c.nome,rotulo:m.rotulo+'.'+(i+1),codigo:m.codigo,forma:'subamostra'}}));});
+  return{type:'FeatureCollection',features:fs};
+}
+function cpParaKML(c){
+  const crd=a=>a.map(p=>p[0]+','+p[1]+',0').join(' ');
+  const geo=g=>g.type==='Point'?'<Point><coordinates>'+g.coordinates[0]+','+g.coordinates[1]+',0</coordinates></Point>'
+    :(g.type==='Polygon'?[g.coordinates]:g.coordinates).map(pl=>'<Polygon><outerBoundaryIs><LinearRing><coordinates>'+crd(pl[0])+'</coordinates></LinearRing></outerBoundaryIs>'+pl.slice(1).map(r=>'<innerBoundaryIs><LinearRing><coordinates>'+crd(r)+'</coordinates></LinearRing></innerBoundaryIs>').join('')+'</Polygon>').join('');
+  const pm=cpParaGeoJSON(c).features.map(f=>'<Placemark><name>'+_cpEsc(f.properties.rotulo)+'</name><description>'+_cpEsc(f.properties.codigo+' · '+f.properties.forma)+'</description>'+(f.geometry.type==='MultiPolygon'?'<MultiGeometry>'+geo(f.geometry)+'</MultiGeometry>':geo(f.geometry))+'</Placemark>').join('');
+  return '<?xml version="1.0" encoding="UTF-8"?><kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>'+_cpEsc(c.nome)+'</name>'+pm+'</Document></kml>';
+}
+function cpExportar(fmt){const c=_cpCamp();if(!c)return;if(!c.pontos.length&&!c.micro.length){toast('A coleta está vazia.','wrn');return;}
+  const txt=fmt==='kml'?cpParaKML(c):JSON.stringify(cpParaGeoJSON(c));
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([txt],{type:fmt==='kml'?'application/vnd.google-earth.kml+xml':'application/geo+json'}));
+  a.download=c.nome.replace(/[^\w\-]+/g,'_')+(fmt==='kml'?'.kml':'.geojson');document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},500);}
+// Persistência: arquivo próprio no bucket + RPC própria. Nada é gravado nas
+// colunas de zonas, coleta de solo, nutrientes ou recomendação.
+async function cpSalvar(){
+  if(!sb||!S.tokenAtual){_cpStatus('Sem conexão para salvar.');return;}
+  cpPararClique();
+  try{
+    _cpStatus('Salvando coletas pontuais…');
+    const corpo={versao:1,campanhas:CP.campanhas};
+    const path='coletas_pontuais/'+S.tokenAtual+'/campanhas_'+Date.now()+'.json';
+    const up=await sb.storage.from('arquivos').upload(path,new Blob([JSON.stringify(corpo)],{type:'application/json'}),{upsert:true,contentType:'application/json'});
+    if(up&&up.error)throw new Error('Envio do arquivo recusado: '+up.error.message);
+    const url=sb.storage.from('arquivos').getPublicUrl(path).data.publicUrl+'?v='+Date.now();
+    const r=await sb.rpc('atualizar_coletas_pontuais',{p_token:S.tokenAtual,p_url:url});
+    if(r&&r.error)throw new Error('O cadastro ainda não aceita coletas pontuais ('+r.error.message+'). Aplique o arquivo SQL da v35 no servidor.');
+    const g=await sb.rpc('get_coletas_pontuais_url',{p_token:S.tokenAtual});
+    const lido=g&&g.data&&(g.data.coletas_pontuais_url||g.data);
+    if(g.error||String(lido).split('?')[0]!==url.split('?')[0])throw new Error('O cadastro não confirmou o salvamento.');
+    CP.sujo=false;_cpStatus('✅ Coletas pontuais salvas.');toast('Coletas pontuais salvas.','ok');
+  }catch(e){_cpStatus('⚠ Não salvo: '+String(e.message||e));toast('Coletas pontuais não foram salvas.','err',6000);}
+}
+async function cpCarregar(){
+  if(!sb||!S.tokenAtual||CP.carregando)return;CP.carregando=true;CP.token=S.tokenAtual;
+  cpPararClique();CP.campanhas=[];CP.ativa=null;CP.hist=[];CP.sujo=false;
+  try{const g=await sb.rpc('get_coletas_pontuais_url',{p_token:S.tokenAtual});
+    const url=g&&!g.error&&g.data&&(g.data.coletas_pontuais_url||(typeof g.data==='string'?g.data:''));
+    if(url){const j=await fetch(url).then(r=>r.ok?r.json():null);if(j&&Array.isArray(j.campanhas))CP.campanhas=j.campanhas;}
+    CP.ativa=CP.campanhas.length?CP.campanhas[CP.campanhas.length-1].id:null;
+    _cpStatus(CP.campanhas.length?CP.campanhas.length+' coleta(s) pontual(is) carregada(s).':'Nenhuma coleta pontual. Clique em "+ Nova coleta".');
+  }catch(e){console.warn('[coletas pontuais] carregar:',e);}
+  finally{CP.carregando=false;cpAtualizarUI();}
+}
+(function(){
+  if(typeof document==='undefined')return;
+  new MutationObserver(()=>{if(!document.body.classList.contains('mode-sat'))cpPararClique();cpDesenhar();}).observe(document.body,{attributes:true,attributeFilter:['class']});
+  setInterval(()=>{if(typeof S!=='undefined'&&S.tokenAtual&&S.tokenAtual!==CP.token)cpCarregar();},1500);
+})();
+if(typeof module!=='undefined')module.exports={cpRotaOrdenar,cpSubamostras,cpEscolherExtremos,cpParaGeoJSON,_cpRenumerar,CP};
+</script>
 
 </body>
 </html>
