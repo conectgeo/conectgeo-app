@@ -877,6 +877,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <button type="button" id="btn-satz-perimetro-salvar" onclick="satZonasPerimetroSalvar()" style="flex:1;padding:9px;border:none;border-radius:9px;background:var(--leaf);color:#fff;font-weight:700;font-size:12px;cursor:pointer">Salvar perímetro</button>
     <button type="button" id="btn-satz-perimetro-excluir" onclick="satZonasPerimetroExcluir()" style="flex-basis:100%;padding:9px;border:1.5px solid var(--danger);border-radius:9px;background:#fff;color:var(--danger);font-weight:700;font-size:12px;cursor:pointer">Excluir perímetro</button>
   </div>
+  <button type="button" id="btn-sat-somente-perimetro" onclick="satAlternarSomentePerimetro()" style="display:none;width:100%;margin-top:7px;padding:9px;border:1.5px solid var(--leaf);border-radius:9px;background:var(--accent3);color:var(--accent2);font-weight:700;font-size:12px;cursor:pointer">Ver somente perímetro</button>
   <div id="satz-perim-toolbar" style="display:none;margin-top:7px;gap:6px;flex-wrap:wrap;">
     <button type="button" onclick="satPerimetroAdicionarPoligono()" class="satz-btn" title="Desenhe outro polígono e junte ao perímetro">▢ Novo polígono</button>
     <button type="button" onclick="satPerimetroAdicionarCirculo()" class="satz-btn" title="Desenhe um círculo perfeito — ideal para pivôs centrais de irrigação">⭕ Círculo (pivô)</button>
@@ -7006,6 +7007,11 @@ function _satZonasDesenhar(){
   // desligar o modo, que é o momento correto.
   if(S.satZonas && S.satZonas.ativo) return;
   if(!S.geoData || !S.geoData.features || !S.geoData.features.length) return;
+  _satSomentePerimetroUI();
+  if(S.sat.somentePerimetro){
+    const pz=_satPerimetroDasZonas();
+    if(pz){ S.sat.zonasLayer=L.geoJSON(pz,{style:{fillOpacity:0,color:'#000000',weight:2,opacity:0.9},interactive:false}).addTo(S.map); S.sat.zonasLabels=[]; return; }
+  }
   const fields=S.geoFields||Object.keys(S.geoData.features[0].properties||{});
   const campoZona=_pickZoneField(fields, _amostraProps(S.geoData.features,8));
   const campoArea=fields.find(_isAreaCol);
@@ -7385,7 +7391,34 @@ function _satPerimetroBuscaPayload(){
   const p=(S.satZonasAuto&&S.satZonasAuto.perimetro&&S.satZonasAuto.perimetro.features&&S.satZonasAuto.perimetro.features.length)
     ? S.satZonasAuto.perimetro
     : (S.modeloB&&S.modeloB.perimetro);
-  return p&&p.features&&p.features.length?{perimetro_geojson:p}:{};
+  if(p&&p.features&&p.features.length) return {perimetro_geojson:p};
+  // Zonas importadas prontas (sem perímetro desenhado): usa o contorno delas.
+  const d=_satPerimetroDasZonas();
+  return d?{perimetro_geojson:d}:{};
+}
+// Perímetro derivado das zonas importadas (união de todas). Só em memória:
+// não grava nada no cadastro nem substitui o perímetro oficial.
+function _satPerimetroDasZonas(){
+  const g=S.geoData; if(!g||!g.features||!g.features.length||typeof turf==='undefined') return null;
+  const chave=g.features.length+'|'+JSON.stringify(g).length;
+  if(S.sat._perimZonasKey===chave) return S.sat._perimZonas;
+  const fs=g.features.filter(f=>f&&f.geometry&&(f.geometry.type==='Polygon'||f.geometry.type==='MultiPolygon'));
+  let u=null;
+  for(const f of fs){ const x={type:'Feature',properties:{},geometry:f.geometry}; try{ u=u?(turf.union(u,x)||u):x; }catch(e){} }
+  const fc=u?{type:'FeatureCollection',features:[{type:'Feature',properties:{nome:'Perímetro das zonas'},geometry:u.geometry}]}:null;
+  S.sat._perimZonasKey=chave; S.sat._perimZonas=fc;
+  return fc;
+}
+function satAlternarSomentePerimetro(){
+  S.sat.somentePerimetro=!S.sat.somentePerimetro;
+  _satZonasDesenhar();
+  _satSomentePerimetroUI();
+}
+function _satSomentePerimetroUI(){
+  const b=document.getElementById('btn-sat-somente-perimetro'); if(!b) return;
+  const tem=!!(S.geoData&&S.geoData.features&&S.geoData.features.length);
+  b.style.display=tem?'block':'none';
+  b.textContent=S.sat.somentePerimetro?'Ver zonas':'Ver somente perímetro';
 }
 
 // Gera N pontos aleatórios dentro de um polígono (com limite de tentativas
