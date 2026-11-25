@@ -418,6 +418,9 @@ body.has-data .basemap-float{display:flex;}
    nenhuma imagem Sentinel ainda carregada — é a referência visual que o
    consultor usa pra desenhar a primeira zona/perímetro do talhão. */
 body.mode-sat .basemap-float{display:flex;}
+/* v36: aba própria de Coletas pontuais (sub-modo da Satélite) */
+body.mode-sat:not(.mode-cp) #sec-sat-coletas{display:none!important;}
+body.mode-cp #sec-sat-zonas,body.mode-cp #sec-sat-pontos,body.mode-cp #sec-sat-exportar{display:none!important;}
 .base-btn{padding:7px 12px;background:transparent;border:1.5px solid transparent;border-radius:7px;font-size:11px;color:var(--muted);cursor:pointer;transition:.15s;font-family:var(--f);white-space:nowrap;}
 .base-btn:hover{color:var(--accent2);}
 .base-btn.active{background:var(--accent3);border-color:var(--leaf);color:var(--accent2);font-weight:700;}
@@ -1036,6 +1039,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
         <label>Data:</label><input id="cp-data" type="date" style="padding:4px 6px;border:1px solid var(--border);border-radius:5px;">
         <label>Estádio:</label><input id="cp-estadio" placeholder="V6, R1…" style="padding:4px 6px;border:1px solid var(--border);border-radius:5px;">
         <label>Cor:</label><input id="cp-cor" type="color" value="#7b3fe4" style="width:48px;height:24px;border:none;">
+        <label>Usar as zonas atuais?</label><select id="cp-usar-zonas" style="padding:4px;border:1px solid var(--border);border-radius:5px;"><option value="nao">Não — só o perímetro</option><option value="sim">Sim — zonas numeradas</option></select>
       </div>
       <div style="display:flex;gap:6px;margin-top:8px;">
         <button type="button" onclick="cpNovaCancelar()" class="satz-btn" style="flex:1">Cancelar</button>
@@ -1112,6 +1116,7 @@ body.viewmode #sec-depth .compare-row .label{font-size:12px;color:var(--accent2)
     <button class="mode-btn" id="mode-coleta" onclick="setMapMode('coleta')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6 -3l6 3l6 -3v13l-6 3l-6 -3l-6 3v-13"/><path d="M9 4v13"/><path d="M15 7v13"/></svg><span data-i18n="modoColeta">Coleta de Solo</span></button>
     <button class="mode-btn" id="mode-recomendacao" onclick="setMapMode('recomendacao')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="10" r="2"/><path d="M6 4v4"/><path d="M6 12v8"/><circle cx="12" cy="16" r="2"/><path d="M12 4v10"/><path d="M12 18v2"/><circle cx="18" cy="7" r="2"/><path d="M18 4v1"/><path d="M18 9v11"/></svg><span data-i18n="modoRecomendacao">Recomendação</span></button>
     <button class="mode-btn" id="mode-satelite" style="display:none" onclick="setMapMode('satelite')"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 3.5l4 4-3 3-4-4z"/><path d="M18.5 9.5l3 3-4 4-3-3z"/><path d="M5.5 10.5l4 4-3 3-4-4z"/><path d="M11.5 8.5l4 4"/><path d="M2 22a4 4 0 0 1 4-4"/><path d="M2 22a8 8 0 0 1 8-8"/></svg><span data-i18n="modoSatelite">Satélite</span></button>
+    <button class="mode-btn" id="mode-coletas" style="display:none" onclick="cpAbrirAba()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-12a7 7 0 0 1 14 0c0 5.8-7 12-7 12z"/><circle cx="12" cy="9" r="2.5"/></svg><span>Coletas pontuais</span></button>
   </div>
   <div class="rec-edit-float" id="rec-edit-float">
     <button class="rec-edit-btn" id="btn-rec-editar"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg><span>Editar</span></button>
@@ -10624,6 +10629,7 @@ function _satLimparCamada(){
   });
 })();
 function setMapMode(mode){
+  try{ if(!window._cpEntrando) cpSairAba(); }catch(e){}
   S.mapMode=mode;
   _prefSalvar();
   document.body.classList.toggle('mode-sat', mode==='satelite');
@@ -13932,6 +13938,7 @@ function cpDesenhar(){
   if(!CP.grupo)CP.grupo=L.layerGroup();
   CP.grupo.clearLayers();
   const naSat=document.body.classList.contains('mode-sat');
+  try{_cpRefDesenhar();}catch(e){console.warn('[coletas pontuais] referência:',e);}
   if(!naSat){try{S.map.removeLayer(CP.grupo);}catch(e){}return;}
   if(!S.map.hasLayer(CP.grupo))CP.grupo.addTo(S.map);
   CP.campanhas.forEach(c=>{
@@ -13952,12 +13959,12 @@ function cpDesenhar(){
 }
 function cpAtualizarUI(){
   const sel=document.getElementById('cp-campanha-sel');
-  if(sel){sel.innerHTML=CP.campanhas.length?CP.campanhas.map(c=>'<option value="'+_cpEsc(c.id)+'"'+(c.id===CP.ativa?' selected':'')+'>'+_cpEsc(c.nome)+'</option>').join(''):'<option value="">Nenhuma coleta</option>';}
+  if(sel){sel.innerHTML=CP.campanhas.length?CP.campanhas.slice().sort((a,b)=>String(b.data||b.criada||'').localeCompare(String(a.data||a.criada||''))).map(c=>'<option value="'+_cpEsc(c.id)+'"'+(c.id===CP.ativa?' selected':'')+'>'+_cpEsc(c.nome)+'</option>').join(''):'<option value="">Nenhuma coleta</option>';}
   const c=_cpCamp(),box=document.getElementById('cp-ativa');
   if(box)box.style.display=c?'block':'none';
   if(c){
     const r=document.getElementById('cp-resumo');
-    if(r)r.textContent=({foliar:'Foliar',tecido:'Tecido',pragas:'Pragas e doenças',outro:'Outro'}[c.tipo]||c.tipo)+(c.data?' · '+c.data.split('-').reverse().join('/'):'')+(c.estadio?' · '+c.estadio:'')+' — '+c.pontos.length+' ponto(s), '+c.micro.length+' micro zona(s)';
+    if(r)r.textContent=({foliar:'Foliar',tecido:'Tecido',pragas:'Pragas e doenças',outro:'Outro'}[c.tipo]||c.tipo)+(c.data?' · '+c.data.split('-').reverse().join('/'):'')+(c.estadio?' · '+c.estadio:'')+(c.usarZonas?' · sobre as zonas':' · sobre o perímetro')+' — '+c.pontos.length+' ponto(s), '+c.micro.length+' micro zona(s)';
     const t=document.getElementById('cp-mostrar');if(t)t.classList.toggle('on',!c.oculta);
     const l=document.getElementById('cp-lista');
     if(l){const it=c.pontos.map(p=>({o:p,k:'p'})).concat(c.micro.map(m=>({o:m,k:'m'}))).sort((a,b)=>(a.o.n||0)-(b.o.n||0));
@@ -13971,7 +13978,7 @@ function cpNovaCancelar(){const n=document.getElementById('cp-nova');if(n)n.styl
 function cpNovaCriar(){
   const g=id=>(document.getElementById(id)||{}).value||'';
   const nome=g('cp-nome').trim();if(!nome){toast('Dê um nome para a coleta.','wrn');return;}
-  const c={id:'cp'+Date.now(),nome,tipo:g('cp-tipo')||'foliar',data:g('cp-data'),estadio:g('cp-estadio').trim(),cor:g('cp-cor')||'#7b3fe4',codigo:String(CP.campanhas.length+1).padStart(2,'0'),criada:new Date().toISOString(),pontos:[],micro:[],oculta:false};
+  const c={id:'cp'+Date.now(),nome,tipo:g('cp-tipo')||'foliar',data:g('cp-data'),estadio:g('cp-estadio').trim(),cor:g('cp-cor')||'#7b3fe4',codigo:String(CP.campanhas.length+1).padStart(2,'0'),criada:new Date().toISOString(),pontos:[],micro:[],oculta:false,usarZonas:g('cp-usar-zonas')==='sim'};
   CP.campanhas.push(c);CP.ativa=c.id;CP.hist=[];CP.sujo=true;cpNovaCancelar();
   _cpStatus('Coleta criada. Adicione pontos ou micro zonas e depois salve.');cpAtualizarUI();
 }
@@ -14081,6 +14088,66 @@ async function cpCarregar(){
   if(typeof document==='undefined')return;
   new MutationObserver(()=>{if(!document.body.classList.contains('mode-sat'))cpPararClique();cpDesenhar();}).observe(document.body,{attributes:true,attributeFilter:['class']});
   setInterval(()=>{if(typeof S!=='undefined'&&S.tokenAtual&&S.tokenAtual!==CP.token)cpCarregar();},1500);
+})();
+
+// ═══ v36: aba "Coletas pontuais" — mapa limpo: só perímetro ou zonas numeradas (sem pontos de solo) ═══
+function cpAbrirAba(){
+  window._cpEntrando=true;
+  try{ setMapMode('satelite'); } finally { window._cpEntrando=false; }
+  document.body.classList.add('mode-cp');
+  const bs=document.getElementById('mode-satelite'); if(bs) bs.classList.remove('active');
+  const bc=document.getElementById('mode-coletas'); if(bc) bc.classList.add('active');
+  cpAtualizarUI(); _cpEnquadrar();
+  setTimeout(()=>{ if(document.body.classList.contains('mode-cp')){ cpDesenhar(); _cpEnquadrar(); } },140);
+}
+function cpSairAba(){
+  if(typeof document==='undefined'||!document.body.classList.contains('mode-cp')) return;
+  cpPararClique();
+  document.body.classList.remove('mode-cp');
+  const bc=document.getElementById('mode-coletas'); if(bc) bc.classList.remove('active');
+  if(CP.ref&&S.map){ try{S.map.removeLayer(CP.ref);}catch(e){} }
+}
+function _cpOcultarCamadasSolo(){
+  if(!S.map) return;
+  try{ _satZonasLimpar(); }catch(e){}
+  [S.pontos&&S.pontos.layer, S.pontos&&S.pontos.labelLayer, S.satZonas&&S.satZonas.grupo, S.satZonas&&S.satZonas.labelGrupo, S.satZonasAuto&&S.satZonasAuto.perimetroLayer]
+    .forEach(l=>{ if(l&&S.map.hasLayer(l)){ try{S.map.removeLayer(l);}catch(e){} } });
+}
+function _cpRefDesenhar(){
+  if(!S.map) return;
+  if(CP.ref){ try{S.map.removeLayer(CP.ref);}catch(e){} }
+  CP.ref=null;
+  if(!document.body.classList.contains('mode-cp')) return;
+  _cpOcultarCamadasSolo();
+  const c=_cpCamp(), g=L.layerGroup();
+  const zonas=S.geoData&&S.geoData.features&&S.geoData.features.length?S.geoData:null;
+  if(c&&c.usarZonas&&zonas){
+    const fields=S.geoFields||Object.keys(zonas.features[0].properties||{});
+    const campo=_pickZoneField(fields,_amostraProps(zonas.features,8));
+    L.geoJSON(zonas,{style:{fillOpacity:0,color:'#000000',weight:1.4,opacity:.85},interactive:false}).addTo(g);
+    zonas.features.forEach(f=>{
+      const nome=campo?String((f.properties||{})[campo]??'').trim():''; if(!nome||!f.geometry) return;
+      try{ const pt=turf.pointOnFeature(f).geometry.coordinates;
+        L.marker([pt[1],pt[0]],{interactive:false,icon:L.divIcon({className:'',html:'<div style="background:rgba(0,0,0,.75);color:#fff;font:700 11px sans-serif;padding:1px 5px;border-radius:4px;transform:translate(-50%,-50%);display:inline-block;white-space:nowrap">'+_cpEsc(nome)+'</div>'})}).addTo(g);
+      }catch(e){}
+    });
+  } else {
+    const p=_cpPerimetro();
+    if(p) L.geoJSON(p,{style:{color:'#e0392b',weight:3,fillOpacity:0},interactive:false}).addTo(g);
+  }
+  g.addTo(S.map); CP.ref=g;
+  try{ g.eachLayer(l=>{ if(l.bringToBack) l.bringToBack(); }); }catch(e){}
+}
+function _cpEnquadrar(){
+  if(!S.map) return;
+  const p=_cpPerimetro(); if(!p) return;
+  try{ const b=L.geoJSON(p).getBounds(); if(b.isValid()) S.map.fitBounds(b,{padding:[30,30]}); }catch(e){}
+}
+(function(){
+  if(typeof document==='undefined') return;
+  const bs=document.getElementById('mode-satelite'), bc=document.getElementById('mode-coletas');
+  if(bs&&bc){ const sync=()=>{ bc.style.display=bs.style.display; }; sync(); new MutationObserver(sync).observe(bs,{attributes:true,attributeFilter:['style']}); }
+  setInterval(()=>{ if(document.body.classList.contains('mode-cp')) _cpOcultarCamadasSolo(); },1000);
 })();
 if(typeof module!=='undefined')module.exports={cpRotaOrdenar,cpSubamostras,cpEscolherExtremos,cpParaGeoJSON,_cpRenumerar,CP};
 </script>
